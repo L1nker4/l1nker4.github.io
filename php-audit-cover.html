@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+
+
+  <html class="light page-post">
+
+
+<head>
+  <meta charset="utf-8">
+  
+  <title>【代码审计】理解PHP变量覆盖漏洞 | L1nker4 - Hack The World</title>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+  
+    <meta name="keywords" content="l1nker4,网络安全" />
+  
+
+  <meta name="description" content="0x01 简介变量覆盖漏洞是指攻击者使用自定义的变量去覆盖源代码中的变量，从而改变代码逻辑，实现攻击目的的一种漏洞。 通常造成变量覆盖的往往是以下几种情况：  register_globals=On （PHP5.3废弃，PHP5.4中已经正式移除此功能） 可变变量 extract() parse_str() import_request_variables()下面正式介绍变量覆盖的具体利用方法与原">
+<meta name="keywords" content="l1nker4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="【代码审计】理解PHP变量覆盖漏洞">
+<meta property="og:url" content="https://l1n.wang/php-audit-cover.html">
+<meta property="og:site_name" content="L1nker4 - Hack The World">
+<meta property="og:description" content="0x01 简介变量覆盖漏洞是指攻击者使用自定义的变量去覆盖源代码中的变量，从而改变代码逻辑，实现攻击目的的一种漏洞。 通常造成变量覆盖的往往是以下几种情况：  register_globals=On （PHP5.3废弃，PHP5.4中已经正式移除此功能） 可变变量 extract() parse_str() import_request_variables()下面正式介绍变量覆盖的具体利用方法与原">
+<meta property="og:locale" content="zh-Hans">
+<meta property="og:image" content="https://mmbiz.qpic.cn/mmbiz_jpg/D7tNfEIwGEFqJXSjXQfVVLicKStN7iba7kZSHRf4iceZkwpNkLIVsicWBcZXIibM14I3r97P8MT86icia6P1xACUpJ4gw/0?wx_fmt=jpeg">
+<meta property="og:image" content="https://mmbiz.qpic.cn/mmbiz_jpg/D7tNfEIwGEFqJXSjXQfVVLicKStN7iba7k2Cdgx3nkVnumCCo3PZBjZsjTh59HHicxehxMvSUVuK6LH2hkL9r3o9Q/0?wx_fmt=jpeg">
+<meta property="og:image" content="https://mmbiz.qpic.cn/mmbiz_jpg/D7tNfEIwGEFqJXSjXQfVVLicKStN7iba7k1G0ib73HugtzwewfwEM5eH6lIqtiaWibRtmtuQ7vxY9OjFGN66OSkVL9Q/0?wx_fmt=jpeg">
+<meta property="og:updated_time" content="2018-11-01T08:07:12.303Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="【代码审计】理解PHP变量覆盖漏洞">
+<meta name="twitter:description" content="0x01 简介变量覆盖漏洞是指攻击者使用自定义的变量去覆盖源代码中的变量，从而改变代码逻辑，实现攻击目的的一种漏洞。 通常造成变量覆盖的往往是以下几种情况：  register_globals=On （PHP5.3废弃，PHP5.4中已经正式移除此功能） 可变变量 extract() parse_str() import_request_variables()下面正式介绍变量覆盖的具体利用方法与原">
+<meta name="twitter:image" content="https://mmbiz.qpic.cn/mmbiz_jpg/D7tNfEIwGEFqJXSjXQfVVLicKStN7iba7kZSHRf4iceZkwpNkLIVsicWBcZXIibM14I3r97P8MT86icia6P1xACUpJ4gw/0?wx_fmt=jpeg">
+
+  
+
+  
+    <link rel="icon" href="/favicon.ico">
+  
+
+  <link href="/css/styles.css?v=c114cben" rel="stylesheet">
+
+
+  
+    <link rel="stylesheet" href="/css/personal-style.css">
+  
+
+  
+
+  
+  <script type="text/javascript">
+    var _hmt = _hmt || [];
+    (function() {
+      var hm = document.createElement("script");
+      hm.src = "//hm.baidu.com/hm.js?14b7dca7880e79dfe4d7db3cfc3b7e98";
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(hm, s);
+    })();
+  </script>
+
+
+  
+  <script type="text/javascript">
+	(function(){
+	    var bp = document.createElement('script');
+	    var curProtocol = window.location.protocol.split(':')[0];
+	    if (curProtocol === 'https') {
+	        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';        
+	    }
+	    else {
+	        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+	    }
+	    var s = document.getElementsByTagName("script")[0];
+	    s.parentNode.insertBefore(bp, s);
+	})();
+  </script>
+
+
+
+  
+    <script async src="https://dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+    <link rel="stylesheet" href="//cdn.bootcss.com/font-awesome/4.3.0/css/font-awesome.min.css">
+  
+
+</head>
+
+<body>
+
+
+  
+    <span id="toolbox-mobile" class="toolbox-mobile">盒子</span>
+  
+
+  <div class="post-header CENTER">
+   
+  <div class="toolbox">
+    <a class="toolbox-entry" href="/">
+      <span class="toolbox-entry-text">盒子</span>
+      <i class="icon-angle-down"></i>
+      <i class="icon-home"></i>
+    </a>
+    <ul class="list-toolbox">
+      
+        <li class="item-toolbox">
+          <a
+            class="CIRCLE"
+            href="/archives/"
+            rel="noopener noreferrer"
+            target="_self"
+            >
+            博客
+          </a>
+        </li>
+      
+        <li class="item-toolbox">
+          <a
+            class="CIRCLE"
+            href="/category/"
+            rel="noopener noreferrer"
+            target="_self"
+            >
+            分类
+          </a>
+        </li>
+      
+        <li class="item-toolbox">
+          <a
+            class="CIRCLE"
+            href="/tag/"
+            rel="noopener noreferrer"
+            target="_self"
+            >
+            标签
+          </a>
+        </li>
+      
+        <li class="item-toolbox">
+          <a
+            class="CIRCLE"
+            href="/link/"
+            rel="noopener noreferrer"
+            target="_self"
+            >
+            友链
+          </a>
+        </li>
+      
+        <li class="item-toolbox">
+          <a
+            class="CIRCLE"
+            href="/about/"
+            rel="noopener noreferrer"
+            target="_self"
+            >
+            关于
+          </a>
+        </li>
+      
+    </ul>
+  </div>
+
+
+</div>
+
+
+  <div id="toc" class="toc-article">
+    <strong class="toc-title">文章目录</strong>
+    <ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#0x01-简介"><span class="toc-text">0x01 简介</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#0x02-正文"><span class="toc-text">0x02 正文</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#可变变量"><span class="toc-text">$$可变变量</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#extract"><span class="toc-text">extract()</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#parse-str"><span class="toc-text">parse_str()</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#import-request-variables"><span class="toc-text">import_request_variables()</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#0x03-总结"><span class="toc-text">0x03 总结</span></a></li></ol>
+  </div>
+
+
+
+<div class="content content-post CENTER">
+   <article id="post-php-audit-cover" class="article article-type-post" itemprop="blogPost">
+  <header class="article-header">
+    <h1 class="post-title">【代码审计】理解PHP变量覆盖漏洞</h1>
+
+    <div class="article-meta">
+      <span>
+        <i class="icon-calendar"></i>
+        <span>2018.11.01</span>
+      </span>
+
+      
+        <span class="article-author">
+          <i class="icon-user"></i>
+          <span>L1nker4</span>
+        </span>
+      
+
+      
+  <span class="article-category">
+    <i class="icon-list"></i>
+    <a class="article-category-link" href="/categories/Web安全/">Web安全</a>
+  </span>
+
+
+
+      
+
+      
+      <i class="fa fa-eye"></i> 
+        <span id="busuanzi_container_page_pv">
+           &nbsp热度 <span id="busuanzi_value_page_pv">
+           <i class="fa fa-spinner fa-spin"></i></span>℃
+        </span>
+      
+      
+    </div>
+  </header>
+
+  <div class="article-content">
+    
+      <h2 id="0x01-简介"><a href="#0x01-简介" class="headerlink" title="0x01 简介"></a>0x01 简介</h2><p>变量覆盖漏洞是指攻击者使用自定义的变量去覆盖源代码中的变量，从而改变代码逻辑，实现攻击目的的一种漏洞。</p>
+<p>通常造成变量覆盖的往往是以下几种情况：</p>
+<ul>
+<li>register_globals=On （PHP5.3废弃，PHP5.4中已经正式移除此功能）</li>
+<li>可变变量</li>
+<li>extract()</li>
+<li>parse_str()</li>
+<li>import_request_variables()<br>下面正式介绍变量覆盖的具体利用方法与原理。</li>
+</ul>
+<h2 id="0x02-正文"><a href="#0x02-正文" class="headerlink" title="0x02 正文"></a>0x02 正文</h2><h3 id="可变变量"><a href="#可变变量" class="headerlink" title="$$可变变量"></a>$$可变变量</h3><p>看下面一段代码：<br><figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&lt;?php</span></span><br><span class="line"><span class="keyword">foreach</span> (<span class="keyword">array</span>(<span class="string">'_COOKIE'</span>,<span class="string">'_POST'</span>,<span class="string">'_GET'</span>) <span class="keyword">as</span> $_request)  </span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">foreach</span> ($$_request <span class="keyword">as</span> $_key=&gt;$_value)  </span><br><span class="line">    &#123;</span><br><span class="line">        $$_key=  $_value;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">$id = <span class="keyword">isset</span>($id) ? $id : <span class="number">2</span>;</span><br><span class="line"><span class="keyword">if</span>($id == <span class="number">1</span>) &#123;</span><br><span class="line">    <span class="keyword">echo</span> <span class="string">"flag&#123;xx&#125;"</span>;</span><br><span class="line">    <span class="keyword">die</span>();</span><br><span class="line">&#125;</span><br><span class="line"><span class="meta">?&gt;</span></span><br></pre></td></tr></table></figure></p>
+<p>使用foreach遍历COOKIE，POST，GET数组，然后将数组键名作为变量名，键值作为变量值。上述代码传入id=1即可得到flag。</p>
+<h3 id="extract"><a href="#extract" class="headerlink" title="extract()"></a>extract()</h3><p>首先看看手册中对该函数的定义<br><img src="https://mmbiz.qpic.cn/mmbiz_jpg/D7tNfEIwGEFqJXSjXQfVVLicKStN7iba7kZSHRf4iceZkwpNkLIVsicWBcZXIibM14I3r97P8MT86icia6P1xACUpJ4gw/0?wx_fmt=jpeg" alt=""></p>
+<p>下面从实例讲起:<br><figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&lt;?php</span></span><br><span class="line">$flag=<span class="string">'flag&#123;xxxxx&#125;'</span>; </span><br><span class="line">extract($_GET);</span><br><span class="line"> <span class="keyword">if</span>(<span class="keyword">isset</span>($a)) &#123; </span><br><span class="line">    $content=trim(file_get_contents($flag));</span><br><span class="line">    <span class="keyword">if</span>($a==$content)</span><br><span class="line">    &#123; </span><br><span class="line">        <span class="keyword">echo</span> $flag; </span><br><span class="line">    &#125;</span><br><span class="line">   <span class="keyword">else</span></span><br><span class="line">   &#123; </span><br><span class="line">    <span class="keyword">echo</span><span class="string">'Oh.no'</span>;</span><br><span class="line">   &#125; </span><br><span class="line">   &#125;<span class="keyword">else</span> &#123;</span><br><span class="line">    <span class="keyword">echo</span> <span class="string">"input a value"</span>;</span><br><span class="line">   &#125;</span><br><span class="line"><span class="meta">?&gt;</span></span><br></pre></td></tr></table></figure></p>
+<p>首先extract函数将所有GET方法得到的数组键名与键值转化为内部变量与值，接可以看到content变量使用file_get_contents()读入一个文件，由于trim()函数处理后，content变量变为一个空字符串，代码逻辑只需要<strong>a == content</strong>即可。</p>
+<p>传入 <strong>?a=</strong> 即可得到flag。</p>
+<h3 id="parse-str"><a href="#parse-str" class="headerlink" title="parse_str()"></a>parse_str()</h3><p><img src="https://mmbiz.qpic.cn/mmbiz_jpg/D7tNfEIwGEFqJXSjXQfVVLicKStN7iba7k2Cdgx3nkVnumCCo3PZBjZsjTh59HHicxehxMvSUVuK6LH2hkL9r3o9Q/0?wx_fmt=jpeg" alt=""></p>
+<figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&lt;?php</span></span><br><span class="line">parse_str(<span class="string">"a=1"</span>);</span><br><span class="line"><span class="keyword">echo</span> $a.<span class="string">"&lt;br/&gt;"</span>;      <span class="comment">//$a=1</span></span><br><span class="line">parse_str(<span class="string">"b=1&amp;c=2"</span>,$myArray);</span><br><span class="line">print_r($myArray);   <span class="comment">//Array ( [b] =&gt; 1 [c] =&gt; 2 ) </span></span><br><span class="line"><span class="meta">?&gt;</span></span><br></pre></td></tr></table></figure>
+<p>这个简单的实例中可以看出parse_str可以将字符串解析为变量与值。</p>
+<h3 id="import-request-variables"><a href="#import-request-variables" class="headerlink" title="import_request_variables()"></a>import_request_variables()</h3><p><img src="https://mmbiz.qpic.cn/mmbiz_jpg/D7tNfEIwGEFqJXSjXQfVVLicKStN7iba7k1G0ib73HugtzwewfwEM5eH6lIqtiaWibRtmtuQ7vxY9OjFGN66OSkVL9Q/0?wx_fmt=jpeg" alt=""></p>
+<figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&lt;?php</span></span><br><span class="line"><span class="comment">// 此处将导入 GET 和 POST 变量</span></span><br><span class="line"><span class="comment">// 使用"rvar_"作为前缀</span></span><br><span class="line">$rvar_foo = <span class="number">1</span>;</span><br><span class="line">import_request_variables(<span class="string">"gP"</span>, <span class="string">"rvar_"</span>);</span><br><span class="line"><span class="keyword">echo</span> $rvar_foo;</span><br><span class="line"><span class="meta">?&gt;</span></span><br></pre></td></tr></table></figure>
+<p>通过import_request_variables函数作用后，可以对原变量值进行覆盖。</p>
+<h2 id="0x03-总结"><a href="#0x03-总结" class="headerlink" title="0x03 总结"></a>0x03 总结</h2><p>博客文章以后会在公众号上同步发布，欢迎师傅们关注。微信号：coding_lin</p>
+
+    
+  </div>
+
+</article>
+
+
+   
+
+   
+  <div class="box-prev-next clearfix">
+    <a class="show pull-left" href="/uploadvul.html">
+        <i class="icon icon-angle-left"></i>
+    </a>
+    <a class="hide pull-right" href="/">
+        <i class="icon icon-angle-right"></i>
+    </a>
+  </div>
+
+
+
+
+
+   
+      <div class="git"></div>
+   
+</div>
+
+
+  <a id="backTop" class="back-top">
+    <i class="icon-angle-up"></i>
+  </a>
+
+
+
+
+  <div class="modal" id="modal">
+  <span id="cover" class="cover hide"></span>
+  <div id="modal-dialog" class="modal-dialog hide-dialog">
+    <div class="modal-header">
+      <span id="close" class="btn-close">关闭</span>
+    </div>
+    <hr>
+    <div class="modal-body">
+      <ul class="list-toolbox">
+        
+          <li class="item-toolbox">
+            <a
+              class="CIRCLE"
+              href="/archives/"
+              rel="noopener noreferrer"
+              target="_self"
+              >
+              博客
+            </a>
+          </li>
+        
+          <li class="item-toolbox">
+            <a
+              class="CIRCLE"
+              href="/category/"
+              rel="noopener noreferrer"
+              target="_self"
+              >
+              分类
+            </a>
+          </li>
+        
+          <li class="item-toolbox">
+            <a
+              class="CIRCLE"
+              href="/tag/"
+              rel="noopener noreferrer"
+              target="_self"
+              >
+              标签
+            </a>
+          </li>
+        
+          <li class="item-toolbox">
+            <a
+              class="CIRCLE"
+              href="/link/"
+              rel="noopener noreferrer"
+              target="_self"
+              >
+              友链
+            </a>
+          </li>
+        
+          <li class="item-toolbox">
+            <a
+              class="CIRCLE"
+              href="/about/"
+              rel="noopener noreferrer"
+              target="_self"
+              >
+              关于
+            </a>
+          </li>
+        
+      </ul>
+
+    </div>
+  </div>
+</div>
+
+
+
+  
+      <div class="fexo-comments comments-post">
+    
+
+    
+
+    
+    
+
+    
+
+    
+    
+
+  </div>
+
+  
+
+  <script type="text/javascript">
+  function loadScript(url, callback) {
+    var script = document.createElement('script')
+    script.type = 'text/javascript';
+
+    if (script.readyState) { //IE
+      script.onreadystatechange = function() {
+        if (script.readyState == 'loaded' ||
+          script.readyState == 'complete') {
+          script.onreadystatechange = null;
+          callback();
+        }
+      };
+    } else { //Others
+      script.onload = function() {
+        callback();
+      };
+    }
+
+    script.src = url;
+    document.getElementsByTagName('head')[0].appendChild(script);
+  }
+
+  window.onload = function() {
+    loadScript('/js/bundle.js?235683', function() {
+      // load success
+    });
+  }
+</script>
+
+</body>
+</html>
