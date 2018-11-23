@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html>
+    <!-- title -->
+
+
+
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" >
+    <meta name="author" content="L1nker4">
+    <meta name="renderer" content="webkit">
+    <meta name="copyright" content="L1nker4">
+    <meta name="keywords" content="L1nker4 - Hack The World | L1nker4">
+    <meta name="description" content="Hack The World">
+    <meta name="Cache-Control" content="no-cache">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+    <title>【代码审计】PHP数组整数键名截断问题 · L1nker4</title>
+    <style type="text/css">
+    @font-face {
+        font-family: 'Oswald-Regular';
+        src: url("/font/Oswald-Regular.ttf");
+    }
+
+    body {
+        margin: 0;
+    }
+
+    header,
+    footer,
+    .back-top,
+    .sidebar,
+    .container,
+    .site-intro-meta,
+    .toc-wrapper {
+        display: none;
+    }
+
+    .site-intro {
+        position: relative;
+        z-index: 3;
+        width: 100%;
+        /* height: 50vh; */
+        overflow: hidden;
+    }
+
+    .site-intro-placeholder {
+        position: absolute;
+        z-index: -2;
+        top: 0;
+        left: 0;
+        width: calc(100% + 300px);
+        height: 100%;
+        background: repeating-linear-gradient(-45deg, #444 0, #444 80px, #333 80px, #333 160px);
+        background-position: center center;
+        transform: translate3d(-226px, 0, 0);
+        animation: gradient-move 2.5s ease-out 0s 1;
+    }
+
+    @keyframes gradient-move {
+        0% {
+            transform: translate3d(-226px, 0, 0);
+        }
+        100% {
+            transform: translate3d(0, 0, 0);
+        }
+    }
+
+</style>
+
+    <link rel="preload" href= /css/style.css?v=20180721 as="style" onload="this.onload=null;this.rel='stylesheet'" />
+    <link rel="stylesheet" href= /css/mobile.css?v=20180721 media="(max-width: 980px)">
+    
+    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+    
+    <!-- /*! loadCSS. [c]2017 Filament Group, Inc. MIT License */
+/* This file is meant as a standalone workflow for
+- testing support for link[rel=preload]
+- enabling async CSS loading in browsers that do not support rel=preload
+- applying rel preload css once loaded, whether supported or not.
+*/ -->
+<script>
+(function( w ){
+	"use strict";
+	// rel=preload support test
+	if( !w.loadCSS ){
+		w.loadCSS = function(){};
+	}
+	// define on the loadCSS obj
+	var rp = loadCSS.relpreload = {};
+	// rel=preload feature support test
+	// runs once and returns a function for compat purposes
+	rp.support = (function(){
+		var ret;
+		try {
+			ret = w.document.createElement( "link" ).relList.supports( "preload" );
+		} catch (e) {
+			ret = false;
+		}
+		return function(){
+			return ret;
+		};
+	})();
+
+	// if preload isn't supported, get an asynchronous load by using a non-matching media attribute
+	// then change that media back to its intended value on load
+	rp.bindMediaToggle = function( link ){
+		// remember existing media attr for ultimate state, or default to 'all'
+		var finalMedia = link.media || "all";
+
+		function enableStylesheet(){
+			link.media = finalMedia;
+		}
+
+		// bind load handlers to enable media
+		if( link.addEventListener ){
+			link.addEventListener( "load", enableStylesheet );
+		} else if( link.attachEvent ){
+			link.attachEvent( "onload", enableStylesheet );
+		}
+
+		// Set rel and non-applicable media type to start an async request
+		// note: timeout allows this to happen async to let rendering continue in IE
+		setTimeout(function(){
+			link.rel = "stylesheet";
+			link.media = "only x";
+		});
+		// also enable media after 3 seconds,
+		// which will catch very old browsers (android 2.x, old firefox) that don't support onload on link
+		setTimeout( enableStylesheet, 3000 );
+	};
+
+	// loop through link elements in DOM
+	rp.poly = function(){
+		// double check this to prevent external calls from running
+		if( rp.support() ){
+			return;
+		}
+		var links = w.document.getElementsByTagName( "link" );
+		for( var i = 0; i < links.length; i++ ){
+			var link = links[ i ];
+			// qualify links to those with rel=preload and as=style attrs
+			if( link.rel === "preload" && link.getAttribute( "as" ) === "style" && !link.getAttribute( "data-loadcss" ) ){
+				// prevent rerunning on link
+				link.setAttribute( "data-loadcss", true );
+				// bind listeners to toggle media back
+				rp.bindMediaToggle( link );
+			}
+		}
+	};
+
+	// if unsupported, run the polyfill
+	if( !rp.support() ){
+		// run once at least
+		rp.poly();
+
+		// rerun poly on an interval until onload
+		var run = w.setInterval( rp.poly, 500 );
+		if( w.addEventListener ){
+			w.addEventListener( "load", function(){
+				rp.poly();
+				w.clearInterval( run );
+			} );
+		} else if( w.attachEvent ){
+			w.attachEvent( "onload", function(){
+				rp.poly();
+				w.clearInterval( run );
+			} );
+		}
+	}
+
+
+	// commonjs
+	if( typeof exports !== "undefined" ){
+		exports.loadCSS = loadCSS;
+	}
+	else {
+		w.loadCSS = loadCSS;
+	}
+}( typeof global !== "undefined" ? global : this ) );
+</script>
+
+    <link rel="icon" href= "/favicon.ico" />
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/webfontloader@1.6.28/webfontloader.min.js" as="script" />
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/jquery@3.3.1/dist/jquery.min.js" as="script" />
+    <link rel="preload" href="/scripts/main.js" as="script" />
+    <link rel="preload" as="font" href="/font/Oswald-Regular.ttf" crossorigin>
+    <link rel="preload" as="font" href="https://at.alicdn.com/t/font_327081_1dta1rlogw17zaor.woff" crossorigin>
+    
+    <!-- fancybox -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" defer></script>
+    <!-- 百度统计  -->
+    
+    <script>
+        var _hmt = _hmt || [];
+        (function () {
+        var hm = document.createElement("script");
+        hm.src = "https://hm.baidu.com/hm.js?14b7dca7880e79dfe4d7db3cfc3b7e98";
+        var s = document.getElementsByTagName("script")[0];
+        s.parentNode.insertBefore(hm, s);
+        })();
+    </script>
+    
+    <!-- 谷歌统计  -->
+    
+</head>
+
+    
+        <body class="post-body">
+    
+    
+<header class="header">
+
+    <div class="read-progress"></div>
+    <div class="header-sidebar-menu">&#xe775;</div>
+    <!-- post页的toggle banner  -->
+    
+    <div class="banner">
+            <div class="blog-title">
+                <a href="/" >L1nker4</a>
+            </div>
+            <div class="post-title">
+                <a href="#" class="post-name">【代码审计】PHP数组整数键名截断问题</a>
+            </div>
+    </div>
+    
+    <a class="home-link" href=/>L1nker4</a>
+</header>
+    <div class="wrapper">
+        <div class="site-intro" style=
+
+
+
+
+
+
+
+
+height:50vh;
+
+>
+    
+    <!-- 主页  -->
+    
+    
+    <!-- 404页  -->
+            
+    <div class="site-intro-placeholder"></div>
+    <div class="site-intro-img" style="background-image: url(//source.unsplash.com/random)"></div>
+    <div class="site-intro-meta">
+        <!-- 标题  -->
+        <h1 class="intro-title">
+            <!-- 主页  -->
+            
+            【代码审计】PHP数组整数键名截断问题
+            <!-- 404 -->
+            
+        </h1>
+        <!-- 副标题 -->
+        <p class="intro-subtitle">
+            <!-- 主页副标题  -->
+            
+            
+            <!-- 404 -->
+            
+        </p>
+        <!-- 文章页meta -->
+        
+            <div class="post-intros">
+                <!-- 文章页标签  -->
+                
+                    <div class= post-intro-tags >
+    
+        <a class="post-tag" href="javascript:void(0);" data-tags = "代码审计">代码审计</a>
+    
+</div>
+                
+                
+                    <div class="post-intro-read">
+                        <span>Word count: <span class="post-count">934</span> / Reading time: <span class="post-count">5 min</span></span>
+                    </div>
+                
+                <div class="post-intro-meta">
+                    <span class="post-intro-calander iconfont-archer">&#xe676;</span>
+                    <span class="post-intro-time">2018/11/16</span>
+                    
+                    <span class="shareWrapper">
+                        <span class="iconfont-archer shareIcon">&#xe71d;</span>
+                        <span class="shareText">Share</span>
+                        <ul class="shareList">
+                            <li class="iconfont-archer share-qr" data-type="qr">&#xe75b;
+                                <div class="share-qrcode"></div>
+                            </li>
+                            <li class="iconfont-archer" data-type="weibo">&#xe619;</li>
+                            <li class="iconfont-archer" data-type="qzone">&#xe62e;</li>
+                            <li class="iconfont-archer" data-type="twitter">&#xe634;</li>
+                            <li class="iconfont-archer" data-type="facebook">&#xe67a;</li>
+                        </ul>
+                    </span>
+                </div>
+            </div>
+        
+    </div>
+</div>
+        <script>
+ 
+  // get user agent
+  var browser = {
+    versions: function () {
+      var u = window.navigator.userAgent;
+      return {
+        userAgent: u,
+        trident: u.indexOf('Trident') > -1, //IE内核
+        presto: u.indexOf('Presto') > -1, //opera内核
+        webKit: u.indexOf('AppleWebKit') > -1, //苹果、谷歌内核
+        gecko: u.indexOf('Gecko') > -1 && u.indexOf('KHTML') == -1, //火狐内核
+        mobile: !!u.match(/AppleWebKit.*Mobile.*/), //是否为移动终端
+        ios: !!u.match(/\(i[^;]+;( U;)? CPU.+Mac OS X/), //ios终端
+        android: u.indexOf('Android') > -1 || u.indexOf('Linux') > -1, //android终端或者uc浏览器
+        iPhone: u.indexOf('iPhone') > -1 || u.indexOf('Mac') > -1, //是否为iPhone或者安卓QQ浏览器
+        iPad: u.indexOf('iPad') > -1, //是否为iPad
+        webApp: u.indexOf('Safari') == -1, //是否为web应用程序，没有头部与底部
+        weixin: u.indexOf('MicroMessenger') == -1, //是否为微信浏览器
+        uc: u.indexOf('UCBrowser') > -1 //是否为android下的UC浏览器
+      };
+    }()
+  }
+  console.log("userAgent:" + browser.versions.userAgent);
+
+  // callback
+  function fontLoaded() {
+    console.log('font loaded');
+    if (document.getElementsByClassName('site-intro-meta')) {
+      document.getElementsByClassName('intro-title')[0].classList.add('intro-fade-in');
+      document.getElementsByClassName('intro-subtitle')[0].classList.add('intro-fade-in');
+      var postIntros = document.getElementsByClassName('post-intros')[0]
+      if (postIntros) {
+        postIntros.classList.add('post-fade-in');
+      }
+    }
+  }
+
+  // UC不支持跨域，所以直接显示
+  function asyncCb(){
+    if (browser.versions.uc) {
+      console.log("UCBrowser");
+      fontLoaded();
+    } else {
+      WebFont.load({
+        custom: {
+          families: ['Oswald-Regular']
+        },
+        loading: function () {  //所有字体开始加载
+          // console.log('loading');
+        },
+        active: function () {  //所有字体已渲染
+          fontLoaded();
+        },
+        inactive: function () { //字体预加载失败，无效字体或浏览器不支持加载
+          console.log('inactive: timeout');
+          fontLoaded();
+        },
+        timeout: 5000 // Set the timeout to two seconds
+      });
+    }
+  }
+
+  function asyncErr(){
+    console.warn('script load from CDN failed, will load local script')
+  }
+
+  // load webfont-loader async, and add callback function
+  function async(u, cb, err) {
+    var d = document, t = 'script',
+      o = d.createElement(t),
+      s = d.getElementsByTagName(t)[0];
+    o.src = u;
+    if (cb) { o.addEventListener('load', function (e) { cb(null, e); }, false); }
+    if (err) { o.addEventListener('error', function (e) { err(null, e); }, false); }
+    s.parentNode.insertBefore(o, s);
+  }
+
+  var asyncLoadWithFallBack = function(arr, success, reject) {
+      var currReject = function(){
+        reject()
+        arr.shift()
+        if(arr.length)
+          async(arr[0], success, currReject)
+        }
+
+      async(arr[0], success, currReject)
+  }
+
+  asyncLoadWithFallBack([
+    "https://cdn.jsdelivr.net/npm/webfontloader@1.6.28/webfontloader.min.js", 
+    "https://cdn.bootcss.com/webfont/1.6.28/webfontloader.js",
+    "/lib/webfontloader.min.js"
+  ], asyncCb, asyncErr)
+</script>        
+        <img class="loading" src="/assets/loading.svg" style="display: block; margin: 6rem auto 0 auto; width: 6rem; height: 6rem;" />
+        <div class="container container-unloaded">
+            <main class="main post-page">
+    <article class="article-entry">
+        <h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>这段时间在做CHY师傅整理的CTF代码审计题目，遇到较难或者比较有意思的题目，都会记下笔记，这次分享一篇关于PHP处理数组时的一个漏洞，这里给出CHY师傅的题目地址：</p>
+<blockquote>
+<p><a href="https://github.com/CHYbeta/Code-Audit-Challenges/" target="_blank" rel="noopener">https://github.com/CHYbeta/Code-Audit-Challenges/</a></p>
+</blockquote>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><p>首先看看PHP官方对这个错误的介绍：</p>
+<blockquote>
+<p><a href="https://bugs.php.net/bug.php?id=69892" target="_blank" rel="noopener">https://bugs.php.net/bug.php?id=69892</a></p>
+</blockquote>
+<blockquote>
+<p>var_dump([0 =&gt; 0] === [0x100000000 =&gt; 0]); // bool(true)</p>
+</blockquote>
+<p>下面来看代码：<br><figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&lt;?php</span></span><br><span class="line"></span><br><span class="line"><span class="comment">/*******************************************************************</span></span><br><span class="line"><span class="comment"> * PHP Challenge 2015</span></span><br><span class="line"><span class="comment"> *******************************************************************</span></span><br><span class="line"><span class="comment"> * Why leave all the fun to the XSS crowd?</span></span><br><span class="line"><span class="comment"> *</span></span><br><span class="line"><span class="comment"> * Do you know PHP?</span></span><br><span class="line"><span class="comment"> * And are you up to date with all its latest peculiarities?</span></span><br><span class="line"><span class="comment"> *</span></span><br><span class="line"><span class="comment"> * Are you sure?</span></span><br><span class="line"><span class="comment"> *</span></span><br><span class="line"><span class="comment"> * If you believe you do then solve this challenge and create an</span></span><br><span class="line"><span class="comment"> * input that will make the following code believe you are the ADMIN.</span></span><br><span class="line"><span class="comment"> * Becoming any other user is not good enough, but a first step.</span></span><br><span class="line"><span class="comment"> *</span></span><br><span class="line"><span class="comment"> * Attention this code is installed on a Mac OS X 10.9 system</span></span><br><span class="line"><span class="comment"> * that is running PHP 5.4.30 !!!</span></span><br><span class="line"><span class="comment"> *</span></span><br><span class="line"><span class="comment"> * TIPS: OS X is mentioned because OS X never runs latest PHP</span></span><br><span class="line"><span class="comment"> *       Challenge will not work with latest PHP</span></span><br><span class="line"><span class="comment"> *       Also challenge will only work on 64bit systems</span></span><br><span class="line"><span class="comment"> *       To solve challenge you need to combine what a normal</span></span><br><span class="line"><span class="comment"> *       attacker would do when he sees this code with knowledge</span></span><br><span class="line"><span class="comment"> *       about latest known PHP quirks</span></span><br><span class="line"><span class="comment"> *       And you cannot bruteforce the admin password directly.</span></span><br><span class="line"><span class="comment"> *       To give you an idea - first half is:</span></span><br><span class="line"><span class="comment"> *          orewgfpeowöfgphewoöfeiuwgöpuerhjwfiuvuger</span></span><br><span class="line"><span class="comment"> *</span></span><br><span class="line"><span class="comment"> * If you know the answer please submit it to info<span class="doctag">@sektioneins</span>.de</span></span><br><span class="line"><span class="comment"> ********************************************************************/</span></span><br><span class="line"></span><br><span class="line">$users = <span class="keyword">array</span>(</span><br><span class="line">        <span class="string">"0:9b5c3d2b64b8f74e56edec71462bd97a"</span> ,</span><br><span class="line">        <span class="string">"1:4eb5fb1501102508a86971773849d266"</span>,</span><br><span class="line">        <span class="string">"2:facabd94d57fc9f1e655ef9ce891e86e"</span>,</span><br><span class="line">        <span class="string">"3:ce3924f011fe323df3a6a95222b0c909"</span>,</span><br><span class="line">        <span class="string">"4:7f6618422e6a7ca2e939bd83abde402c"</span>,</span><br><span class="line">        <span class="string">"5:06e2b745f3124f7d670f78eabaa94809"</span>,</span><br><span class="line">        <span class="string">"6:8e39a6e40900bb0824a8e150c0d0d59f"</span>,</span><br><span class="line">        <span class="string">"7:d035e1a80bbb377ce1edce42728849f2"</span>,</span><br><span class="line">        <span class="string">"8:0927d64a71a9d0078c274fc5f4f10821"</span>,</span><br><span class="line">        <span class="string">"9:e2e23d64a642ee82c7a270c6c76df142"</span>,</span><br><span class="line">        <span class="string">"10:70298593dd7ada576aff61b6750b9118"</span></span><br><span class="line">);</span><br><span class="line"></span><br><span class="line">$valid_user = <span class="keyword">false</span>;</span><br><span class="line"></span><br><span class="line">$input = $_COOKIE[<span class="string">'user'</span>];</span><br><span class="line">$input[<span class="number">1</span>] = md5($input[<span class="number">1</span>]);</span><br><span class="line"></span><br><span class="line"><span class="keyword">foreach</span> ($users <span class="keyword">as</span> $user)</span><br><span class="line">&#123;</span><br><span class="line">        $user = explode(<span class="string">":"</span>, $user);</span><br><span class="line">        <span class="keyword">if</span> ($input === $user) &#123;</span><br><span class="line">                $uid = $input[<span class="number">0</span>] + <span class="number">0</span>;</span><br><span class="line">                $valid_user = <span class="keyword">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> (!$valid_user) &#123;</span><br><span class="line">        <span class="keyword">die</span>(<span class="string">"not a valid user\n"</span>);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> ($uid == <span class="number">0</span>) &#123;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">echo</span> <span class="string">"Hello Admin How can I serve you today?\n"</span>;</span><br><span class="line">        <span class="keyword">echo</span> <span class="string">"SECRETS ....\n"</span>;</span><br><span class="line"></span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">echo</span> <span class="string">"Welcome back user\n"</span>;</span><br><span class="line">&#125;</span><br><span class="line"><span class="meta">?&gt;</span></span><br></pre></td></tr></table></figure></p>
+<p>首先来看看代码逻辑：</p>
+<blockquote>
+<ul>
+<li>从<strong>cookie</strong>中获取<strong>user</strong></li>
+<li>遍历定义的<strong>users</strong>数组，判断传入的数据<strong>input</strong>是否等于它</li>
+</ul>
+</blockquote>
+<p>这里我们要绕过两个条件判断，经过md5解密网站的测试，发现只能解出这一条。</p>
+<blockquote>
+<p>06e2b745f3124f7d670f78eabaa94809      //hund</p>
+</blockquote>
+<p>初步可以判断传入的数据为：<strong>Cookie: user[0]=5;user[1]=hund;</strong><br>这样传入数据，就可以成功绕过第一个判断，接下来只要让<strong>uid</strong>为0即可。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//php5.2.14</span></span><br><span class="line"><span class="function">ZEND_API <span class="keyword">int</span> <span class="title">zend_hash_compare</span><span class="params">(HashTable *ht1, HashTable *ht2, <span class="keyword">compare_func_t</span> compar, zend_bool ordered TSRMLS_DC)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">	Bucket *p1, *p2 = <span class="literal">NULL</span>;</span><br><span class="line">	<span class="keyword">int</span> result;</span><br><span class="line">	<span class="keyword">void</span> *pData2;</span><br><span class="line"></span><br><span class="line">	IS_CONSISTENT(ht1);</span><br><span class="line">	IS_CONSISTENT(ht2);</span><br><span class="line"></span><br><span class="line">	HASH_PROTECT_RECURSION(ht1); </span><br><span class="line">	HASH_PROTECT_RECURSION(ht2); </span><br><span class="line"></span><br><span class="line">	result = ht1-&gt;nNumOfElements - ht2-&gt;nNumOfElements;</span><br><span class="line">	<span class="keyword">if</span> (result!=<span class="number">0</span>) &#123;</span><br><span class="line">		HASH_UNPROTECT_RECURSION(ht1); </span><br><span class="line">		HASH_UNPROTECT_RECURSION(ht2); </span><br><span class="line">		<span class="keyword">return</span> result;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	p1 = ht1-&gt;pListHead;</span><br><span class="line">	<span class="keyword">if</span> (ordered) &#123;</span><br><span class="line">		p2 = ht2-&gt;pListHead;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">while</span> (p1) &#123;</span><br><span class="line">		<span class="keyword">if</span> (ordered &amp;&amp; !p2) &#123;</span><br><span class="line">			HASH_UNPROTECT_RECURSION(ht1); </span><br><span class="line">			HASH_UNPROTECT_RECURSION(ht2); </span><br><span class="line">			<span class="keyword">return</span> <span class="number">1</span>; <span class="comment">/* That's not supposed to happen */</span></span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">if</span> (ordered) &#123;</span><br><span class="line">			<span class="keyword">if</span> (p1-&gt;nKeyLength==<span class="number">0</span> &amp;&amp; p2-&gt;nKeyLength==<span class="number">0</span>) &#123; <span class="comment">/* numeric indices */</span></span><br><span class="line">				result = p1-&gt;h - p2-&gt;h;</span><br><span class="line">				<span class="keyword">if</span> (result!=<span class="number">0</span>) &#123;</span><br><span class="line">					HASH_UNPROTECT_RECURSION(ht1); </span><br><span class="line">					HASH_UNPROTECT_RECURSION(ht2); </span><br><span class="line">					<span class="keyword">return</span> result;</span><br><span class="line">				&#125;</span><br><span class="line">			&#125; <span class="keyword">else</span> &#123; <span class="comment">/* string indices */</span></span><br><span class="line">				result = p1-&gt;nKeyLength - p2-&gt;nKeyLength;</span><br><span class="line">				<span class="keyword">if</span> (result!=<span class="number">0</span>) &#123;</span><br><span class="line">					HASH_UNPROTECT_RECURSION(ht1); </span><br><span class="line">					HASH_UNPROTECT_RECURSION(ht2); </span><br><span class="line">					<span class="keyword">return</span> result;</span><br><span class="line">				&#125;</span><br><span class="line">				result = <span class="built_in">memcmp</span>(p1-&gt;arKey, p2-&gt;arKey, p1-&gt;nKeyLength);</span><br><span class="line">				<span class="keyword">if</span> (result!=<span class="number">0</span>) &#123;</span><br><span class="line">					HASH_UNPROTECT_RECURSION(ht1); </span><br><span class="line">					HASH_UNPROTECT_RECURSION(ht2); </span><br><span class="line">					<span class="keyword">return</span> result;</span><br><span class="line">				&#125;</span><br><span class="line">			&#125;</span><br><span class="line">			pData2 = p2-&gt;pData;</span><br><span class="line">		&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">			<span class="keyword">if</span> (p1-&gt;nKeyLength==<span class="number">0</span>) &#123; <span class="comment">/* numeric index */</span></span><br><span class="line">				<span class="keyword">if</span> (zend_hash_index_find(ht2, p1-&gt;h, &amp;pData2)==FAILURE) &#123;</span><br><span class="line">					HASH_UNPROTECT_RECURSION(ht1); </span><br><span class="line">					HASH_UNPROTECT_RECURSION(ht2); </span><br><span class="line">					<span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">				&#125;</span><br><span class="line">			&#125; <span class="keyword">else</span> &#123; <span class="comment">/* string index */</span></span><br><span class="line">				<span class="keyword">if</span> (zend_hash_quick_find(ht2, p1-&gt;arKey, p1-&gt;nKeyLength, p1-&gt;h, &amp;pData2)==FAILURE) &#123;</span><br><span class="line">					HASH_UNPROTECT_RECURSION(ht1); </span><br><span class="line">					HASH_UNPROTECT_RECURSION(ht2); </span><br><span class="line">					<span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">				&#125;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		result = compar(p1-&gt;pData, pData2 TSRMLS_CC);</span><br><span class="line">		<span class="keyword">if</span> (result!=<span class="number">0</span>) &#123;</span><br><span class="line">			HASH_UNPROTECT_RECURSION(ht1); </span><br><span class="line">			HASH_UNPROTECT_RECURSION(ht2); </span><br><span class="line">			<span class="keyword">return</span> result;</span><br><span class="line">		&#125;</span><br><span class="line">		p1 = p1-&gt;pListNext;</span><br><span class="line">		<span class="keyword">if</span> (ordered) &#123;</span><br><span class="line">			p2 = p2-&gt;pListNext;</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line">	</span><br><span class="line">	HASH_UNPROTECT_RECURSION(ht1); </span><br><span class="line">	HASH_UNPROTECT_RECURSION(ht2); </span><br><span class="line">	<span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>bucket结构体：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">bucket</span> &#123;</span></span><br><span class="line">	ulong h;						<span class="comment">/* Used for numeric indexing */</span></span><br><span class="line">	uint nKeyLength;</span><br><span class="line">	<span class="keyword">void</span> *pData;</span><br><span class="line">	<span class="keyword">void</span> *pDataPtr;</span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">bucket</span> *<span class="title">pListNext</span>;</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">bucket</span> *<span class="title">pListLast</span>;</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">bucket</span> *<span class="title">pNext</span>;</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">bucket</span> *<span class="title">pLast</span>;</span></span><br><span class="line">	<span class="keyword">char</span> arKey[<span class="number">1</span>]; <span class="comment">/* Must be last element */</span></span><br><span class="line">&#125; Bucket;</span><br></pre></td></tr></table></figure></p>
+<p>关键点就在<strong>result = p1-&gt;h - p2-&gt;h</strong>，在<strong>unsigned long</strong>转为<strong>int</strong>时会少掉4个字节。</p>
+<p>最终payload：</p>
+<blockquote>
+<p><strong>Cookie: user[4294967296]=5;user[1]=hund;</strong></p>
+</blockquote>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>不断的前进</p>
+
+    </article>
+    <!-- license  -->
+    
+    <!-- paginator  -->
+    <ul class="post-paginator">
+        <li class="next">
+            
+        </li>
+        <li class="previous">
+            
+                <div class="prevSlogan">Previous Post</div>
+                <a href= "/php-weak-type.html" title= 【代码审计】PHP弱类型产生的安全问题 >
+                    <div class="prevTitle">【代码审计】PHP弱类型产生的安全问题</div>
+                </a>
+            
+        </li>
+    </ul>
+    <!-- 评论插件 -->
+    <!-- 来必力City版安装代码 -->
+
+<!-- City版安装代码已完成 -->
+    
+    
+    <!--PC和WAP自适应版-->
+
+    <!--PC版-->
+
+
+    
+    
+    <script src="//cdn1.lncld.net/static/js/3.0.4/av-min.js"></script>
+    <script src='//unpkg.com/valine/dist/Valine.min.js'></script>
+    <div id="comment"></div>
+    <script>
+    new Valine({
+        el: '#comment' ,
+        notify:false, 
+        verify:false, 
+        appId: "NNhsK0whP4Qy913uBM8kzNfF-gzGzoHsz",
+        appKey: "s0pEMbbpaDgaVFgp6TFbytTe",
+        placeholder: "",
+        path:window.location.pathname, 
+        avatar:'mm' 
+    });
+    </script>
+
+
+    <!-- 评论 -->
+</main>
+            <!-- profile -->
+            
+        </div>
+        <footer class="footer footer-unloaded">
+    <!-- social  -->
+    
+    <div class="social">
+        
+    
+        
+            
+                <a href="//github.com/L1nker4" class="iconfont-archer github" target="_blank" title=github></a>
+            
+        
+    
+        
+    
+        
+    
+        
+            
+                <a href="//www.weibo.com/L1nker4" class="iconfont-archer weibo" target="_blank" title=weibo></a>
+            
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+            
+                <a href="/atom.xml" class="iconfont-archer rss" target="_blank" title=rss></a>
+            
+        
+    
+
+    </div>
+    
+    <!-- powered by Hexo  -->
+    <div class="copyright">
+        <span id="hexo-power">Powered by <a href="https://hexo.io/" target="_blank">Hexo</a></span><span class="iconfont-archer power">&#xe635;</span><span id="theme-info">theme <a href="https://github.com/fi3ework/hexo-theme-archer" target="_blank">Archer</a></span>
+    </div>
+    <!-- 不蒜子  -->
+    
+</footer>
+    </div>
+    <!-- toc -->
+    
+    <div class="toc-wrapper" style=
+    
+
+
+
+
+
+
+
+top:50vh;
+
+    >
+        <div class="toc-catalog">
+            <span class="iconfont-archer catalog-icon">&#xe613;</span><span>CATALOG</span>
+        </div>
+        <ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#前言"><span class="toc-number">1.</span> <span class="toc-text">前言</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#分析"><span class="toc-number">2.</span> <span class="toc-text">分析</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#总结"><span class="toc-number">3.</span> <span class="toc-text">总结</span></a></li></ol>
+    </div>
+    
+    <div class="back-top iconfont-archer">&#xe639;</div>
+    <div class="sidebar sidebar-hide">
+    <ul class="sidebar-tabs sidebar-tabs-active-0">
+        <li class="sidebar-tab-archives"><span class="iconfont-archer">&#xe67d;</span><span class="tab-name">Archive</span></li>
+        <li class="sidebar-tab-tags"><span class="iconfont-archer">&#xe61b;</span><span class="tab-name">Tag</span></li>
+        <li class="sidebar-tab-categories"><span class="iconfont-archer">&#xe666;</span><span class="tab-name">Cate</span></li>
+    </ul>
+    <div class="sidebar-content sidebar-content-show-archive">
+          <div class="sidebar-panel-archives">
+    <!-- 在ejs中将archive按照时间排序 -->
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    <div class="total-and-search">
+        <div class="total-archive">
+        Total : 8
+        </div>
+        <!-- search  -->
+        
+    </div>
+    
+    <div class="post-archive">
+    
+    
+    
+    
+    <div class="archive-year"> 2018 </div>
+    <ul class="year-list">
+    
+    
+        <li class="archive-post-item">
+            <span class="archive-post-date">11/16</span><a class="archive-post-title" href= "/phpBug-69892.html" >【代码审计】PHP数组整数键名截断问题</a>
+        </li>
+    
+    
+        <li class="archive-post-item">
+            <span class="archive-post-date">11/09</span><a class="archive-post-title" href= "/php-weak-type.html" >【代码审计】PHP弱类型产生的安全问题</a>
+        </li>
+    
+    
+        <li class="archive-post-item">
+            <span class="archive-post-date">11/06</span><a class="archive-post-title" href= "/2018-nanjing.html" >2018-南京之行</a>
+        </li>
+    
+    
+        <li class="archive-post-item">
+            <span class="archive-post-date">11/01</span><a class="archive-post-title" href= "/php-audit-cover.html" >【代码审计】理解PHP变量覆盖漏洞</a>
+        </li>
+    
+    
+        <li class="archive-post-item">
+            <span class="archive-post-date">10/01</span><a class="archive-post-title" href= "/uploadvul.html" >浅析文件上传漏洞</a>
+        </li>
+    
+    
+        <li class="archive-post-item">
+            <span class="archive-post-date">07/19</span><a class="archive-post-title" href= "/flash-crossdomain.html" >Flash跨域攻击的总结</a>
+        </li>
+    
+    
+        <li class="archive-post-item">
+            <span class="archive-post-date">06/25</span><a class="archive-post-title" href= "/nctf.html" >南京邮电大学CTF平台Web系列WriteUp(持续更新)</a>
+        </li>
+    
+    
+        <li class="archive-post-item">
+            <span class="archive-post-date">06/14</span><a class="archive-post-title" href= "/hello world.html" >你好世界</a>
+        </li>
+    
+    </div>
+  </div>
+        <div class="sidebar-panel-tags">
+    <div class="sidebar-tags-name">
+    
+        <span class="sidebar-tag-name" data-tags="旅行"><span class="iconfont-archer">&#xe606;</span>旅行</span>
+    
+        <span class="sidebar-tag-name" data-tags="Web安全"><span class="iconfont-archer">&#xe606;</span>Web安全</span>
+    
+        <span class="sidebar-tag-name" data-tags="代码审计"><span class="iconfont-archer">&#xe606;</span>代码审计</span>
+    
+        <span class="sidebar-tag-name" data-tags="WriteUp"><span class="iconfont-archer">&#xe606;</span>WriteUp</span>
+    
+    </div>
+    <div class="iconfont-archer sidebar-tags-empty">&#xe678;</div>
+    <div class="tag-load-fail" style="display: none; color: #ccc; font-size: 0.6rem;">
+    缺失模块。<br/>
+    1、请确保node版本大于6.2<br/>
+    2、在博客根目录（注意不是archer根目录）执行以下命令：<br/>
+    <span style="color: #f75357; font-size: 1rem; line-height: 2rem;">npm i hexo-generator-json-content --save</span><br/>
+    3、在根目录_config.yml里添加配置：
+    <pre style="color: #787878; font-size: 0.6rem;">
+jsonContent:
+  meta: false
+  pages: false
+  posts:
+    title: true
+    date: true
+    path: true
+    text: false
+    raw: false
+    content: false
+    slug: false
+    updated: false
+    comments: false
+    link: false
+    permalink: false
+    excerpt: false
+    categories: true
+    tags: true</pre>
+    </div> 
+    <div class="sidebar-tags-list"></div>
+</div>
+        <div class="sidebar-panel-categories">
+    <div class="sidebar-categories-name">
+    
+        <span class="sidebar-category-name" data-categories="随笔"><span class="iconfont-archer">&#xe60a;</span>随笔</span>
+    
+        <span class="sidebar-category-name" data-categories="Web安全"><span class="iconfont-archer">&#xe60a;</span>Web安全</span>
+    
+        <span class="sidebar-category-name" data-categories="ctf"><span class="iconfont-archer">&#xe60a;</span>ctf</span>
+    
+    </div>
+    <div class="iconfont-archer sidebar-categories-empty">&#xe678;</div>
+    <div class="sidebar-categories-list"></div>
+</div>
+    </div>
+</div> 
+    <script>
+    var siteMeta = {
+        root: "/",
+        author: "L1nker4"
+    }
+</script>
+    <!-- CDN failover -->
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.3.1/dist/jquery.min.js"></script>
+    <script type="text/javascript">
+        if (typeof window.$ === 'undefined')
+        {
+            console.warn('jquery load from jsdelivr failed, will load local script')
+            document.write('<script src="/lib/jquery.min.js">\x3C/script>')
+        }
+    </script>
+    <script src="/scripts/main.js"></script>
+    <!-- algolia -->
+    
+    <!-- busuanzi  -->
+    
+    <!-- CNZZ  -->
+    
+    </div>
+    <!-- async load share.js -->
+    
+        <script src="/scripts/share.js" async></script>    
+     
+    </body>
+</html>
+
+
