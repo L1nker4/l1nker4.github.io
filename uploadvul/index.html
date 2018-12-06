@@ -15,7 +15,7 @@
     <meta name="description" content="Know it and then hack it.">
     <meta name="Cache-Control" content="no-cache">
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
-    <title>2018-南京之行 · L1nker4</title>
+    <title>浅析文件上传漏洞 · L1nker4</title>
     <style type="text/css">
     @font-face {
         font-family: 'Oswald-Regular';
@@ -220,7 +220,7 @@
                 <a href="/" >L1nker4</a>
             </div>
             <div class="post-title">
-                <a href="#" class="post-name">2018-南京之行</a>
+                <a href="#" class="post-name">浅析文件上传漏洞</a>
             </div>
     </div>
     
@@ -252,7 +252,7 @@ height:50vh;
         <h1 class="intro-title">
             <!-- 主页  -->
             
-            2018-南京之行
+            浅析文件上传漏洞
             <!-- 404 -->
             
         </h1>
@@ -271,18 +271,18 @@ height:50vh;
                 
                     <div class= post-intro-tags >
     
-        <a class="post-tag" href="javascript:void(0);" data-tags = "旅行">旅行</a>
+        <a class="post-tag" href="javascript:void(0);" data-tags = "代码审计">代码审计</a>
     
 </div>
                 
                 
                     <div class="post-intro-read">
-                        <span>Word count: <span class="post-count">322</span> / Reading time: <span class="post-count">1 min</span></span>
+                        <span>Word count: <span class="post-count">919</span> / Reading time: <span class="post-count">4 min</span></span>
                     </div>
                 
                 <div class="post-intro-meta">
                     <span class="post-intro-calander iconfont-archer">&#xe676;</span>
-                    <span class="post-intro-time">2018/11/06</span>
+                    <span class="post-intro-time">2018/10/01</span>
                     
                     <span class="shareWrapper">
                         <span class="iconfont-archer shareIcon">&#xe71d;</span>
@@ -401,13 +401,46 @@ height:50vh;
         <div class="container container-unloaded">
             <main class="main post-page">
     <article class="article-entry">
-        <p>作为一名核狗与资深逼粉，终于趁着学校开运动会和周末一共四天的时间去了一趟南京。<br><img src="images/nanjing/la.jpg" alt=""><br>下车就是南京的玄武区，第一感觉就是有点脏乱，随后立马去板仓街找在携程上面订的宾馆。<br><img src="images/nanjing/bancang.jpg" alt=""><br>宾馆离太阳宫很近，走路十分钟就能到，随后骑单车在玄武湖公园看看。<br><img src="images/nanjing/xuanwuhu.jpg" alt=""></p>
-<p>随后便去欧拉艺术空间踩个点，怕晚上找不到。<br><img src="images/nanjing/ola.jpg" alt=""></p>
-<p>演出前<br><img src="images/nanjing/ola2.jpg" alt=""><br>暖场的南京本地金属核乐队很牛逼，气氛带的很好。<br><img src="images/nanjing/ola3.jpg" alt=""><br>现场总是比视频里面的更刺激，pogo，死墙，开火车，跳水都有。<br>演出一直到十一点，南京牛逼。<br>回到宾馆倒床就睡，第二天起床去东站接从镇江来的同学一起去南工大找同学，路过南京艺术学院，不得不说艺校的气质在校门口就能感觉到。随后在南工大蹭了一节课，晚上照例撸串。<br>早上坐公交准备离开了。路过应天大街，热河路，盐仓桥，挹江门.</p>
+        <h1 id="0x01简介"><a href="#0x01简介" class="headerlink" title="0x01简介"></a>0x01简介</h1><p>文件上传漏洞简而言之就是攻击者可以通过某些手段上传非法文件到服务器端的一种漏洞，攻击者往往会以此得到webshell，从而进一步提权。为此开发者也会想出各种方法去防止上传漏洞的产生。以下列出几种常见的校验方式：</p>
+<ul>
+<li>前端JS校验</li>
+<li>content-type字段校验</li>
+<li>服务器端后缀名校验</li>
+<li>文件头校验</li>
+<li>服务器端扩展名校验</li>
+</ul>
+<p>  下面从几个实例来详细解释上传漏洞的原理与突破方法。</p>
+<h1 id="0x02正文"><a href="#0x02正文" class="headerlink" title="0x02正文"></a>0x02正文</h1><h3 id="一、前端JS校验"><a href="#一、前端JS校验" class="headerlink" title="一、前端JS校验"></a>一、前端JS校验</h3><p>JS校验往往只是通过脚本获得文件的后缀名，再通过白名单验证，以下列出JS代码供参考：<br><figure class="highlight javascript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">&lt;script type=<span class="string">"text/javascript"</span>&gt;</span><br><span class="line">    <span class="function"><span class="keyword">function</span> <span class="title">checkFile</span>(<span class="params"></span>) </span>&#123;</span><br><span class="line">        <span class="keyword">var</span> file = <span class="built_in">document</span>.getElementsByName(<span class="string">'upload_file'</span>)[<span class="number">0</span>].value;</span><br><span class="line">        <span class="keyword">if</span> (file == <span class="literal">null</span> || file == <span class="string">""</span>) &#123;</span><br><span class="line">            alert(<span class="string">"请选择要上传的文件!"</span>);</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="comment">//定义允许上传的文件类型</span></span><br><span class="line">        <span class="keyword">var</span> allow_ext = <span class="string">".jpg|.png|.gif"</span>;</span><br><span class="line">        <span class="comment">//提取上传文件的类型</span></span><br><span class="line">        <span class="keyword">var</span> ext_name = file.substring(file.lastIndexOf(<span class="string">"."</span>));</span><br><span class="line">        <span class="comment">//判断上传文件类型是否允许上传</span></span><br><span class="line">        <span class="keyword">if</span> (allow_ext.indexOf(ext_name) == <span class="number">-1</span>) &#123;</span><br><span class="line">            <span class="keyword">var</span> errMsg = <span class="string">"该文件不允许上传，请上传"</span> + allow_ext + <span class="string">"类型的文件,当前文件类型为："</span> + ext_name;</span><br><span class="line">            alert(errMsg);</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&lt;<span class="regexp">/script&gt;</span></span><br></pre></td></tr></table></figure></p>
+<p>此种校验方式往往很容易突破，一种是通过抓取HTTP数据包，修改重放便可以突破。或者通过浏览器修改前端代码，从而改变代码逻辑。</p>
+<h3 id="二、content-type字段校验"><a href="#二、content-type字段校验" class="headerlink" title="二、content-type字段校验"></a>二、content-type字段校验</h3><p>首先对MIME进行简单的知识普及</p>
 <blockquote>
-<p>32路还是穿过挹江门。<br><br>没有人在热河路谈恋爱，总有人在天黑时伤感</p>
+<p><a href="http://www.cnblogs.com/jsean/articles/1610265.html" target="_blank" rel="noopener">http://www.cnblogs.com/jsean/articles/1610265.html</a></p>
 </blockquote>
-<p>第一次来南京，南京，下次见。</p>
+<blockquote>
+<p><a href="https://developer.mozilla.org/zh-CN/docs/Web/HTTP/Basics_of_HTTP/MIME_Types" target="_blank" rel="noopener">https://developer.mozilla.org/zh-CN/docs/Web/HTTP/Basics_of_HTTP/MIME_Types</a></p>
+</blockquote>
+<figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&lt;?php</span></span><br><span class="line">        <span class="keyword">if</span>($_FILES[<span class="string">'userfile'</span>][<span class="string">'type'</span>] != <span class="string">"image/gif"</span>)  <span class="comment">#这里对上传的文件类型进行判断，如果不是image/gif类型便返回错误。</span></span><br><span class="line">                &#123;   </span><br><span class="line">                 <span class="keyword">echo</span> <span class="string">"Sorry, we only allow uploading GIF images"</span>;</span><br><span class="line">                 <span class="keyword">exit</span>;</span><br><span class="line">                 &#125;</span><br><span class="line">         $uploaddir = <span class="string">'uploads/'</span>;</span><br><span class="line">         $uploadfile = $uploaddir . basename($_FILES[<span class="string">'userfile'</span>][<span class="string">'name'</span>]);</span><br><span class="line">         <span class="keyword">if</span> (move_uploaded_file($_FILES[<span class="string">'userfile'</span>][<span class="string">'tmp_name'</span>], $uploadfile))</span><br><span class="line">             &#123;</span><br><span class="line">                 <span class="keyword">echo</span> <span class="string">"File is valid, and was successfully uploaded.\n"</span>;</span><br><span class="line">                &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">                     <span class="keyword">echo</span> <span class="string">"File uploading failed.\n"</span>;</span><br><span class="line">    &#125;</span><br><span class="line">     <span class="meta">?&gt;</span></span><br></pre></td></tr></table></figure>
+<p>此类校验方式绕过也十分简单，burpsuite截取数据包，修改content-type值，发送数据包即可。</p>
+<h3 id="三、文件头校验"><a href="#三、文件头校验" class="headerlink" title="三、文件头校验"></a>三、文件头校验</h3><p>文件头基本概念：</p>
+<blockquote>
+<p><a href="https://www.cnblogs.com/mq0036/p/3912355.html" target="_blank" rel="noopener">https://www.cnblogs.com/mq0036/p/3912355.html</a></p>
+</blockquote>
+<p>上传webshell的过程中,添加文件头便可以突破此类校验。例如<br><figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">GIF89a<span class="meta">&lt;?php</span> phpinfo(); <span class="meta">?&gt;</span></span><br></pre></td></tr></table></figure></p>
+<h3 id="四、服务器端扩展名校验"><a href="#四、服务器端扩展名校验" class="headerlink" title="四、服务器端扩展名校验"></a>四、服务器端扩展名校验</h3><p>此类校验的上传绕过往往较为复杂，常常与其他漏洞搭配使用，如解析漏洞，文件包含漏洞。</p>
+<figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&lt;?php</span></span><br><span class="line">$type = <span class="keyword">array</span>(<span class="string">"php"</span>,<span class="string">"php3"</span>);</span><br><span class="line"><span class="comment">//判断上传文件类型</span></span><br><span class="line">$fileext = fileext($_FILE[<span class="string">'file'</span>][<span class="string">'name'</span>]);</span><br><span class="line"><span class="keyword">if</span>(!in_array($fileext,$type))&#123;</span><br><span class="line">    <span class="keyword">echo</span> <span class="string">"upload success!"</span>;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">else</span>&#123;</span><br><span class="line">    <span class="keyword">echo</span> <span class="string">"sorry"</span>;</span><br><span class="line">&#125;</span><br><span class="line"><span class="meta">?&gt;</span></span><br></pre></td></tr></table></figure>
+<p>Apache解析漏洞，IIS6.0解析漏洞在此不再过多阐述。可以参考以下内容。</p>
+<blockquote>
+<p><a href="https://thief.one/2016/09/21/%E6%9C%8D%E5%8A%A1%E5%99%A8%E8%A7%A3%E6%9E%90%E6%BC%8F%E6%B4%9E/" target="_blank" rel="noopener">https://thief.one/2016/09/21/%E6%9C%8D%E5%8A%A1%E5%99%A8%E8%A7%A3%E6%9E%90%E6%BC%8F%E6%B4%9E/</a></p>
+</blockquote>
+<h3 id="五、编辑器上传漏洞"><a href="#五、编辑器上传漏洞" class="headerlink" title="五、编辑器上传漏洞"></a>五、编辑器上传漏洞</h3><p>早期编辑器例如FCK,eWeb编辑器正在逐渐淡出市场，但是并没有使富文本编辑器的占用率变低，因此在渗透测试的过程中，一般可以查找编辑器漏洞从而获得webshell。</p>
+<h1 id="0x03总结"><a href="#0x03总结" class="headerlink" title="0x03总结"></a>0x03总结</h1><p>在渗透测试的过程中,遇到上传点，通常情况下截取数据包，再通过各种姿势进行bypass。关于防护的几点建议：</p>
+<ul>
+<li>在服务器端进行校验</li>
+<li>上传的文件可以进行时间戳md5进行命名</li>
+<li>上传的路径隐藏</li>
+<li>文件存储目录权限控制</li>
+</ul>
+<p>当然最重要的是，维持网站中间件的安全，杜绝旧版解析漏洞的存在。</p>
 
     </article>
     <!-- license  -->
@@ -417,16 +450,16 @@ height:50vh;
         <li class="next">
             
                 <div class="nextSlogan">Next Post</div>
-                <a href= "/php-weak-type.html" title= 【代码审计】PHP弱类型产生的安全问题 >
-                    <div class="nextTitle">【代码审计】PHP弱类型产生的安全问题</div>
+                <a href= "/php-audit-cover/" title= 理解PHP变量覆盖漏洞 >
+                    <div class="nextTitle">理解PHP变量覆盖漏洞</div>
                 </a>
             
         </li>
         <li class="previous">
             
                 <div class="prevSlogan">Previous Post</div>
-                <a href= "/php-audit-cover.html" title= 【代码审计】理解PHP变量覆盖漏洞 >
-                    <div class="prevTitle">【代码审计】理解PHP变量覆盖漏洞</div>
+                <a href= "/nctf/" title= 南京邮电大学CTF平台Web系列WriteUp >
+                    <div class="prevTitle">南京邮电大学CTF平台Web系列WriteUp</div>
                 </a>
             
         </li>
@@ -522,7 +555,7 @@ top:50vh;
         <div class="toc-catalog">
             <span class="iconfont-archer catalog-icon">&#xe613;</span><span>CATALOG</span>
         </div>
-        
+        <ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#0x01简介"><span class="toc-number">1.</span> <span class="toc-text">0x01简介</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#0x02正文"><span class="toc-number">2.</span> <span class="toc-text">0x02正文</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#一、前端JS校验"><span class="toc-number">2.0.1.</span> <span class="toc-text">一、前端JS校验</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#二、content-type字段校验"><span class="toc-number">2.0.2.</span> <span class="toc-text">二、content-type字段校验</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#三、文件头校验"><span class="toc-number">2.0.3.</span> <span class="toc-text">三、文件头校验</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#四、服务器端扩展名校验"><span class="toc-number">2.0.4.</span> <span class="toc-text">四、服务器端扩展名校验</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#五、编辑器上传漏洞"><span class="toc-number">2.0.5.</span> <span class="toc-text">五、编辑器上传漏洞</span></a></li></ol></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#0x03总结"><span class="toc-number">3.</span> <span class="toc-text">0x03总结</span></a></li></ol>
     </div>
     
     <div class="back-top iconfont-archer">&#xe639;</div>
@@ -625,30 +658,9 @@ top:50vh;
     
     
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     <div class="total-and-search">
         <div class="total-archive">
-        Total : 9
+        Total : 8
         </div>
         <!-- search  -->
         
@@ -664,47 +676,42 @@ top:50vh;
     
     
         <li class="archive-post-item">
-            <span class="archive-post-date">12/01</span><a class="archive-post-title" href= "/php-challenges-1.html" >PHP-Challenge-1</a>
+            <span class="archive-post-date">12/01</span><a class="archive-post-title" href= "/php-challenges-1/" >PHP-Challenge-1</a>
         </li>
     
     
         <li class="archive-post-item">
-            <span class="archive-post-date">11/23</span><a class="archive-post-title" href= "/phpBug-69892.html" >【代码审计】PHP数组整数键名截断问题</a>
+            <span class="archive-post-date">11/23</span><a class="archive-post-title" href= "/phpBug-69892/" >PHP数组整数键名截断问题</a>
         </li>
     
     
         <li class="archive-post-item">
-            <span class="archive-post-date">11/09</span><a class="archive-post-title" href= "/php-weak-type.html" >【代码审计】PHP弱类型产生的安全问题</a>
+            <span class="archive-post-date">11/09</span><a class="archive-post-title" href= "/php-weak-type/" >PHP弱类型产生的安全问题</a>
         </li>
     
     
         <li class="archive-post-item">
-            <span class="archive-post-date">11/06</span><a class="archive-post-title" href= "/2018-nanjing.html" >2018-南京之行</a>
+            <span class="archive-post-date">11/06</span><a class="archive-post-title" href= "/2018-nanjing/" >2018-南京之行</a>
         </li>
     
     
         <li class="archive-post-item">
-            <span class="archive-post-date">11/01</span><a class="archive-post-title" href= "/php-audit-cover.html" >【代码审计】理解PHP变量覆盖漏洞</a>
+            <span class="archive-post-date">11/01</span><a class="archive-post-title" href= "/php-audit-cover/" >理解PHP变量覆盖漏洞</a>
         </li>
     
     
         <li class="archive-post-item">
-            <span class="archive-post-date">10/01</span><a class="archive-post-title" href= "/uploadvul.html" >浅析文件上传漏洞</a>
+            <span class="archive-post-date">10/01</span><a class="archive-post-title" href= "/uploadvul/" >浅析文件上传漏洞</a>
         </li>
     
     
         <li class="archive-post-item">
-            <span class="archive-post-date">07/19</span><a class="archive-post-title" href= "/flash-crossdomain.html" >Flash跨域攻击的总结</a>
+            <span class="archive-post-date">06/25</span><a class="archive-post-title" href= "/nctf/" >南京邮电大学CTF平台Web系列WriteUp</a>
         </li>
     
     
         <li class="archive-post-item">
-            <span class="archive-post-date">06/25</span><a class="archive-post-title" href= "/nctf.html" >南京邮电大学CTF平台Web系列WriteUp(持续更新)</a>
-        </li>
-    
-    
-        <li class="archive-post-item">
-            <span class="archive-post-date">06/14</span><a class="archive-post-title" href= "/hello world.html" >你好世界</a>
+            <span class="archive-post-date">06/14</span><a class="archive-post-title" href= "/hello world/" >你好世界</a>
         </li>
     
     </div>
@@ -714,11 +721,9 @@ top:50vh;
     
         <span class="sidebar-tag-name" data-tags="旅行"><span class="iconfont-archer">&#xe606;</span>旅行</span>
     
-        <span class="sidebar-tag-name" data-tags="Web安全"><span class="iconfont-archer">&#xe606;</span>Web安全</span>
+        <span class="sidebar-tag-name" data-tags="WriteUp"><span class="iconfont-archer">&#xe606;</span>WriteUp</span>
     
         <span class="sidebar-tag-name" data-tags="代码审计"><span class="iconfont-archer">&#xe606;</span>代码审计</span>
-    
-        <span class="sidebar-tag-name" data-tags="WriteUp"><span class="iconfont-archer">&#xe606;</span>WriteUp</span>
     
     </div>
     <div class="iconfont-archer sidebar-tags-empty">&#xe678;</div>
@@ -755,9 +760,9 @@ jsonContent:
     
         <span class="sidebar-category-name" data-categories="随笔"><span class="iconfont-archer">&#xe60a;</span>随笔</span>
     
-        <span class="sidebar-category-name" data-categories="Web安全"><span class="iconfont-archer">&#xe60a;</span>Web安全</span>
-    
         <span class="sidebar-category-name" data-categories="ctf"><span class="iconfont-archer">&#xe60a;</span>ctf</span>
+    
+        <span class="sidebar-category-name" data-categories="Web安全"><span class="iconfont-archer">&#xe60a;</span>Web安全</span>
     
     </div>
     <div class="iconfont-archer sidebar-categories-empty">&#xe678;</div>
