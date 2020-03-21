@@ -1,6 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>JVM之Java内存结构（一）</title>
+    <url>/jvm01-java-memory-structure/</url>
+    <content><![CDATA[<h2 id="Java运行时数据区域"><a href="#Java运行时数据区域" class="headerlink" title="Java运行时数据区域"></a>Java运行时数据区域</h2><p>数据区域主要分为五个部分：</p>
+<ul>
+<li>程序计数器</li>
+<li>虚拟机栈</li>
+<li>本地方法栈</li>
+<li>堆</li>
+<li>方法区</li>
+</ul>
+<p>其中所有线程共享区域有：方法区和堆。</p>
+<p>每个线程独享区域有：虚拟机栈，本地方法栈，程序计数器<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/jvm/java-memory.png" alt="Java运行时数据区域"></p>
+<h3 id="程序计数器"><a href="#程序计数器" class="headerlink" title="程序计数器"></a>程序计数器</h3><p> 程序计数器是一块较小的内存空间，它可以看作是当前线程所执行的字节码的行号指示器，如果当前线程执行的是一个本地方法，那么此时计数器的值为<code>undefined</code>，是唯一一个不会出现<code>OutOfMemoryError</code>的内存区域。</p>
+<h3 id="Java虚拟机栈"><a href="#Java虚拟机栈" class="headerlink" title="Java虚拟机栈"></a>Java虚拟机栈</h3><p> 虚拟机栈描述的是Java方法执行的线程内存模型，每个方法被执行的时候，Java虚拟机都会同步创建一个栈帧，用于存放以下内容：</p>
+<ul>
+<li>局部变量表</li>
+<li>操作数栈</li>
+<li>动态链接</li>
+<li>方法出口</li>
+</ul>
+<p>其中局部变量表包括以下内容：</p>
+<ul>
+<li>八大基本数据类型</li>
+<li>对象引用</li>
+<li>returnAddress类型（保存的是return后要执行的字节码的指令地址）</li>
+</ul>
+<p>这些数据类型在局部变量表中的存储空间以局部变量槽来表示，64位长度的<code>long</code>和<code>double</code>类型占用两个变量槽，其余的占用一个。局部变量表所需的内存空间在编译期间完成分配，方法运行期间不会改变局部变量表的大小。</p>
+<p>Java 虚拟机栈会出现两种异常：<code>StackOverFlowError</code> 和 <code>OutOfMemoryError</code>。</p>
+<ul>
+<li>如果线程请求的栈深度大于虚拟机所允许的深度，将抛出<code>StackOverFlowError</code></li>
+<li>如果Java虚拟机栈容量可以动态扩展，当栈扩展时无法申请到足够内存会抛出<code>OutOfMemoryError</code></li>
+</ul>
+<h3 id="本地方法栈"><a href="#本地方法栈" class="headerlink" title="本地方法栈"></a>本地方法栈</h3><p>本地方法栈是为JVM使用到的Native方法准备的空间</p>
+<h3 id="堆"><a href="#堆" class="headerlink" title="堆"></a>堆</h3><ul>
+<li>堆是被所有线程共享的一块内存区域</li>
+<li>在虚拟机启动时创建</li>
+<li>堆的唯一目的就是存放对象实例</li>
+<li>堆是垃圾回收管理的内存区域</li>
+<li>可分为新生代，老年代，永久代等（一部分垃圾收集器的共同特性或者设计风格，不是具体实现的固有内存布局）</li>
+<li>从分配内存的角度看，所有线程共享的Java堆可以划分出多个线程私有的分配缓冲区（TLAB）以提升对象分配的效率</li>
+</ul>
+<h3 id="方法区"><a href="#方法区" class="headerlink" title="方法区"></a>方法区</h3><p>Java 虚拟机规范中定义方法区是堆的一个逻辑部分。<br>用于存储以下内容：</p>
+<ul>
+<li>已被虚拟机加载的类信息</li>
+<li>常量</li>
+<li>静态变量</li>
+<li>即时编译器编译后的代码</li>
+</ul>
+<p>在JDK8之前，方法区也称为永久代。<br>方法区内的主要回收目标是对常量池的回收和对类型的卸载。</p>
+<h4 id="运行时常量池"><a href="#运行时常量池" class="headerlink" title="运行时常量池"></a>运行时常量池</h4><p>运行时常量池是方法区的一部分。主要存放以下内容：</p>
+<ul>
+<li>类信息（版本，字段，方法，接口等描述信息）</li>
+<li>常量池表（用于存放编译期生成的各种字面量与符号引用）</li>
+</ul>
+<p>Java并不要求常量一定在编译期间产生，并非Class文件中常量池的内容才能进入运行时常量池，运行期间产生的新的常量也能放入池中。比如<code>String</code>类的<code>intern()</code>方法。<br>当常量池无法再申请到内存会抛出<code>OutOfMemoryError</code></p>
+<h3 id="直接内存（堆外内存）"><a href="#直接内存（堆外内存）" class="headerlink" title="直接内存（堆外内存）"></a>直接内存（堆外内存）</h3><p>直接内存并不是虚拟机运行时数据区的一部分，也不是虚拟机规范中定义的内存区域，但是会被频繁地使用，也可能导致<code>OutOfMemoryError</code><br>直接内存的分配不受JVM控制，但是会受到本机总内存（物理内存，SWAP分区，分页文件）以及处理器寻址空间的限制。</p>
+]]></content>
+      <categories>
+        <category>技术</category>
+      </categories>
+      <tags>
+        <tag>Java</tag>
+        <tag>JVM</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>编译OpenJDK</title>
     <url>/build-jdk/</url>
     <content><![CDATA[<h1 id="1-前言"><a href="#1-前言" class="headerlink" title="1. 前言"></a>1. 前言</h1><p>最近在看《深入理解Java虚拟机》这本书，1.6节是编译openjdk，自己也想尝试一下。</p>
