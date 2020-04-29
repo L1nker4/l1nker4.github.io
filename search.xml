@@ -1,6 +1,247 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>探索MySQL的事务机制</title>
+    <url>/mysql-transaction/</url>
+    <content><![CDATA[<h1 id="事务"><a href="#事务" class="headerlink" title="事务"></a>事务</h1><p>简单来说，事务就是要保证一组数据库操作，要么全部成功，要么全部失败。MySQL中事务支持是在引擎层实现的。事务拥有四个重要的特性：原子性、一致性、隔离性、持久性，简称为ACID特性，下文将逐一解释。</p>
+<h2 id="ACID特性"><a href="#ACID特性" class="headerlink" title="ACID特性"></a>ACID特性</h2><ul>
+<li>原子性（Atomicity）<ul>
+<li>事务开始后所有操作，要么全部完成，要么全部不做，不存在只执行一部分的情况。</li>
+</ul>
+</li>
+<li>一致性（Consistency）<ul>
+<li>事务将数据库从一种状态转变为另一种一致的状态，数据库的完整性约束没有被破坏。</li>
+</ul>
+</li>
+<li>隔离性（Isolation）<ul>
+<li>在一个事务未执行完毕时，其它事务无法读取该事务的数据。</li>
+<li>MySQL通过锁机制来保证事务的隔离性。</li>
+</ul>
+</li>
+<li>持久性（Durability）<ul>
+<li>事务一旦提交，数据将被保存下来，即使发生宕机等故障，数据库也能将数据恢复。</li>
+<li>MySQL使用<code>redo log</code>来保证事务的持久性。</li>
+</ul>
+</li>
+</ul>
+<h2 id="并发处理带来的问题"><a href="#并发处理带来的问题" class="headerlink" title="并发处理带来的问题"></a>并发处理带来的问题</h2><h3 id="丢失更新"><a href="#丢失更新" class="headerlink" title="丢失更新"></a>丢失更新</h3><p><strong>丢失更新</strong>就是两个事务在并发下同时进行更新，后一个事务的更新覆盖了前一个事务更新的情况。基本情景如下表：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">时间</th>
+<th style="text-align:center">事务A</th>
+<th style="text-align:center">事务B</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">1</td>
+<td style="text-align:center">开启事务</td>
+<td style="text-align:center">开启事务</td>
+</tr>
+<tr>
+<td style="text-align:center">2</td>
+<td style="text-align:center">a = 100</td>
+<td style="text-align:center">a = 100</td>
+</tr>
+<tr>
+<td style="text-align:center">3</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">a -= 10</td>
+</tr>
+<tr>
+<td style="text-align:center">4</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">commit</td>
+</tr>
+<tr>
+<td style="text-align:center">5</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">/</td>
+</tr>
+<tr>
+<td style="text-align:center">6</td>
+<td style="text-align:center">a += 20</td>
+<td style="text-align:center">/</td>
+</tr>
+<tr>
+<td style="text-align:center">7</td>
+<td style="text-align:center">commit</td>
+<td style="text-align:center">/</td>
+</tr>
+</tbody>
+</table>
+<h3 id="脏读"><a href="#脏读" class="headerlink" title="脏读"></a>脏读</h3><p>一个事务读取了另一个未提交的事务写的数据，被称为脏读。基本情景如下：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">时间</th>
+<th style="text-align:center">事务A</th>
+<th style="text-align:center">事务B</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">1</td>
+<td style="text-align:center">开启事务</td>
+<td style="text-align:center">开启事务</td>
+</tr>
+<tr>
+<td style="text-align:center">2</td>
+<td style="text-align:center">a = 100</td>
+<td style="text-align:center">a = 100</td>
+</tr>
+<tr>
+<td style="text-align:center">3</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">a = 110</td>
+</tr>
+<tr>
+<td style="text-align:center">4</td>
+<td style="text-align:center">a = 110</td>
+<td style="text-align:center">/</td>
+</tr>
+<tr>
+<td style="text-align:center">5</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">rollback</td>
+</tr>
+</tbody>
+</table>
+<h3 id="不可重复读"><a href="#不可重复读" class="headerlink" title="不可重复读"></a>不可重复读</h3><p>一个事务读取到另一个事务已经提交的修改数据。基本情景如下：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">时间</th>
+<th style="text-align:center">事务A</th>
+<th style="text-align:center">事务B</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">1</td>
+<td style="text-align:center">开启事务</td>
+<td style="text-align:center">开启事务</td>
+</tr>
+<tr>
+<td style="text-align:center"></td>
+<td style="text-align:center">a = 100</td>
+<td style="text-align:center">a = 100</td>
+</tr>
+<tr>
+<td style="text-align:center">3</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">a = 110</td>
+</tr>
+<tr>
+<td style="text-align:center">4</td>
+<td style="text-align:center">a = 110</td>
+<td style="text-align:center">commit</td>
+</tr>
+</tbody>
+</table>
+<h3 id="幻读"><a href="#幻读" class="headerlink" title="幻读"></a>幻读</h3><p>一个事务按查询条件检索数据，发现其它事务插入了满足条件的数据，这被称为幻读。基本情景如下：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">时间</th>
+<th style="text-align:center">事务A</th>
+<th style="text-align:center">事务B</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">1</td>
+<td style="text-align:center">开启事务</td>
+<td style="text-align:center">开启事务</td>
+</tr>
+<tr>
+<td style="text-align:center">2</td>
+<td style="text-align:center">select * from table where id = 1(记录为0条)</td>
+<td style="text-align:center">/</td>
+</tr>
+<tr>
+<td style="text-align:center">3</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">insert into table (id) value(1)</td>
+</tr>
+<tr>
+<td style="text-align:center">4</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">commit</td>
+</tr>
+<tr>
+<td style="text-align:center">5</td>
+<td style="text-align:center">insert into table (id) value(1)</td>
+<td style="text-align:center">/</td>
+</tr>
+<tr>
+<td style="text-align:center">6</td>
+<td style="text-align:center">commit(报错，主键冲突)</td>
+<td style="text-align:center">/</td>
+</tr>
+</tbody>
+</table>
+<h2 id="隔离级别"><a href="#隔离级别" class="headerlink" title="隔离级别"></a>隔离级别</h2><p>由于数据库在并发事务中带来一些问题，数据库提供了事务隔离机制来解决相对应的问题。数据库的锁也是为了构建这些隔离级别而存在的。</p>
+<table>
+<thead>
+<tr>
+<th>隔离级别</th>
+<th>脏读（Dirty Read）</th>
+<th>不可重复读（NonRepeatable Read）</th>
+<th>幻读（Phantom Read）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>未提交读</td>
+<td>可能</td>
+<td>可能</td>
+<td>可能</td>
+</tr>
+<tr>
+<td>已提交读</td>
+<td>不可能</td>
+<td>可能</td>
+<td>可能</td>
+</tr>
+<tr>
+<td>可重复读</td>
+<td>不可能</td>
+<td>不可能</td>
+<td>可能</td>
+</tr>
+<tr>
+<td>可串行化</td>
+<td>不可能</td>
+<td>不可能</td>
+<td>不可能</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>未提交读(Read Uncommitted)：一个事务还没提交时，它的修改能被别的事务看到。</li>
+<li>提交读(Read Committed)：一个事务提交后，它的修改才能被其它事务看到。</li>
+<li>可重复读(Repeated Read)：一个事务执行过程中看到的数据，总是跟这个事务开始时刻是一致的。</li>
+<li>可串行化(Serializable)：对于同一行记录，写会加写锁，读会加读锁，当出现读写冲突的时候，后面的事务必须等待前一个事务执行完成才能继续执行。</li>
+</ul>
+<p>查询与修改隔离级别的SQL语句：</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">-- 查看系统隔离级别：</span><br><span class="line">select @@global.tx_isolation;</span><br><span class="line">-- 查看当前会话隔离级别</span><br><span class="line">select @@tx_isolation;</span><br><span class="line">-- 设置当前会话隔离级别</span><br><span class="line">SET session TRANSACTION ISOLATION LEVEL serializable;</span><br><span class="line">-- 设置全局系统隔离级别</span><br><span class="line">SET GLOBAL TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;</span><br></pre></td></tr></table></figure>
+<h3 id="事务隔离的实现"><a href="#事务隔离的实现" class="headerlink" title="事务隔离的实现"></a>事务隔离的实现</h3><p><strong>在MySQL中，实际上每条记录在更新的时候都会同时记录一条回滚操作。记录上的最新值，通过回滚操作，可以得到之前一个状态的值</strong>。假设一个值从1被按照顺序改成了2，3，4，在回滚日志中会有类似下面的记录。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/transaction/1.jpg" alt="记录"></p>
+<p>当前值是4，但是在查询这条记录的时候，不同时刻启动的事务会有不同的<code>read-view</code>，在视图A、B、C中，记录的值分别为1、2、4。同一条记录在系统中可以存在多个版本，就是数据库的多版本并发控制（MVCC ）。对于<code>read-view A</code>要得到1，就必须将当前值依次执行图中所有的回滚操作得到。</p>
+<p>同时你会发现，即使现在有另外一个事务正在将 4 改成 5，这个事务跟 <code>read-view A、B、C</code>对应的事务是不会冲突的。</p>
+<p>系统会自动判断，如果没有事务需要用到这些回滚日志时（当系统里没有比这个回滚日志更早的<code>read-view</code>的时候），回滚日志会被删除。</p>
+<p>通过上文可以发现，<strong>尽量不要使用长事务</strong>。长事务意味着系统里面存在着很老的事务视图。由于这些事务随时可能访问数据库里面的任何数据，所以这个事务提交之前，数据库里面它可能用到的回滚记录都必须保留，这会导致占用大量的存储空间。</p>
+]]></content>
+      <categories>
+        <category>MySQL</category>
+      </categories>
+      <tags>
+        <tag>MySQL</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>ThreadLocalRondom原理剖析</title>
     <url>/threadlocal-rondom/</url>
     <content><![CDATA[<p>ThreadLocalRondom是JDK 7在并发包中新增的随机数生成器，该类弥补了Random类在并发环境下的缺陷。</p>
@@ -26,7 +267,7 @@
 <h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p>《Java并发编程之美》</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -116,7 +357,7 @@
 <h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p>《MySQL技术内幕：InnoDB存储引擎(第二版)》</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>MySQL</category>
       </categories>
       <tags>
         <tag>MySQL</tag>
@@ -246,7 +487,7 @@
 <h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p>《MySQL技术内幕：InnoDB存储引擎(第二版)》</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>MySQL</category>
       </categories>
       <tags>
         <tag>MySQL</tag>
@@ -440,7 +681,7 @@
 <p>《Java并发编程的艺术》</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -488,7 +729,7 @@
 <p><a href="https://tech.meituan.com/2018/11/15/java-lock.html" target="_blank" rel="noopener">不可不说的Java“锁”事</a></p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -574,7 +815,7 @@
 <p>《深入理解Java虚拟机:第三版》</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -683,7 +924,7 @@
 <h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p>《Java并发编程的艺术》</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -850,11 +1091,12 @@
 </table>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
         <tag>Spring Cloud</tag>
+        <tag>微服务</tag>
       </tags>
   </entry>
   <entry>
@@ -982,7 +1224,7 @@
 <p>《Java并发编程之美》</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1041,7 +1283,7 @@
 <p>虚方法表中存放着各个方法地实际入口地址，如果某个方法在子类中没有被重写，那么子类地虚方法表中唔到地址入口和父类相同方法的地址入口时一致的，都指向父类的实现入口。如果子类中重写了这个方法，子类虚方法表中的地址也会被替换为指向子类实现版本的入口地址。</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1182,7 +1424,7 @@
 <p>使用双亲委派模型的好处就是Java中的类随着它的类加载器一起具备了一种带有优先级的层次关系。例如Object类由启动类加载器加载，同时也是所有类的父类。</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1273,7 +1515,7 @@
 <p>同步一段指令集通常时由Java语言中的synchronized语句块来表示的，JVM指令集中由monitorenter和monitorexit两条指令来支持synchronized关键字的语义。</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1514,7 +1756,7 @@
 </table>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1555,7 +1797,7 @@
 </ul>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1640,7 +1882,7 @@
 </ul>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1690,7 +1932,7 @@
 </ul>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1745,7 +1987,7 @@
 <h3 id="直接指针访问方式"><a href="#直接指针访问方式" class="headerlink" title="直接指针访问方式"></a>直接指针访问方式</h3><p>直接指针访问的最大好处就是速度更快，节省了一次指针定位的时间开销。<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/jvm/IMG_0037.PNG" alt="直接指针访问对象"></p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1811,7 +2053,7 @@
 <h3 id="直接内存（堆外内存）"><a href="#直接内存（堆外内存）" class="headerlink" title="直接内存（堆外内存）"></a>直接内存（堆外内存）</h3><p>直接内存并不是虚拟机运行时数据区的一部分，也不是虚拟机规范中定义的内存区域，但是会被频繁地使用，也可能导致<code>OutOfMemoryError</code><br>直接内存的分配不受JVM控制，但是会受到本机总内存（物理内存，SWAP分区，分页文件）以及处理器寻址空间的限制。</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1838,7 +2080,7 @@
 <p>至此，编译JDK工作完成。</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -1869,7 +2111,7 @@
 </ul>
 ]]></content>
       <tags>
-        <tag>生活</tag>
+        <tag>随笔</tag>
       </tags>
   </entry>
   <entry>
@@ -2023,7 +2265,7 @@
 <p><a href="http://jm.taobao.org/2016/05/12/introduction-to-docker" target="_blank" rel="noopener">Docker 容器概念</a></p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Docker</category>
       </categories>
       <tags>
         <tag>Docker</tag>
@@ -2066,7 +2308,7 @@
 <h3 id="测试文件上传"><a href="#测试文件上传" class="headerlink" title="测试文件上传"></a>测试文件上传</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">/usr/bin/fdfs_upload_file client.conf /tmp/1.txt</span><br></pre></td></tr></table></figure>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Linux</category>
       </categories>
       <tags>
         <tag>DFS</tag>
@@ -2305,10 +2547,11 @@ dataSource：数据源
 </ul>
 <h5 id="实体类实现序列化接口"><a href="#实体类实现序列化接口" class="headerlink" title="实体类实现序列化接口"></a>实体类实现序列化接口</h5>]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
+        <tag>Mybatis</tag>
       </tags>
   </entry>
   <entry>
@@ -2468,11 +2711,10 @@ dataSource：数据源
 <h4 id="使用-Autowired自动装配Bean"><a href="#使用-Autowired自动装配Bean" class="headerlink" title="使用@Autowired自动装配Bean"></a>使用@Autowired自动装配Bean</h4><p>@Autowired注解自动装配具有兼容类型的单个Bean属性</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
-        <tag>PHP代码审计</tag>
-        <tag>安全</tag>
+        <tag>Spring</tag>
       </tags>
   </entry>
   <entry>
@@ -2483,7 +2725,7 @@ dataSource：数据源
 <figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">MyArrayList</span>&lt;<span class="title">E</span>&gt; </span>&#123;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//存储元素的数组</span></span><br><span class="line">    <span class="keyword">private</span> Object[] elementData;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//初始大小</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">int</span> size;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//默认大小</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">int</span> DEFAULT_CAPACITY = <span class="number">10</span>;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//构造方法</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="title">MyArrayList</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        elementData = <span class="keyword">new</span> Object[DEFAULT_CAPACITY];</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="title">MyArrayList</span><span class="params">(<span class="keyword">int</span> capacity)</span></span>&#123;</span><br><span class="line">        <span class="keyword">if</span> (capacity &lt; <span class="number">0</span>)&#123;</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> RuntimeException(<span class="string">"容器的容量不合法"</span>);</span><br><span class="line">        &#125;<span class="keyword">else</span> <span class="keyword">if</span>(capacity == <span class="number">0</span>)&#123;</span><br><span class="line">            elementData = <span class="keyword">new</span> Object[DEFAULT_CAPACITY];</span><br><span class="line">        &#125;<span class="keyword">else</span> &#123;</span><br><span class="line">            elementData = <span class="keyword">new</span> Object[capacity];</span><br><span class="line">        &#125;</span><br><span class="line">        elementData = <span class="keyword">new</span> Object[capacity];</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">int</span> <span class="title">size</span><span class="params">()</span></span>&#123;</span><br><span class="line">        <span class="keyword">return</span> size;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">isEmpty</span><span class="params">()</span></span>&#123;</span><br><span class="line">        <span class="keyword">return</span> size == <span class="number">0</span> ? <span class="keyword">true</span> : <span class="keyword">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//add方法</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">add</span><span class="params">(E element)</span></span>&#123;</span><br><span class="line">        <span class="comment">//扩容操作</span></span><br><span class="line">        <span class="keyword">if</span>(size==elementData.length)&#123;</span><br><span class="line">            <span class="comment">//定义一个新数组，新数组大小是原数组的1.5倍（右移一位相当于除以二）</span></span><br><span class="line">            Object[] newArray = <span class="keyword">new</span> Object[elementData.length+(elementData.length&gt;&gt;<span class="number">1</span>)];</span><br><span class="line">            <span class="comment">//将数据复制到新创建的大数组当中</span></span><br><span class="line">            System.arraycopy(elementData,<span class="number">0</span>,newArray,<span class="number">0</span>,elementData.length);</span><br><span class="line">            <span class="comment">//将新数组赋值为elementData，原来的数据会被垃圾回收</span></span><br><span class="line">            elementData = newArray;</span><br><span class="line">        &#125;</span><br><span class="line">        elementData[size++] = element;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//get方法</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> E <span class="title">get</span><span class="params">(<span class="keyword">int</span> index)</span></span>&#123;</span><br><span class="line">        <span class="comment">//索引判断</span></span><br><span class="line">        checkRange(index);</span><br><span class="line">        <span class="keyword">return</span>  (E)elementData[index];</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//索引判断的方法</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">checkRange</span><span class="params">(<span class="keyword">int</span> index)</span></span>&#123;</span><br><span class="line">        <span class="comment">//索引判断 [0,size)</span></span><br><span class="line">        <span class="keyword">if</span> (index &lt; <span class="number">0</span> || index &gt; size -<span class="number">1</span>)&#123;</span><br><span class="line">            <span class="comment">//不合法,抛出异常</span></span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> RuntimeException(<span class="string">"索引不合法！"</span>+index);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">remove</span><span class="params">(E element)</span></span>&#123;</span><br><span class="line">        <span class="comment">//element，将它和所有元素一一比较，获得第一个比较为true的 返回</span></span><br><span class="line">        <span class="keyword">for</span>(<span class="keyword">int</span> i=<span class="number">0</span>;i&lt;size;i++)&#123;</span><br><span class="line">            <span class="keyword">if</span>(element.equals(get(i)))&#123;</span><br><span class="line">                <span class="comment">//将该元素从此处移除</span></span><br><span class="line">                remove(i);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//删除</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">remove</span><span class="params">(<span class="keyword">int</span> index)</span></span>&#123;</span><br><span class="line">        <span class="keyword">int</span> numMoved = elementData.length - index -<span class="number">1</span>;</span><br><span class="line">        <span class="keyword">if</span>(numMoved &gt; <span class="number">0</span>)&#123;</span><br><span class="line">            System.arraycopy(elementData,index+<span class="number">1</span>,elementData,index,numMoved);</span><br><span class="line">        &#125;</span><br><span class="line">        elementData[--size] = <span class="keyword">null</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//set方法</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">set</span><span class="params">(E element,<span class="keyword">int</span> index)</span></span>&#123;</span><br><span class="line">        checkRange(index);</span><br><span class="line">        elementData[index] = element;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//重写toString方法</span></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> String <span class="title">toString</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        StringBuilder sb = <span class="keyword">new</span> StringBuilder();</span><br><span class="line">        sb.append(<span class="string">"["</span>);</span><br><span class="line">        <span class="keyword">for</span> (<span class="keyword">int</span> i=<span class="number">0</span>;i&lt;size;i++)&#123;</span><br><span class="line">            sb.append(elementData[i]+<span class="string">","</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        sb.setCharAt(sb.length()-<span class="number">1</span>,<span class="string">']'</span>);</span><br><span class="line">        <span class="keyword">return</span> sb.toString();</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> </span>&#123;</span><br><span class="line">        MyArrayList s1 = <span class="keyword">new</span> MyArrayList();</span><br><span class="line">        <span class="keyword">for</span> (<span class="keyword">int</span> i=<span class="number">0</span>;i&lt;<span class="number">20</span>;i++)&#123;</span><br><span class="line">            s1.add(<span class="string">"add"</span>+i);</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.println(s1);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Java</category>
       </categories>
       <tags>
         <tag>Java</tag>
@@ -2508,7 +2750,7 @@ dataSource：数据源
 </ul>
 ]]></content>
       <categories>
-        <category>生活</category>
+        <category>随笔</category>
       </categories>
   </entry>
   <entry>
@@ -2569,11 +2811,12 @@ dataSource：数据源
 <p>不断的学习</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Web安全</category>
       </categories>
       <tags>
         <tag>PHP代码审计</tag>
         <tag>安全</tag>
+        <tag>CTF</tag>
       </tags>
   </entry>
   <entry>
@@ -2612,11 +2855,12 @@ dataSource：数据源
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>不断的前进</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Web安全</category>
       </categories>
       <tags>
         <tag>PHP代码审计</tag>
         <tag>安全</tag>
+        <tag>CTF</tag>
       </tags>
   </entry>
   <entry>
@@ -2660,11 +2904,12 @@ dataSource：数据源
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>熬夜写文章已经很晚了，就懒得再写总结了。以后每周总结一篇关于代码审计的小知识点。</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Web安全</category>
       </categories>
       <tags>
         <tag>PHP代码审计</tag>
         <tag>安全</tag>
+        <tag>CTF</tag>
       </tags>
   </entry>
   <entry>
@@ -2680,7 +2925,7 @@ dataSource：数据源
 <p>第一次来南京，南京，下次见。</p>
 ]]></content>
       <categories>
-        <category>生活</category>
+        <category>随笔</category>
       </categories>
   </entry>
   <entry>
@@ -2711,11 +2956,12 @@ dataSource：数据源
 <h2 id="0x03-总结"><a href="#0x03-总结" class="headerlink" title="0x03 总结"></a>0x03 总结</h2><p>博客文章以后会在公众号上同步发布，欢迎师傅们关注。微信号：coding_lin</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Web安全</category>
       </categories>
       <tags>
         <tag>PHP代码审计</tag>
         <tag>安全</tag>
+        <tag>CTF</tag>
       </tags>
   </entry>
   <entry>
@@ -2761,11 +3007,12 @@ dataSource：数据源
 <p>当然最重要的是，维持网站中间件的安全，杜绝旧版解析漏洞的存在。</p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Web安全</category>
       </categories>
       <tags>
         <tag>PHP代码审计</tag>
         <tag>安全</tag>
+        <tag>CTF</tag>
       </tags>
   </entry>
   <entry>
@@ -2784,7 +3031,7 @@ dataSource：数据源
 <h2 id="COOKIE"><a href="#COOKIE" class="headerlink" title="COOKIE"></a>COOKIE</h2><p>TIP: 0==not<br>给出的提示以上信息，题目又是cookie，查看cookie发现它的值为0，将它改成1，得到flag:nctf{cookie_is_different_from_session}<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/nctf1.png" alt="nctf"></p>
 ]]></content>
       <categories>
-        <category>技术</category>
+        <category>Web安全</category>
       </categories>
       <tags>
         <tag>CTF</tag>
@@ -2797,7 +3044,7 @@ dataSource：数据源
 <h2 id="关于博客"><a href="#关于博客" class="headerlink" title="关于博客"></a>关于博客</h2><p>大概是从2014年开始就开始折腾各种博客系统，从Wordpress到Typecho，也尝试过Ghost，从虚拟空间到自己的VPS，以前就喜欢折腾各种功能，流量统计，阅读量统计等等，然而干货分享类的文章却少之又少，现在换成Hexo+Github，主要的原因就是因为它简单方便。希望自己能坚持写下去，希望新博客能够见证自己的成长，包括生活与技术:)</p>
 ]]></content>
       <categories>
-        <category>生活</category>
+        <category>随笔</category>
       </categories>
   </entry>
 </search>
