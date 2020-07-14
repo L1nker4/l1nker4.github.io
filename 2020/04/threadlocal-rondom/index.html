@@ -1,24 +1,246 @@
-<!DOCTYPE html><html lang="zh-Hans"><head><meta name="generator" content="Hexo 3.9.0"><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta name="description" content="ThreadLocalRondom原理剖析"><meta name="keywords" content="Java,并发"><meta name="author" content="L1nker4"><meta name="copyright" content="L1nker4"><title>ThreadLocalRondom原理剖析 | L1nker4's Blog</title><link rel="shortcut icon" href="/favicon.ico"><link rel="stylesheet" href="/css/index.css?version=1.7.0"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@latest/css/font-awesome.min.css?version=1.7.0"><meta name="format-detection" content="telephone=no"><meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="https://cdn.jsdelivr.net"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/gitalk/dist/gitalk.min.css"><script src="https://cdn.jsdelivr.net/npm/gitalk@latest/dist/gitalk.min.js"></script><script src="https://cdn.jsdelivr.net/npm/blueimp-md5@2.10.0/js/md5.min.js"></script><link rel="dns-prefetch" href="https://hm.baidu.com"><script>var _hmt = _hmt || [];
-(function() {
-  var hm = document.createElement("script");
-  hm.src = "https://hm.baidu.com/hm.js?14b7dca7880e79dfe4d7db3cfc3b7e98";
-  var s = document.getElementsByTagName("script")[0]; 
-  s.parentNode.insertBefore(hm, s);
-})();</script><meta http-equiv="Cache-Control" content="no-transform"><meta http-equiv="Cache-Control" content="no-siteapp"><script>var GLOBAL_CONFIG = { 
-  root: '/',
-  algolia: undefined,
-  localSearch: undefined,
-  copy: {
-    success: '复制成功',
-    error: '复制错误',
-    noSupport: '浏览器不支持'
-  }
-} </script></head><body><canvas class="fireworks"></canvas><i class="fa fa-arrow-right" id="toggle-sidebar" aria-hidden="true"></i><div id="sidebar" data-display="true"><div class="toggle-sidebar-info text-center"><span data-toggle="切换文章详情">切换站点概览</span><hr></div><div class="sidebar-toc"><div class="sidebar-toc__title">目录</div><div class="sidebar-toc__progress"><span class="progress-notice">你已经读了</span><span class="progress-num">0</span><span class="progress-percentage">%</span><div class="sidebar-toc__progress-bar"></div></div><div class="sidebar-toc__content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#Random的局限性"><span class="toc-number">1.</span> <span class="toc-text">Random的局限性</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ThreadLocalRandom简介"><span class="toc-number">2.</span> <span class="toc-text">ThreadLocalRandom简介</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#current方法"><span class="toc-number">3.</span> <span class="toc-text">current方法</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Unsafe机制"><span class="toc-number">4.</span> <span class="toc-text">Unsafe机制</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#nextInt方法"><span class="toc-number">5.</span> <span class="toc-text">nextInt方法</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#nextSeed方法"><span class="toc-number">6.</span> <span class="toc-text">nextSeed方法</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#参考"><span class="toc-number">7.</span> <span class="toc-text">参考</span></a></li></ol></div></div><div class="author-info hide"><div class="author-info__avatar text-center"><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/avatar.jpg"></div><div class="author-info__name text-center">L1nker4</div><div class="author-info__description text-center">Talk is cheap,show me the code.</div><div class="follow-button"><a href="https://github.com/l1nker4">Follow Me</a></div><hr><div class="author-info-articles"><a class="author-info-articles__archives article-meta" href="/archives"><span class="pull-left">文章</span><span class="pull-right">49</span></a><a class="author-info-articles__tags article-meta" href="/tags"><span class="pull-left">标签</span><span class="pull-right">19</span></a><a class="author-info-articles__categories article-meta" href="/categories"><span class="pull-left">分类</span><span class="pull-right">16</span></a></div><hr><div class="author-info-links"><div class="author-info-links__title text-center">Links</div><a class="author-info-links__name text-center" href="//d-veda.top">D-Veda</a><a class="author-info-links__name text-center" href="//blog.izgq.net/">ZGQ</a><a class="author-info-links__name text-center" href="//lixianhua.com">绛木子</a></div></div></div><div id="content-outer"><div id="top-container" style="background-image: url(https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg.jpg)"><div id="page-header"><span class="pull-left"> <a id="site-name" href="/">L1nker4's Blog</a></span><i class="fa fa-bars toggle-menu pull-right" aria-hidden="true"></i><span class="pull-right menus">   <a class="site-page" href="/">首页</a><a class="site-page" href="/archives">文章</a><a class="site-page" href="/tags">标签</a><a class="site-page" href="/categories">分类</a><a class="site-page" href="/about">关于</a></span><span class="pull-right"></span></div><div id="post-info"><div id="post-title">ThreadLocalRondom原理剖析</div><div id="post-meta"><time class="post-meta__date"><i class="fa fa-calendar" aria-hidden="true"></i> 2020-04-28</time><span class="post-meta__separator">|</span><i class="fa fa-inbox post-meta__icon" aria-hidden="true"></i><a class="post-meta__categories" href="/categories/Java/">Java</a><i class="fa fa-angle-right" aria-hidden="true"></i><i class="fa fa-inbox post-meta__icon" aria-hidden="true"></i><a class="post-meta__categories" href="/categories/Java/源码分析/">源码分析</a><div class="post-meta-wordcount"><span>字数总计: </span><span class="word-count">857</span><span class="post-meta__separator">|</span><span>阅读时长: 4 分钟</span></div></div></div></div><div class="layout" id="content-inner"><article id="post"><div class="article-container" id="post-content"><p>ThreadLocalRondom是JDK 7在并发包中新增的随机数生成器，该类弥补了Random类在并发环境下的缺陷。</p>
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+
+
+
+
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" type="image/png" href="/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="description" content="Talk is cheap,show me the code.">
+  <meta name="author" content="L1nker4">
+  <meta name="keywords" content="l1nker4">
+  <title>ThreadLocalRondom原理剖析 - l1nker4&#39;s Blog</title>
+
+  <link rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/css/bootstrap.min.css">
+
+
+  <link rel="stylesheet" href="https://cdn.staticfile.org/github-markdown-css/4.0.0/github-markdown.min.css">
+  <link rel="stylesheet" href="/lib/hint/hint.min.css">
+
+  
+    <link rel="stylesheet" href="https://cdn.staticfile.org/highlight.js/10.0.0/styles/atom-one-dark.min.css">
+  
+
+  
+    <link rel="stylesheet" href="https://cdn.staticfile.org/gitalk/1.6.2/gitalk.css">
+  
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_yg9cfy8wd6.css">
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_pjno9b9zyxs.css">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<!-- 自定义样式保持在最底部 -->
+
+
+  <script src="/js/utils.js"></script>
+</head>
+
+
+<body>
+  <header style="height: 70vh;">
+    <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand"
+       href="/">&nbsp;<strong>l1nker4 's Blog'</strong>&nbsp;</a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/">
+                <i class="iconfont icon-home-fill"></i>
+                首页
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/">
+                <i class="iconfont icon-archive-fill"></i>
+                归档
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/categories/">
+                <i class="iconfont icon-category-fill"></i>
+                分类
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/tags/">
+                <i class="iconfont icon-tags-fill"></i>
+                标签
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/">
+                <i class="iconfont icon-user-fill"></i>
+                关于
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/">
+                <i class="iconfont icon-link-fill"></i>
+                友链
+              </a>
+            </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="view intro-2" id="background" parallax=true
+         style="background: url('/images/bg.jpg') no-repeat center center;
+           background-size: cover;">
+      <div class="full-bg-img">
+        <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+          <div class="container text-center white-text fadeInUp">
+            <span class="h2" id="subtitle">
+              
+            </span>
+
+            
+              
+  <div class="mt-3 post-meta">
+    <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+    <time datetime="2020-04-28 17:31">
+      2020年4月28日 下午
+    </time>
+  </div>
+
+
+<div class="mt-1">
+  
+    
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-chart"></i>
+      792 字
+    </span>
+  
+
+  
+    
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-clock-fill"></i>
+      
+      
+      11
+       分钟
+    </span>
+  
+
+  
+  
+</div>
+
+            
+          </div>
+
+          
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid">
+  <div class="row">
+    <div class="d-none d-lg-block col-lg-2"></div>
+    <div class="col-lg-8 nopadding-md">
+      <div class="container nopadding-md" id="board-ctn">
+        <div class="py-5" id="board">
+          <div class="post-content mx-auto" id="post">
+            
+            <article class="markdown-body">
+              <p>ThreadLocalRondom是JDK 7在并发包中新增的随机数生成器，该类弥补了Random类在并发环境下的缺陷。</p>
 <a id="more"></a>
 <h2 id="Random的局限性"><a href="#Random的局限性" class="headerlink" title="Random的局限性"></a>Random的局限性</h2><p>Random生成随机数的方法如下：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">int</span> <span class="title">nextInt</span><span class="params">(<span class="keyword">int</span> bound)</span> </span>&#123;</span><br><span class="line">    	<span class="comment">//参数校验</span></span><br><span class="line">        <span class="keyword">if</span> (bound &lt;= <span class="number">0</span>)</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> IllegalArgumentException(BadBound);</span><br><span class="line">		<span class="comment">//根据老的种子生成新的种子</span></span><br><span class="line">        <span class="keyword">int</span> r = next(<span class="number">31</span>);</span><br><span class="line">        <span class="keyword">int</span> m = bound - <span class="number">1</span>;</span><br><span class="line">    	<span class="comment">//根据新种子计算随机数</span></span><br><span class="line">        <span class="keyword">if</span> ((bound &amp; m) == <span class="number">0</span>)</span><br><span class="line">            r = (<span class="keyword">int</span>)((bound * (<span class="keyword">long</span>)r) &gt;&gt; <span class="number">31</span>);</span><br><span class="line">        <span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="keyword">for</span> (<span class="keyword">int</span> u = r;</span><br><span class="line">                 u - (r = u % bound) + m &lt; <span class="number">0</span>;</span><br><span class="line">                 u = next(<span class="number">31</span>))</span><br><span class="line">                ;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> r;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">int</span> <span class="hljs-title">nextInt</span><span class="hljs-params">(<span class="hljs-keyword">int</span> bound)</span> </span>&#123;
+    	<span class="hljs-comment">//参数校验</span>
+        <span class="hljs-keyword">if</span> (bound &lt;= <span class="hljs-number">0</span>)
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalArgumentException(BadBound);
+		<span class="hljs-comment">//根据老的种子生成新的种子</span>
+        <span class="hljs-keyword">int</span> r = next(<span class="hljs-number">31</span>);
+        <span class="hljs-keyword">int</span> m = bound - <span class="hljs-number">1</span>;
+    	<span class="hljs-comment">//根据新种子计算随机数</span>
+        <span class="hljs-keyword">if</span> ((bound &amp; m) == <span class="hljs-number">0</span>)
+            r = (<span class="hljs-keyword">int</span>)((bound * (<span class="hljs-keyword">long</span>)r) &gt;&gt; <span class="hljs-number">31</span>);
+        <span class="hljs-keyword">else</span> &#123;
+            <span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> u = r;
+                 u - (r = u % bound) + m &lt; <span class="hljs-number">0</span>;
+                 u = next(<span class="hljs-number">31</span>))
+                ;
+        &#125;
+        <span class="hljs-keyword">return</span> r;
+    &#125;</code></pre></div>
 <p>next方法通过计算生成新的种子。用原子变量来存放种子，多线程的情况下，CAS操作会保证只有一个线程可以更新老的种子为新种子，更新失败的线程进行自旋，这降低了并发性能，所以产生了ThreadLocalRandom。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">protected</span> <span class="keyword">int</span> <span class="title">next</span><span class="params">(<span class="keyword">int</span> bits)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">long</span> oldseed, nextseed;</span><br><span class="line">        AtomicLong seed = <span class="keyword">this</span>.seed;</span><br><span class="line">        <span class="keyword">do</span> &#123;</span><br><span class="line">            oldseed = seed.get();</span><br><span class="line">            <span class="comment">//seed计算公式，通过CAS操作进行更新</span></span><br><span class="line">            nextseed = (oldseed * multiplier + addend) &amp; mask;</span><br><span class="line">        &#125; <span class="keyword">while</span> (!seed.compareAndSet(oldseed, nextseed));</span><br><span class="line">    	<span class="comment">//将得到的值进行逻辑右移</span></span><br><span class="line">        <span class="keyword">return</span> (<span class="keyword">int</span>)(nextseed &gt;&gt;&gt; (<span class="number">48</span> - bits));</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">int</span> <span class="hljs-title">next</span><span class="hljs-params">(<span class="hljs-keyword">int</span> bits)</span> </span>&#123;
+        <span class="hljs-keyword">long</span> oldseed, nextseed;
+        AtomicLong seed = <span class="hljs-keyword">this</span>.seed;
+        <span class="hljs-keyword">do</span> &#123;
+            oldseed = seed.get();
+            <span class="hljs-comment">//seed计算公式，通过CAS操作进行更新</span>
+            nextseed = (oldseed * multiplier + addend) &amp; mask;
+        &#125; <span class="hljs-keyword">while</span> (!seed.compareAndSet(oldseed, nextseed));
+    	<span class="hljs-comment">//将得到的值进行逻辑右移</span>
+        <span class="hljs-keyword">return</span> (<span class="hljs-keyword">int</span>)(nextseed &gt;&gt;&gt; (<span class="hljs-number">48</span> - bits));
+    &#125;</code></pre></div>
 <h2 id="ThreadLocalRandom简介"><a href="#ThreadLocalRandom简介" class="headerlink" title="ThreadLocalRandom简介"></a>ThreadLocalRandom简介</h2><p>ThreadLocalRandom和ThreadLocal的原理相似，ThreadLocalRandom使得每个线程都维护自己独有的种子变量，这样就不存在竞争问题，大大提高并发性能。</p>
 <h2 id="current方法"><a href="#current方法" class="headerlink" title="current方法"></a>current方法</h2><p>在current方法中，获得ThreadLocalRandom实例并初始化。seed不再是一个AtomicLong变量，在Thread类中有三个变量。</p>
 <ul>
@@ -27,24 +249,337 @@
 <li>threadLocalRandomSecondarySeed：二级种子。</li>
 </ul>
 <p>这三个变量都加了<code>sun.misc.Contended</code>注解，用来避免伪共享问题。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">   <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> ThreadLocalRandom <span class="title">current</span><span class="params">()</span> </span>&#123;</span><br><span class="line">       <span class="comment">//判断是否初始化</span></span><br><span class="line">       <span class="keyword">if</span> (UNSAFE.getInt(Thread.currentThread(), PROBE) == <span class="number">0</span>)</span><br><span class="line">           <span class="comment">//进行初始化</span></span><br><span class="line">           localInit();</span><br><span class="line">       <span class="keyword">return</span> instance;</span><br><span class="line">   &#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">localInit</span><span class="params">()</span> </span>&#123;</span><br><span class="line">       <span class="keyword">int</span> p = probeGenerator.addAndGet(PROBE_INCREMENT);</span><br><span class="line">       <span class="keyword">int</span> probe = (p == <span class="number">0</span>) ? <span class="number">1</span> : p; <span class="comment">// skip 0</span></span><br><span class="line">       <span class="keyword">long</span> seed = mix64(seeder.getAndAdd(SEEDER_INCREMENT));</span><br><span class="line">       Thread t = Thread.currentThread();</span><br><span class="line">       UNSAFE.putLong(t, SEED, seed);</span><br><span class="line">       UNSAFE.putInt(t, PROBE, probe);</span><br><span class="line">   &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment">/** The current seed for a ThreadLocalRandom */</span></span><br><span class="line">   <span class="meta">@sun</span>.misc.Contended(<span class="string">"tlr"</span>)</span><br><span class="line">   <span class="keyword">long</span> threadLocalRandomSeed;</span><br><span class="line"></span><br><span class="line">   <span class="comment">/** Probe hash value; nonzero if threadLocalRandomSeed initialized */</span></span><br><span class="line">   <span class="meta">@sun</span>.misc.Contended(<span class="string">"tlr"</span>)</span><br><span class="line">   <span class="keyword">int</span> threadLocalRandomProbe;</span><br><span class="line"></span><br><span class="line">   <span class="comment">/** Secondary seed isolated from public ThreadLocalRandom sequence */</span></span><br><span class="line">   <span class="meta">@sun</span>.misc.Contended(<span class="string">"tlr"</span>)</span><br><span class="line">   <span class="keyword">int</span> threadLocalRandomSecondarySeed;</span><br></pre></td></tr></table></figure>
-<h2 id="Unsafe机制"><a href="#Unsafe机制" class="headerlink" title="Unsafe机制"></a>Unsafe机制</h2><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> sun.misc.Unsafe UNSAFE;</span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">long</span> SEED;</span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">long</span> PROBE;</span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">long</span> SECONDARY;</span><br><span class="line"><span class="keyword">static</span> &#123;</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="comment">//获取Unsafe实例</span></span><br><span class="line">        UNSAFE = sun.misc.Unsafe.getUnsafe();</span><br><span class="line">        Class&lt;?&gt; tk = Thread<span class="class">.<span class="keyword">class</span></span>;</span><br><span class="line">        <span class="comment">//获取Thread类里面threadLocalRandomSeed变量在Thread实例的偏移量</span></span><br><span class="line">        SEED = UNSAFE.objectFieldOffset</span><br><span class="line">            (tk.getDeclaredField(<span class="string">"threadLocalRandomSeed"</span>));</span><br><span class="line">        <span class="comment">//获取Thread类里面threadLocalRandomProbe变量在Thread实例的偏移量</span></span><br><span class="line">        PROBE = UNSAFE.objectFieldOffset</span><br><span class="line">            (tk.getDeclaredField(<span class="string">"threadLocalRandomProbe"</span>));</span><br><span class="line">        <span class="comment">//获取Thread类里面threadLocalRandomSecondarySeed变量在Thread实例的偏移量</span></span><br><span class="line">        SECONDARY = UNSAFE.objectFieldOffset</span><br><span class="line">            (tk.getDeclaredField(<span class="string">"threadLocalRandomSecondarySeed"</span>));</span><br><span class="line">    &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> Error(e);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<div class="hljs"><pre><code class="hljs java">   <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> ThreadLocalRandom <span class="hljs-title">current</span><span class="hljs-params">()</span> </span>&#123;
+       <span class="hljs-comment">//判断是否初始化</span>
+       <span class="hljs-keyword">if</span> (UNSAFE.getInt(Thread.currentThread(), PROBE) == <span class="hljs-number">0</span>)
+           <span class="hljs-comment">//进行初始化</span>
+           localInit();
+       <span class="hljs-keyword">return</span> instance;
+   &#125;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">void</span> <span class="hljs-title">localInit</span><span class="hljs-params">()</span> </span>&#123;
+       <span class="hljs-keyword">int</span> p = probeGenerator.addAndGet(PROBE_INCREMENT);
+       <span class="hljs-keyword">int</span> probe = (p == <span class="hljs-number">0</span>) ? <span class="hljs-number">1</span> : p; <span class="hljs-comment">// skip 0</span>
+       <span class="hljs-keyword">long</span> seed = mix64(seeder.getAndAdd(SEEDER_INCREMENT));
+       Thread t = Thread.currentThread();
+       UNSAFE.putLong(t, SEED, seed);
+       UNSAFE.putInt(t, PROBE, probe);
+   &#125;
+
+
+<span class="hljs-comment">/** The current seed for a ThreadLocalRandom */</span>
+   <span class="hljs-meta">@sun</span>.misc.Contended(<span class="hljs-string">"tlr"</span>)
+   <span class="hljs-keyword">long</span> threadLocalRandomSeed;
+
+   <span class="hljs-comment">/** Probe hash value; nonzero if threadLocalRandomSeed initialized */</span>
+   <span class="hljs-meta">@sun</span>.misc.Contended(<span class="hljs-string">"tlr"</span>)
+   <span class="hljs-keyword">int</span> threadLocalRandomProbe;
+
+   <span class="hljs-comment">/** Secondary seed isolated from public ThreadLocalRandom sequence */</span>
+   <span class="hljs-meta">@sun</span>.misc.Contended(<span class="hljs-string">"tlr"</span>)
+   <span class="hljs-keyword">int</span> threadLocalRandomSecondarySeed;</code></pre></div>
+<h2 id="Unsafe机制"><a href="#Unsafe机制" class="headerlink" title="Unsafe机制"></a>Unsafe机制</h2><div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> sun.misc.Unsafe UNSAFE;
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">long</span> SEED;
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">long</span> PROBE;
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">long</span> SECONDARY;
+<span class="hljs-keyword">static</span> &#123;
+    <span class="hljs-keyword">try</span> &#123;
+        <span class="hljs-comment">//获取Unsafe实例</span>
+        UNSAFE = sun.misc.Unsafe.getUnsafe();
+        Class&lt;?&gt; tk = Thread<span class="hljs-class">.<span class="hljs-keyword">class</span></span>;
+        <span class="hljs-comment">//获取Thread类里面threadLocalRandomSeed变量在Thread实例的偏移量</span>
+        SEED = UNSAFE.objectFieldOffset
+            (tk.getDeclaredField(<span class="hljs-string">"threadLocalRandomSeed"</span>));
+        <span class="hljs-comment">//获取Thread类里面threadLocalRandomProbe变量在Thread实例的偏移量</span>
+        PROBE = UNSAFE.objectFieldOffset
+            (tk.getDeclaredField(<span class="hljs-string">"threadLocalRandomProbe"</span>));
+        <span class="hljs-comment">//获取Thread类里面threadLocalRandomSecondarySeed变量在Thread实例的偏移量</span>
+        SECONDARY = UNSAFE.objectFieldOffset
+            (tk.getDeclaredField(<span class="hljs-string">"threadLocalRandomSecondarySeed"</span>));
+    &#125; <span class="hljs-keyword">catch</span> (Exception e) &#123;
+        <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> Error(e);
+    &#125;
+&#125;</code></pre></div>
 <h2 id="nextInt方法"><a href="#nextInt方法" class="headerlink" title="nextInt方法"></a>nextInt方法</h2><p>nextInt方法用于获取下一个随机数。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">int</span> <span class="title">nextInt</span><span class="params">(<span class="keyword">int</span> bound)</span> </span>&#123;</span><br><span class="line">       <span class="comment">//参数校验</span></span><br><span class="line">       <span class="keyword">if</span> (bound &lt;= <span class="number">0</span>)</span><br><span class="line">           <span class="keyword">throw</span> <span class="keyword">new</span> IllegalArgumentException(BadBound);</span><br><span class="line">       <span class="comment">//根据当前线程中的种子计算新种子</span></span><br><span class="line">       <span class="keyword">int</span> r = mix32(nextSeed());</span><br><span class="line">       <span class="comment">//根据新种子计算随机数</span></span><br><span class="line">       <span class="keyword">int</span> m = bound - <span class="number">1</span>;</span><br><span class="line">       <span class="keyword">if</span> ((bound &amp; m) == <span class="number">0</span>) <span class="comment">// power of two</span></span><br><span class="line">           r &amp;= m;</span><br><span class="line">       <span class="keyword">else</span> &#123;</span><br><span class="line">           <span class="keyword">for</span> (<span class="keyword">int</span> u = r &gt;&gt;&gt; <span class="number">1</span>;</span><br><span class="line">                u + m - (r = u % bound) &lt; <span class="number">0</span>;</span><br><span class="line">                u = mix32(nextSeed()) &gt;&gt;&gt; <span class="number">1</span>)</span><br><span class="line">               ;</span><br><span class="line">       &#125;</span><br><span class="line">       <span class="keyword">return</span> r;</span><br><span class="line">   &#125;</span><br></pre></td></tr></table></figure>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">int</span> <span class="hljs-title">nextInt</span><span class="hljs-params">(<span class="hljs-keyword">int</span> bound)</span> </span>&#123;
+       <span class="hljs-comment">//参数校验</span>
+       <span class="hljs-keyword">if</span> (bound &lt;= <span class="hljs-number">0</span>)
+           <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalArgumentException(BadBound);
+       <span class="hljs-comment">//根据当前线程中的种子计算新种子</span>
+       <span class="hljs-keyword">int</span> r = mix32(nextSeed());
+       <span class="hljs-comment">//根据新种子计算随机数</span>
+       <span class="hljs-keyword">int</span> m = bound - <span class="hljs-number">1</span>;
+       <span class="hljs-keyword">if</span> ((bound &amp; m) == <span class="hljs-number">0</span>) <span class="hljs-comment">// power of two</span>
+           r &amp;= m;
+       <span class="hljs-keyword">else</span> &#123;
+           <span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> u = r &gt;&gt;&gt; <span class="hljs-number">1</span>;
+                u + m - (r = u % bound) &lt; <span class="hljs-number">0</span>;
+                u = mix32(nextSeed()) &gt;&gt;&gt; <span class="hljs-number">1</span>)
+               ;
+       &#125;
+       <span class="hljs-keyword">return</span> r;
+   &#125;</code></pre></div>
 <h2 id="nextSeed方法"><a href="#nextSeed方法" class="headerlink" title="nextSeed方法"></a>nextSeed方法</h2><p>获取当前线程的threadLocalRandomSeed变量值，然后加上GAMMA值作为新种子。可参照上文Unsafe机制。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">final</span> <span class="keyword">long</span> <span class="title">nextSeed</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    Thread t; <span class="keyword">long</span> r;</span><br><span class="line">    UNSAFE.putLong(t = Thread.currentThread(), SEED,</span><br><span class="line">                   r = UNSAFE.getLong(t, SEED) + GAMMA);</span><br><span class="line">    <span class="keyword">return</span> r;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">final</span> <span class="hljs-keyword">long</span> <span class="hljs-title">nextSeed</span><span class="hljs-params">()</span> </span>&#123;
+    Thread t; <span class="hljs-keyword">long</span> r;
+    UNSAFE.putLong(t = Thread.currentThread(), SEED,
+                   r = UNSAFE.getLong(t, SEED) + GAMMA);
+    <span class="hljs-keyword">return</span> r;
+&#125;</code></pre></div>
 <h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p>《Java并发编程之美》</p>
-</div></article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">文章作者: </span><span class="post-copyright-info"><a href="mailto:undefined">L1nker4</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">文章链接: </span><span class="post-copyright-info"><a href="https://l1n.wang/2020/04/threadlocal-rondom/">https://l1n.wang/2020/04/threadlocal-rondom/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来自 <a href="https://l1n.wang">L1nker4's Blog</a>！</span></div></div><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java/">Java</a><a class="post-meta__tags" href="/tags/并发/">并发</a></div><nav id="pagination"><div class="prev-post pull-left"><a href="/2020/04/mysql-transaction/"><i class="fa fa-chevron-left">  </i><span>探索MySQL的事务与锁机制</span></a></div><div class="next-post pull-right"><a href="/2020/04/mysql-table/"><span>MySQL表</span><i class="fa fa-chevron-right"></i></a></div></nav><div id="gitalk-container"></div><script>var gitalk = new Gitalk({
-  clientID: '226ad397e12eba1347bc',
-  clientSecret: '85cb24d483f4f56017094058c183d56d86f7a638',
-  repo: 'blog-comment',
-  owner: 'l1nker4',
-  admin: 'l1nker4',
-  id: md5(decodeURI(location.pathname)),
-  language: 'zh-CN'
-})
-gitalk.render('gitalk-container')</script></div></div><footer class="footer-bg" style="background-image: url(https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg.jpg)"><div class="layout" id="footer"><div class="copyright">&copy;2018 - 2020 - L1nker4</div><div class="icp"><a><span>苏ICP备20022682号</span></a></div><div class="busuanzi"><script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><span id="busuanzi_container_page_pv"><i class="fa fa-file"></i><span id="busuanzi_value_page_pv"></span><span></span></span></div></div></footer><i class="fa fa-arrow-up" id="go-up" aria-hidden="true"></i><script src="https://cdn.jsdelivr.net/npm/animejs@latest/anime.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jquery@latest/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@latest/dist/jquery.fancybox.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-animate@latest/velocity.min.js"></script><script src="https://cdn.jsdelivr.net/npm/velocity-ui-pack@latest/velocity.ui.min.js"></script><script src="/js/utils.js?version=1.7.0"></script><script src="/js/fancybox.js?version=1.7.0"></script><script src="/js/sidebar.js?version=1.7.0"></script><script src="/js/copy.js?version=1.7.0"></script><script src="/js/fireworks.js?version=1.7.0"></script><script src="/js/transition.js?version=1.7.0"></script><script src="/js/scroll.js?version=1.7.0"></script><script src="/js/head.js?version=1.7.0"></script><script>if(/Android|webOS|iPhone|iPod|iPad|BlackBerry/i.test(navigator.userAgent)) {
-  $('#nav').addClass('is-mobile')
-  $('footer').addClass('is-mobile')
-  $('#top-container').addClass('is-mobile')
-}</script></body></html>
+
+            </article>
+            <hr>
+            <div>
+              <div class="post-metas mb-3">
+                
+                  <div class="post-meta mr-3">
+                    <i class="iconfont icon-category"></i>
+                    
+                      <a class="hover-with-bg" href="/categories/Java/">Java</a>
+                    
+                      <a class="hover-with-bg" href="/categories/Java/源码分析/">源码分析</a>
+                    
+                  </div>
+                
+                
+                  <div class="post-meta">
+                    <i class="iconfont icon-tags"></i>
+                    
+                      <a class="hover-with-bg" href="/tags/Java/">Java</a>
+                    
+                      <a class="hover-with-bg" href="/tags/并发/">并发</a>
+                    
+                  </div>
+                
+              </div>
+              
+                <p class="note note-warning">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！</p>
+              
+              
+                <div class="post-prevnext row">
+                  <div class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/04/mysql-transaction/">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">探索MySQL的事务与锁机制</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </div>
+                  <div class="post-next col-6">
+                    
+                    
+                      <a href="/2020/04/mysql-table/">
+                        <span class="hidden-mobile">MySQL表</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </div>
+                </div>
+              
+            </div>
+
+            
+          </div>
+        </div>
+      </div>
+    </div>
+    
+      <div class="d-none d-lg-block col-lg-2 toc-container" id="toc-ctn">
+        <div id="toc">
+  <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
+  <div id="tocbot"></div>
+</div>
+
+      </div>
+    
+  </div>
+</div>
+
+<!-- Custom -->
+
+
+    
+  </main>
+
+  
+    <a id="scroll-top-button" href="#" role="button">
+      <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+    </a>
+  
+
+  
+
+  
+
+  
+
+  <footer class="mt-5">
+  <div class="text-center py-3">
+    
+
+    
+  <!-- 备案信息 -->
+  <div class="beian">
+    <a href="http://beian.miit.gov.cn/" target="_blank"
+       rel="nofollow noopener">苏ICP备20022682号</a>
+    
+  </div>
+
+
+    
+  </div>
+</footer>
+
+<!-- SCRIPTS -->
+<script  src="https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js" ></script>
+<script  src="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/js/bootstrap.min.js" ></script>
+<script  src="/js/debouncer.js" ></script>
+<script  src="/js/main.js" ></script>
+
+<!-- Plugins -->
+
+
+  
+    <script  src="/js/lazyload.js" ></script>
+  
+
+
+
+  <script defer src="https://cdn.staticfile.org/clipboard.js/2.0.6/clipboard.min.js" ></script>
+  <script  src="/js/clipboard-use.js" ></script>
+
+
+
+
+
+
+
+  <script  src="https://cdn.staticfile.org/tocbot/4.11.1/tocbot.min.js" ></script>
+  <script>
+    $(document).ready(function () {
+      var boardCtn = $('#board-ctn');
+      var boardTop = boardCtn.offset().top;
+
+      tocbot.init({
+        tocSelector: '#tocbot',
+        contentSelector: 'article.markdown-body',
+        headingSelector: 'h1,h2,h3,h4,h5,h6',
+        linkClass: 'tocbot-link',
+        activeLinkClass: 'tocbot-active-link',
+        listClass: 'tocbot-list',
+        isCollapsedClass: 'tocbot-is-collapsed',
+        collapsibleClass: 'tocbot-is-collapsible',
+        collapseDepth: 0,
+        scrollSmooth: true,
+        headingsOffset: -boardTop
+      });
+      if ($('.toc-list-item').length > 0) {
+        $('#toc').css('visibility', 'visible');
+      }
+    });
+  </script>
+
+
+
+  <script  src="https://cdn.staticfile.org/typed.js/2.0.11/typed.min.js" ></script>
+  <script>
+    var typed = new Typed('#subtitle', {
+      strings: [
+        '  ',
+        "ThreadLocalRondom原理剖析&nbsp;",
+      ],
+      cursorChar: "_",
+      typeSpeed: 70,
+      loop: false,
+    });
+    typed.stop();
+    $(document).ready(function () {
+      $(".typed-cursor").addClass("h2");
+      typed.start();
+    });
+  </script>
+
+
+
+  <script  src="https://cdn.staticfile.org/anchor-js/4.2.2/anchor.min.js" ></script>
+  <script>
+    anchors.options = {
+      placement: "right",
+      visible: "hover",
+      
+    };
+    var el = "h1,h2,h3,h4,h5,h6".split(",");
+    var res = [];
+    for (item of el) {
+      res.push(".markdown-body > " + item)
+    }
+    anchors.add(res.join(", "))
+  </script>
+
+
+
+
+
+  <script  src="https://cdn.staticfile.org/fancybox/3.5.7/jquery.fancybox.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.staticfile.org/fancybox/3.5.7/jquery.fancybox.min.css" />
+
+  <script>
+    $('#post img:not(.no-zoom img, img[no-zoom]), img[zoom]').each(
+      function () {
+        var element = document.createElement('a');
+        $(element).attr('data-fancybox', 'images');
+        $(element).attr('href', $(this).attr('src'));
+        $(this).wrap(element);
+      }
+    );
+  </script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+    <!-- Baidu Analytics -->
+    <script defer>
+      var _hmt = _hmt || [];
+      (function () {
+        var hm = document.createElement("script");
+        hm.src = "https://hm.baidu.com/hm.js?14b7dca7880e79dfe4d7db3cfc3b7e98";
+        var s = document.getElementsByTagName("script")[0];
+        s.parentNode.insertBefore(hm, s);
+      })();
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+
+
+</body>
+</html>
