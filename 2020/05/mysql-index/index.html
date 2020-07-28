@@ -167,7 +167,7 @@
     
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      2.1k 字
+      2.4k 字
     </span>
   
 
@@ -177,7 +177,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      23
+      25
        分钟
     </span>
   
@@ -238,20 +238,29 @@
 <li>联合索引是指在多个字段联合组建的。</li>
 <li>当通过索引即可查询到所有记录，不需要回表到聚簇索引时，这类索引称为覆盖索引。</li>
 <li>主键查询是天然的覆盖索引，联合索引也可以是覆盖索引。</li>
-<li></li>
 </ul>
 <h3 id="覆盖索引"><a href="#覆盖索引" class="headerlink" title="覆盖索引"></a>覆盖索引</h3><p>如果执行的语句为<code>select ID from T where k between 3 and 5</code>，这时只需要查ID的值，而ID的值已经在k索引树上了，因此不需要回表，也就是，索引k已经覆盖了我们的我们的查询请求，这被称为<strong>覆盖索引</strong>。</p>
 <p><strong>由于覆盖索引可以减少树的搜索次数，显著提升查询性能，所以使用覆盖索引是一个常用的性能优化手段。</strong></p>
 <h2 id="索引使用技巧"><a href="#索引使用技巧" class="headerlink" title="索引使用技巧"></a>索引使用技巧</h2><h3 id="创建索引规范"><a href="#创建索引规范" class="headerlink" title="创建索引规范"></a>创建索引规范</h3><ul>
 <li>命名规范</li>
 <li>单张表索引数量不超过5个，单个索引的字段不超过5个</li>
-<li>表必须要有主键，推荐UNSIGNED自增列作为主键</li>
-<li>唯一键由三个以下字段组成，并且字段为整型时，可使用唯一键作为主键</li>
 <li>禁止冗余索引，重复索引，索引维护需要成本，新增索引时优先考虑基于现有索引进行rebuild</li>
 <li>联表查询，JOIN列的数据类型必须相同，并且要建立索引</li>
 <li>不在低基数列创建索引（性别列）</li>
-<li>选择区分度大的列建立索引</li>
+<li>选择区分度大的列（最好唯一性）建立索引</li>
 <li>对过长的VARCHAR段建立索引，优先考虑前缀索引</li>
+<li>频繁作为WHERE查询条件的字段</li>
+<li>经常GROUP BY和ORDER BY的列</li>
+<li>UPDATE、DELETE 的 WHERE 条件列，一般也需要创建索引</li>
+<li>DISTINCT 字段需要创建索引</li>
+</ul>
+<p>索引失效的情况：</p>
+<ul>
+<li>索引进行表达式计算</li>
+<li>索引字段使用函数</li>
+<li>在WHERE子句中，如果在OR前面的条件列进行了索引，后面的没有进行索引，那么索引会失效</li>
+<li>当我们使用 LIKE 进行模糊查询的时候，前面不能是 %</li>
+<li>索引列与 NULL 或者 NOT NULL 进行判断的时候也会失效。</li>
 </ul>
 <h3 id="索引维护"><a href="#索引维护" class="headerlink" title="索引维护"></a>索引维护</h3><p>B+树在插入新值的时候必须做必要的维护，如果添加新值的时候，所在数据页已经满了，这时需要申请一个新的数据页，然后挪动部分数据过去，这个过程称为<strong>页分裂</strong>。如果删除数据，可能导致页的合并。</p>
 <h3 id="最左前缀原则"><a href="#最左前缀原则" class="headerlink" title="最左前缀原则"></a>最左前缀原则</h3><p>B+树这种索引结构，可以利用索引的最左前缀，来定位记录。</p>
@@ -267,9 +276,10 @@
 <p>根据最左前缀原则，找到第一个满足第一个字是张的记录之后，判断其他条件是否满足。</p>
 <p>在MySQL 5.6之前，只能从该记录开始一个个回表，到主键索引树上找到指定数据行，进行字段值比对。</p>
 <p>在MySQL5.6引入<strong>索引下推优化</strong>，可以在索引遍历的过程中，对索引中包含的字段先进行判断，直接过滤掉不满足条件的记录，减少回表次数。</p>
-<h2 id="索引实现原理"><a href="#索引实现原理" class="headerlink" title="索引实现原理"></a>索引实现原理</h2><h3 id="B-Tree"><a href="#B-Tree" class="headerlink" title="B Tree"></a>B Tree</h3><p>查询的时间主要依赖于磁盘I/O的次数，每次节点访问需要进行一次磁盘IO操作。B Tree取代平衡二叉树主要是降低了树的高度，减少了磁盘IO的次数。其基本结构如下：</p>
+<h2 id="索引原理"><a href="#索引原理" class="headerlink" title="索引原理"></a>索引原理</h2><h3 id="B-Tree"><a href="#B-Tree" class="headerlink" title="B Tree"></a>B Tree</h3><p>查询的时间主要依赖于磁盘I/O的次数，每次节点访问需要进行一次磁盘IO操作。<br>B Tree取代平衡二叉树主要是降低了树的高度，减少了磁盘IO的次数。其基本结构如下：</p>
 <p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/index/B%20Tree.jpg" srcset="/img/loading.gif" alt="B Tree"></p>
-<p>B Tree别称平衡的多路搜索树，每个节点最多包括M个子节点，M称为B树的阶。M阶的B树（M &gt; 2）有以下的特性：</p>
+<p>B Tree别称平衡的多路搜索树，每个节点最多包括M个子节点，M称为B树的阶。</p>
+<p>M阶的B树（M &gt; 2）有以下的特性：</p>
 <ul>
 <li>根节点的儿子数的范围是 [2,M]。</li>
 <li>每个中间节点包含 k-1 个关键字和 k 个孩子，孩子的数量 = 关键字的数量 +1，k 的取值范围为 [ceil(M/2), M]。</li>
@@ -293,6 +303,14 @@
 <li>B+ Tree查询效率更稳定，每次只有访问到叶子节点才能获取到对应的数据。</li>
 <li>范围查询的效率高于B Tree，因为所有的关键字都出现在B+ Tree的叶子节点中，并通过有序链表进行连接。</li>
 </ol>
+<h3 id="Hash索引"><a href="#Hash索引" class="headerlink" title="Hash索引"></a>Hash索引</h3><p>与B+ Tree的区别：</p>
+<ul>
+<li>Hash索引不能进行范围查询，因为Hash索引指向的数据是无序的。</li>
+<li>Hash索引不支持联合索引的最左侧原则，因为Hash索引计算Hash的时候是将索引键合并后再一起计算。</li>
+<li>Hash索引不支持ORDER BY排序，因为Hash索引指向的数据是无序的，因此无法做到排序优化的作用</li>
+<li>无法进行模糊查询。</li>
+<li>等值查询效率高</li>
+</ul>
 
             </article>
             <hr>
