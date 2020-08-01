@@ -156,8 +156,8 @@
               
   <div class="mt-3 post-meta">
     <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-    <time datetime="2020-05-09 17:15">
-      2020年5月9日 下午
+    <time datetime="2020-08-02 17:15">
+      2020年8月2日 下午
     </time>
   </div>
 
@@ -167,7 +167,7 @@
     
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      2.7k 字
+      3.3k 字
     </span>
   
 
@@ -177,7 +177,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      41
+      50
        分钟
     </span>
   
@@ -208,32 +208,112 @@
           <div class="post-content mx-auto" id="post">
             
             <article class="markdown-body">
-              <h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>​        <code>HashMap</code>基于哈希表的Map接口实现，解决Hash冲突通过拉链法，在<code>JDK 1.8</code>后，底层数据结构从<code>数组+链表</code>转变为<code>数组+链表+红黑树</code>，也就是当出现Hash冲突时，链表长度过长，转为红黑树存储节点提高搜索效率。本文主要分析增删改查接口。</p>
-<h2 id="构造方法"><a href="#构造方法" class="headerlink" title="构造方法"></a>构造方法</h2><p><code>HashMap</code>共有四个构造方法。</p>
-<table>
-<thead>
-<tr>
-<th style="text-align:center">名称</th>
-<th style="text-align:center">用途</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:center">initialCapacity</td>
-<td style="text-align:center">HashMap 初始容量，默认16（1 &lt;&lt; 4）</td>
-</tr>
-<tr>
-<td style="text-align:center">loadFactor</td>
-<td style="text-align:center">负载因子，默认0.75</td>
-</tr>
-<tr>
-<td style="text-align:center">threshold</td>
-<td style="text-align:center">当前 HashMap 所能容纳键值对数量的最大值，超过这个值，则需扩容</td>
-</tr>
-</tbody>
-</table>
-<p>负载因子会影响<code>HashMap</code>的复杂度。如果负载因子过低，<code>HashMap</code>所能容纳的键值对数量变少。扩容时会将键值对存储到新数组中，Hash冲突会变少，链表长度变短，增删改查效率变高。如果负载因子过高，<code>HashMap</code>所能容纳的键值对数量会变多，空间利用率高，但是Hash冲突变多，链表长度变长，增删改查的效率降低。</p>
-<div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-title">HashMap</span><span class="hljs-params">(<span class="hljs-keyword">int</span> initialCapacity, <span class="hljs-keyword">float</span> loadFactor)</span> </span>&#123;
+              <h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>​        <code>HashMap</code>是<code>Map</code>接口基于哈希的实现，在<code>JDK 7</code>中采用了数组+链表的数据结构，在<code>JDK 8</code>后，底层数据结构转变为<code>数组+链表+红黑树</code>，也就是当出现Hash冲突时，链表长度过长，转为红黑树存储节点提高搜索效率。</p>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">HashMap</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt; <span class="hljs-keyword">extends</span> <span class="hljs-title">AbstractMap</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt;
+    <span class="hljs-keyword">implements</span> <span class="hljs-title">Map</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt;, <span class="hljs-title">Cloneable</span>, <span class="hljs-title">Serializable</span></span></code></pre></div>
+<p><code>HashMap</code> 继承了 <code>AbstractMap</code> ，该类提供了Map接口的抽象实现，并提供了一些方法的基本实现。实现了 <code>Map</code>、<code>Cloneable</code>和 <code>Serializable</code>接口。</p>
+<h2 id="成员变量"><a href="#成员变量" class="headerlink" title="成员变量"></a>成员变量</h2><ul>
+<li>loadFactor：该变量控制table数组存放数据的疏密程度，越趋向1时，数组中存放的数据越多越密。链表的长度会增加，因此会导致查找效率变低。该值越小，则数组中存放的数据越少，越稀疏，则会导致空间利用率下降。默认值0.75是较好的默认值。</li>
+<li>threshold：当前 <code>HashMap</code>所能容纳键值对数量的最大值，超过这个值，则需扩容。<strong>threshold = capacity * loadFactor</strong><ul>
+<li>默认容量为16，默认负载因子为0.75，当存放的数据达到16 * 0.75时，需要进行扩容。</li>
+</ul>
+</li>
+</ul>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-comment">//存储元素的数组，大小为2的幂次</span>
+<span class="hljs-keyword">transient</span> Node&lt;K,V&gt;[] table;
+
+<span class="hljs-comment">//存放具体元素的集</span>
+   <span class="hljs-keyword">transient</span> Set&lt;Map.Entry&lt;K,V&gt;&gt; entrySet;
+
+<span class="hljs-comment">//已经存放了的数组大小</span>
+   <span class="hljs-keyword">transient</span> <span class="hljs-keyword">int</span> size;
+
+<span class="hljs-comment">//结构修改的计数器</span>
+   <span class="hljs-keyword">transient</span> <span class="hljs-keyword">int</span> modCount;
+
+<span class="hljs-comment">//临界值，实际大小超过该值，则进行扩容</span>
+   <span class="hljs-keyword">int</span> threshold;
+
+<span class="hljs-comment">//负载因子</span>
+   <span class="hljs-keyword">final</span> <span class="hljs-keyword">float</span> loadFactor;
+
+<span class="hljs-comment">//默认初始容量：16</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> DEFAULT_INITIAL_CAPACITY = <span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>; <span class="hljs-comment">// aka 16</span>
+
+<span class="hljs-comment">//最大容量</span>
+   <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> MAXIMUM_CAPACITY = <span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">30</span>;
+
+   <span class="hljs-comment">//默认的负载因子</span>
+   <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">float</span> DEFAULT_LOAD_FACTOR = <span class="hljs-number">0.75f</span>;
+
+   <span class="hljs-comment">//链表节点数大于该阈值，转为红黑树存储</span>
+   <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> TREEIFY_THRESHOLD = <span class="hljs-number">8</span>;
+
+   <span class="hljs-comment">//红黑树节点数小于该值，转为链表存储</span>
+   <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> UNTREEIFY_THRESHOLD = <span class="hljs-number">6</span>;
+
+<span class="hljs-comment">//转为红黑树对应的table的最少节点数</span>
+   <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> MIN_TREEIFY_CAPACITY = <span class="hljs-number">64</span>;</code></pre></div>
+<h2 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h2><p>链表状态下的节点：</p>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Node</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt; <span class="hljs-keyword">implements</span> <span class="hljs-title">Map</span>.<span class="hljs-title">Entry</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt; </span>&#123;
+    	<span class="hljs-comment">//hash值</span>
+        <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> hash;
+    	<span class="hljs-comment">//键</span>
+        <span class="hljs-keyword">final</span> K key;
+    	<span class="hljs-comment">//值</span>
+        V value;
+    	<span class="hljs-comment">//指向下一个节点</span>
+        Node&lt;K,V&gt; next;
+
+        Node(<span class="hljs-keyword">int</span> hash, K key, V value, Node&lt;K,V&gt; next) &#123;
+            <span class="hljs-keyword">this</span>.hash = hash;
+            <span class="hljs-keyword">this</span>.key = key;
+            <span class="hljs-keyword">this</span>.value = value;
+            <span class="hljs-keyword">this</span>.next = next;
+        &#125;
+
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> K <span class="hljs-title">getKey</span><span class="hljs-params">()</span>        </span>&#123; <span class="hljs-keyword">return</span> key; &#125;
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> V <span class="hljs-title">getValue</span><span class="hljs-params">()</span>      </span>&#123; <span class="hljs-keyword">return</span> value; &#125;
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> String <span class="hljs-title">toString</span><span class="hljs-params">()</span> </span>&#123; <span class="hljs-keyword">return</span> key + <span class="hljs-string">"="</span> + value; &#125;
+
+    	<span class="hljs-comment">//重写hashCode方法</span>
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> <span class="hljs-title">hashCode</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-keyword">return</span> Objects.hashCode(key) ^ Objects.hashCode(value);
+        &#125;
+
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> V <span class="hljs-title">setValue</span><span class="hljs-params">(V newValue)</span> </span>&#123;
+            V oldValue = value;
+            value = newValue;
+            <span class="hljs-keyword">return</span> oldValue;
+        &#125;
+		<span class="hljs-comment">//重写equals方法</span>
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">equals</span><span class="hljs-params">(Object o)</span> </span>&#123;
+            <span class="hljs-keyword">if</span> (o == <span class="hljs-keyword">this</span>)
+                <span class="hljs-keyword">return</span> <span class="hljs-keyword">true</span>;
+            <span class="hljs-keyword">if</span> (o <span class="hljs-keyword">instanceof</span> Map.Entry) &#123;
+                Map.Entry&lt;?,?&gt; e = (Map.Entry&lt;?,?&gt;)o;
+                <span class="hljs-keyword">if</span> (Objects.equals(key, e.getKey()) &amp;&amp;
+                    Objects.equals(value, e.getValue()))
+                    <span class="hljs-keyword">return</span> <span class="hljs-keyword">true</span>;
+            &#125;
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">false</span>;
+        &#125;
+    &#125;</code></pre></div>
+<p>红黑树状态下的节点：</p>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">TreeNode</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt; <span class="hljs-keyword">extends</span> <span class="hljs-title">LinkedHashMap</span>.<span class="hljs-title">Entry</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt; </span>&#123;
+        <span class="hljs-comment">//父结点</span>
+    	TreeNode&lt;K,V&gt; parent;  <span class="hljs-comment">// red-black tree links</span>
+    	<span class="hljs-comment">//左孩子节点</span>
+        TreeNode&lt;K,V&gt; left;
+    	<span class="hljs-comment">//右孩子节点</span>
+        TreeNode&lt;K,V&gt; right;
+        TreeNode&lt;K,V&gt; prev;    <span class="hljs-comment">// needed to unlink next upon deletion</span>
+    	<span class="hljs-comment">//颜色</span>
+        <span class="hljs-keyword">boolean</span> red;
+        TreeNode(<span class="hljs-keyword">int</span> hash, K key, V val, Node&lt;K,V&gt; next) &#123;
+            <span class="hljs-keyword">super</span>(hash, key, val, next);
+        &#125;</code></pre></div>
+<h2 id="构造方法"><a href="#构造方法" class="headerlink" title="构造方法"></a>构造方法</h2><div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-title">HashMap</span><span class="hljs-params">(<span class="hljs-keyword">int</span> initialCapacity, <span class="hljs-keyword">float</span> loadFactor)</span> </span>&#123;
        <span class="hljs-comment">//边界检测</span>
        <span class="hljs-keyword">if</span> (initialCapacity &lt; <span class="hljs-number">0</span>)
            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalArgumentException(<span class="hljs-string">"Illegal initial capacity: "</span> +
@@ -619,7 +699,7 @@
                     
                       <a class="hover-with-bg" href="/categories/Java/">Java</a>
                     
-                      <a class="hover-with-bg" href="/categories/Java/源码分析/">源码分析</a>
+                      <a class="hover-with-bg" href="/categories/Java/集合框架/">集合框架</a>
                     
                   </div>
                 
@@ -642,18 +722,12 @@
                   <div class="post-prev col-6">
                     
                     
-                      <a href="/2020/05/design-pattern-creational/">
-                        <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">设计模式之创建型模式（二）</span>
-                        <span class="visible-mobile">上一篇</span>
-                      </a>
-                    
                   </div>
                   <div class="post-next col-6">
                     
                     
-                      <a href="/2020/05/design-principle/">
-                        <span class="hidden-mobile">设计模式之设计原则（一）</span>
+                      <a href="/2020/08/java-linkedlist/">
+                        <span class="hidden-mobile">LinkedList源码分析</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
