@@ -16,7 +16,7 @@
   <meta name="description" content="Talk is cheap,show me the code.">
   <meta name="author" content="L1nker4">
   <meta name="keywords" content="l1nker4">
-  <title>JVM之内存分配策略（五） - l1nker4&#39;s Blog</title>
+  <title>TreeMap源码分析 - l1nker4&#39;s Blog</title>
 
   <link rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/css/bootstrap.min.css">
 
@@ -156,8 +156,8 @@
               
   <div class="mt-3 post-meta">
     <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-    <time datetime="2020-03-25 19:53">
-      2020年3月25日 晚上
+    <time datetime="2020-08-04 09:17">
+      2020年8月4日 上午
     </time>
   </div>
 
@@ -167,7 +167,7 @@
     
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      1.2k 字
+      574 字
     </span>
   
 
@@ -177,7 +177,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      13
+      8
        分钟
     </span>
   
@@ -208,35 +208,91 @@
           <div class="post-content mx-auto" id="post">
             
             <article class="markdown-body">
-              <h2 id="内存分配与回收策略"><a href="#内存分配与回收策略" class="headerlink" title="内存分配与回收策略"></a>内存分配与回收策略</h2><p>Java技术体系的自动内存管理，最根本性的目标是自动化解决两个问题：自动给对象分配内存，以及自动回收分配给对象的内存。</p>
-<p>对象的内存分配，就是在堆上分配（也有可能经过JIT编译后被拆散为标量空间类型间接地在栈上分配），新生对象主要分配在新生代中，少数情况（大小超过阈值）会被分配在老年代，分配规则不固定，取决于当前使用的垃圾收集器与JVM参数设置。</p>
-<h3 id="对象优先在Eden分配"><a href="#对象优先在Eden分配" class="headerlink" title="对象优先在Eden分配"></a>对象优先在Eden分配</h3><p>大多数情况下，对象在新生代Eden去中分配，当Eden区没有足够的空间进行分配时，虚拟机将发起一次Minor GC。</p>
-<ul>
-<li>Minor GC：回收新生代（包括 Eden 和 Survivor 区域），因为 Java 对象大多都具备朝生夕灭的特性，所以 Minor GC 非常频繁，一般回收速度也比较快。</li>
-<li>Major GC / Full GC: 回收老年代，出现了 Major GC，经常会伴随至少一次的 Minor GC，但这并非绝对。Major GC 的速度一般会比 Minor GC 慢 10 倍 以上。 </li>
-</ul>
-<h3 id="大对象直接进入老年代"><a href="#大对象直接进入老年代" class="headerlink" title="大对象直接进入老年代"></a>大对象直接进入老年代</h3><p>大对象就是需要大量连续内存空间的Java对象，最典型的大对象就是那种很长的字符串，或者元素数量很庞大的数组。</p>
-<p>JVM提供了一个<code>-XX:PretenureSizeThreshold</code>，指定大于该设置值的对象直接在老年代分配，这样做的目的是避免在Eden区和两个Survivor区之间来回复制，产生大量内存复制操作。</p>
-<h3 id="长期存活的对象进入老年代"><a href="#长期存活的对象进入老年代" class="headerlink" title="长期存活的对象进入老年代"></a>长期存活的对象进入老年代</h3><p>为了决策哪些存活对象存储在新生代，哪些对象存储在老年代，，JVM给每个对象定义了一个对象年龄计数器，存储在对象头中，对象通常在Eden区诞生，如果经历一次Miror GC后仍然存活，并且能被Survivor容纳，该对象就会被移动到Survivor，并将该对象年龄设为1岁，对象每经历一次Miror GC，年龄就增加1岁，当年龄达到一定程度（默认15），就会被移动到老年代，对象年龄阈值可以通过<code>-XX:MaxTenuringThreshold</code>设置。</p>
-<h3 id="动态对象年龄判定"><a href="#动态对象年龄判定" class="headerlink" title="动态对象年龄判定"></a>动态对象年龄判定</h3><p>如果当前新生代的Survivor中，相同年龄的所有对象大小的综合大于Survivor空间的一半，年龄大于或等于该年龄的对象可以进入老年代，无需等到MaxTenuringThreshold 中要求的年龄。</p>
-<h3 id="空间分配担保"><a href="#空间分配担保" class="headerlink" title="空间分配担保"></a>空间分配担保</h3><p>JDK 6 Update 24 之前，在发生Miror GC之前，虚拟机会先检查老年代最大可用的连续空间是否大于新生代所有对象总空间，如果这个条件成立，那这一次的Miror GC可以确保是安全的，如果不成立，则虚拟机会查看 HandlePromotionFailure 值是否设置为允许担保失败， 如果允许，那么会继续检查老年代最大可用的连续空间是否大于历次晋升到老年代对象的平均大小， 如果大于，将尝试进行一次 Minor GC,尽管这次 Minor GC 是有风险的； 如果小于，或者 HandlePromotionFailure 设置不允许冒险，那此时也要改为进行一次 Full GC。</p>
-<p>JDK 6 Update 24 之后的规则变为：<br> 只要老年代的连续空间大于新生代对象总大小或者历次晋升的平均大小，就会进行 Minor GC，否则将进行 Full GC。</p>
-<h3 id="哪些情况会使JVM进行Full-GC？"><a href="#哪些情况会使JVM进行Full-GC？" class="headerlink" title="哪些情况会使JVM进行Full GC？"></a>哪些情况会使JVM进行Full GC？</h3><ul>
-<li>System.gc() 方法的调用</li>
-</ul>
-<p>此方法是建议JVM进行Full GC，我们可以通过 -XX:+ DisableExplicitGC 来禁止调用 System.gc()。</p>
-<ul>
-<li>老年代空间不足</li>
-</ul>
-<p>老年代空间不足会触发 Full GC操作，若进行该操作后空间依然不足，则会抛出如下错误：<br><code>java.lang.OutOfMemoryError: Java heap space</code></p>
-<ul>
-<li><p>永久代空间不足<br>JVM 规范中运行时数据区域中的方法区，在 HotSpot 虚拟机中也称为永久代（Permanet Generation），存放一些类信息、常量、静态变量等数据，当系统要加载的类、反射的类和调用的方法较多时，永久代可能会被占满，会触发 Full GC。如果经过 Full GC 仍然回收不了，那么 JVM 会抛出如下错误信息：<br><br><code>java.lang.OutOfMemoryError: PermGen space</code></p>
-</li>
-<li><p>CMS GC 时出现 promotion failed 和 concurrent mode failure<br>promotion failed，就是上文所说的担保失败，而 concurrent mode failure 是在执行 CMS GC 的过程中同时有对象要放入老年代，而此时老年代空间不足造成的。</p>
-</li>
-<li><p>统计得到的Minor GC晋升到旧生代的平均大小大于老年代的剩余空间</p>
-</li>
-</ul>
+              <h2 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h2><p><code>TreeMap</code>底层通过红黑树实现，在查询性能上能达到<code>O(logn)</code>，由于使用红黑树结构进行存储，所以<code>TreeMap</code>的元素都是有序的。同时，这也是一个非线程安全的<code>Map</code>，无法在并发环境下使用。</p>
+<p><code>TreeMap</code>继承自<code>AbstractMap</code>，该类Map接口的抽象实现。实现了 <code>NavigableMap</code>、<code>Cloneable</code>和 <code>Serializable</code>接口。其中<code>NavigableMap</code>继承自<code>SortedMap</code>，这保证了<code>TreeMap</code>的有序性。</p>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">TreeMap</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt;
+    <span class="hljs-keyword">extends</span> <span class="hljs-title">AbstractMap</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt;
+    <span class="hljs-keyword">implements</span> <span class="hljs-title">NavigableMap</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt;, <span class="hljs-title">Cloneable</span>, <span class="hljs-title">java</span>.<span class="hljs-title">io</span>.<span class="hljs-title">Serializable</span></span></code></pre></div>
+<h2 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h2><p><code>TreeMap</code>采用红黑树进行构建，红黑树是一种自平衡二叉查找树。插入、删除、查找的时间复杂度为<code>O(logn)</code>。与另一个自平衡二叉查找树<code>AVL Tree</code>相比，红黑树以减少旋转操作牺牲部分平衡性，但是其整体性能优于<code>AVL Tree</code>。</p>
+<p>有关红黑树的定义如下（摘自wikipedia）：</p>
+<ol>
+<li>节点是红色或黑色。</li>
+<li>根是黑色。</li>
+<li>所有叶子都是黑色（叶子是NIL节点）。</li>
+<li>每个红色节点必须有两个黑色的子节点。（从每个叶子到根的所有路径上不能有两个连续的红色节点。）</li>
+<li>从任一节点到其每个叶子的所有简单路径都包含相同数目的黑色节点。</li>
+</ol>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/java/treemap/rbtree-construction.png" srcset="/img/loading.gif" alt="红黑树结构示意图"></p>
+<p><code>TreeMap</code>中树节点的定义如下：</p>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Entry</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt; <span class="hljs-keyword">implements</span> <span class="hljs-title">Map</span>.<span class="hljs-title">Entry</span>&lt;<span class="hljs-title">K</span>,<span class="hljs-title">V</span>&gt; </span>&#123;
+        K key;
+        V value;
+        Entry&lt;K,V&gt; left;
+        Entry&lt;K,V&gt; right;
+        Entry&lt;K,V&gt; parent;
+        <span class="hljs-keyword">boolean</span> color = BLACK;
+
+        
+        Entry(K key, V value, Entry&lt;K,V&gt; parent) &#123;
+            <span class="hljs-keyword">this</span>.key = key;
+            <span class="hljs-keyword">this</span>.value = value;
+            <span class="hljs-keyword">this</span>.parent = parent;
+        &#125;
+
+        
+        <span class="hljs-function"><span class="hljs-keyword">public</span> K <span class="hljs-title">getKey</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-keyword">return</span> key;
+        &#125;
+
+        
+        <span class="hljs-function"><span class="hljs-keyword">public</span> V <span class="hljs-title">getValue</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-keyword">return</span> value;
+        &#125;
+
+    
+        <span class="hljs-function"><span class="hljs-keyword">public</span> V <span class="hljs-title">setValue</span><span class="hljs-params">(V value)</span> </span>&#123;
+            V oldValue = <span class="hljs-keyword">this</span>.value;
+            <span class="hljs-keyword">this</span>.value = value;
+            <span class="hljs-keyword">return</span> oldValue;
+        &#125;
+
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">equals</span><span class="hljs-params">(Object o)</span> </span>&#123;
+            <span class="hljs-keyword">if</span> (!(o <span class="hljs-keyword">instanceof</span> Map.Entry))
+                <span class="hljs-keyword">return</span> <span class="hljs-keyword">false</span>;
+            Map.Entry&lt;?,?&gt; e = (Map.Entry&lt;?,?&gt;)o;
+
+            <span class="hljs-keyword">return</span> valEquals(key,e.getKey()) &amp;&amp; valEquals(value,e.getValue());
+        &#125;
+
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">int</span> <span class="hljs-title">hashCode</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-keyword">int</span> keyHash = (key==<span class="hljs-keyword">null</span> ? <span class="hljs-number">0</span> : key.hashCode());
+            <span class="hljs-keyword">int</span> valueHash = (value==<span class="hljs-keyword">null</span> ? <span class="hljs-number">0</span> : value.hashCode());
+            <span class="hljs-keyword">return</span> keyHash ^ valueHash;
+        &#125;
+
+        <span class="hljs-function"><span class="hljs-keyword">public</span> String <span class="hljs-title">toString</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-keyword">return</span> key + <span class="hljs-string">"="</span> + value;
+        &#125;
+    &#125;</code></pre></div>
+<h2 id="基本操作"><a href="#基本操作" class="headerlink" title="基本操作"></a>基本操作</h2><h3 id="左旋"><a href="#左旋" class="headerlink" title="左旋"></a>左旋</h3><p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/java/treemap/rbtree-rotateLeft.png" srcset="/img/loading.gif" alt="左旋操作"></p>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-comment">/** From CLR */</span>
+    <span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">void</span> <span class="hljs-title">rotateLeft</span><span class="hljs-params">(Entry&lt;K,V&gt; p)</span> </span>&#123;
+        <span class="hljs-keyword">if</span> (p != <span class="hljs-keyword">null</span>) &#123;
+            Entry&lt;K,V&gt; r = p.right;
+            p.right = r.left;
+            <span class="hljs-keyword">if</span> (r.left != <span class="hljs-keyword">null</span>)
+                r.left.parent = p;
+            r.parent = p.parent;
+            <span class="hljs-keyword">if</span> (p.parent == <span class="hljs-keyword">null</span>)
+                root = r;
+            <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (p.parent.left == p)
+                p.parent.left = r;
+            <span class="hljs-keyword">else</span>
+                p.parent.right = r;
+            r.left = p;
+            p.parent = r;
+        &#125;
+    &#125;</code></pre></div>
 
             </article>
             <hr>
@@ -248,7 +304,7 @@
                     
                       <a class="hover-with-bg" href="/categories/Java/">Java</a>
                     
-                      <a class="hover-with-bg" href="/categories/Java/JVM/">JVM</a>
+                      <a class="hover-with-bg" href="/categories/Java/集合框架/">集合框架</a>
                     
                   </div>
                 
@@ -258,7 +314,9 @@
                     
                       <a class="hover-with-bg" href="/tags/Java/">Java</a>
                     
-                      <a class="hover-with-bg" href="/tags/JVM/">JVM</a>
+                      <a class="hover-with-bg" href="/tags/数据结构/">数据结构</a>
+                    
+                      <a class="hover-with-bg" href="/tags/红黑树/">红黑树</a>
                     
                   </div>
                 
@@ -266,29 +324,6 @@
               
                 <p class="note note-warning">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！</p>
               
-              
-                <div class="post-prevnext row">
-                  <div class="post-prev col-6">
-                    
-                    
-                      <a href="/2020/03/jvm06-class-file/">
-                        <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">JVM之类文件结构（六）</span>
-                        <span class="visible-mobile">上一篇</span>
-                      </a>
-                    
-                  </div>
-                  <div class="post-next col-6">
-                    
-                    
-                      <a href="/2020/03/jvm04-gc-algorithrms/">
-                        <span class="hidden-mobile">JVM之垃圾收集算法与垃圾收集器（四）</span>
-                        <span class="visible-mobile">下一篇</span>
-                        <i class="iconfont icon-arrowright"></i>
-                      </a>
-                    
-                  </div>
-                </div>
               
             </div>
 
@@ -430,7 +465,7 @@
     var typed = new Typed('#subtitle', {
       strings: [
         '  ',
-        "JVM之内存分配策略（五）&nbsp;",
+        "TreeMap源码分析&nbsp;",
       ],
       cursorChar: "_",
       typeSpeed: 70,
