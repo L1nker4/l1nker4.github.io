@@ -6,7 +6,7 @@
   <link href="/atom.xml" rel="self"/>
   
   <link href="https://l1n.wang/"/>
-  <updated>2020-08-05T09:43:26.469Z</updated>
+  <updated>2020-08-06T13:35:52.832Z</updated>
   <id>https://l1n.wang/</id>
   
   <author>
@@ -15,6 +15,33 @@
   </author>
   
   <generator uri="http://hexo.io/">Hexo</generator>
+  
+  <entry>
+    <title>Integer小细节</title>
+    <link href="https://l1n.wang/2020/08/java-type/"/>
+    <id>https://l1n.wang/2020/08/java-type/</id>
+    <published>2020-08-06T13:55:21.000Z</published>
+    <updated>2020-08-06T13:35:52.832Z</updated>
+    
+    <content type="html"><![CDATA[<h2 id="Integer"><a href="#Integer" class="headerlink" title="Integer"></a>Integer</h2><h3 id="IntegerCache"><a href="#IntegerCache" class="headerlink" title="IntegerCache"></a>IntegerCache</h3><p>在Java中，创建的对象会存储在堆内存，·IntegerCache·主要用来做缓存，减少内存的重复消耗。但是<code>IntegerCache</code>缓存的数据范围在-128到127之间。可以通过 <code>-XX:AutoBoxCacheMax=high</code> 来指定这个缓冲池的大小，JVM通过<code>java.lang.IntegerCache.high</code> 系统属性来存储该值，<code>IntegerCache</code>初始化的时候就会读取该系统属性来决定大小。以下为源码：</p><div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">IntegerCache</span> </span>&#123;        <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> low = -<span class="hljs-number">128</span>;        <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> high;        <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> Integer cache[];        <span class="hljs-keyword">static</span> &#123;            <span class="hljs-comment">// high value may be configured by property</span>            <span class="hljs-keyword">int</span> h = <span class="hljs-number">127</span>;            <span class="hljs-comment">//读取JVM参数值</span>            String integerCacheHighPropValue =                sun.misc.VM.getSavedProperty(<span class="hljs-string">"java.lang.Integer.IntegerCache.high"</span>);            <span class="hljs-comment">//初始化high</span>            <span class="hljs-keyword">if</span> (integerCacheHighPropValue != <span class="hljs-keyword">null</span>) &#123;                <span class="hljs-keyword">try</span> &#123;                    <span class="hljs-keyword">int</span> i = parseInt(integerCacheHighPropValue);                    i = Math.max(i, <span class="hljs-number">127</span>);                    <span class="hljs-comment">// Maximum array size is Integer.MAX_VALUE</span>                    h = Math.min(i, Integer.MAX_VALUE - (-low) -<span class="hljs-number">1</span>);                &#125; <span class="hljs-keyword">catch</span>( NumberFormatException nfe) &#123;                    <span class="hljs-comment">// If the property cannot be parsed into an int, ignore it.</span>                &#125;            &#125;            high = h;            <span class="hljs-comment">//127 - (-128) + 1为数组容量</span>            cache = <span class="hljs-keyword">new</span> Integer[(high - low) + <span class="hljs-number">1</span>];            <span class="hljs-comment">//初始化Cache数组</span>            <span class="hljs-keyword">int</span> j = low;            <span class="hljs-keyword">for</span>(<span class="hljs-keyword">int</span> k = <span class="hljs-number">0</span>; k &lt; cache.length; k++)                cache[k] = <span class="hljs-keyword">new</span> Integer(j++);            <span class="hljs-comment">// range [-128, 127] must be interned (JLS7 5.1.7)</span>            <span class="hljs-keyword">assert</span> IntegerCache.high &gt;= <span class="hljs-number">127</span>;        &#125;        <span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-title">IntegerCache</span><span class="hljs-params">()</span> </span>&#123;&#125;    &#125;</code></pre></div><h3 id="Integer-valueOf"><a href="#Integer-valueOf" class="headerlink" title="Integer.valueOf()"></a>Integer.valueOf()</h3><p>首先看一下关于该方法的实现：</p><div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> Integer <span class="hljs-title">valueOf</span><span class="hljs-params">(<span class="hljs-keyword">int</span> i)</span> </span>&#123;    <span class="hljs-comment">//判断传入的变量是否处于IntegerCache之内，是的话直接返回缓存中的数据</span>        <span class="hljs-keyword">if</span> (i &gt;= IntegerCache.low &amp;&amp; i &lt;= IntegerCache.high)            <span class="hljs-keyword">return</span> IntegerCache.cache[i + (-IntegerCache.low)];        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> Integer(i);    &#125;<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-title">Integer</span><span class="hljs-params">(<span class="hljs-keyword">int</span> value)</span> </span>&#123;        <span class="hljs-keyword">this</span>.value = value;&#125;</code></pre></div><p>因此以下代码便十分容易理解：</p><ul><li>构造方法是创建一个新对象，必然不是同一个地址</li><li><code>valueOf</code>在<code>-128 ~ 127</code>区间之内返回<code>IntegerCache</code>中的对应数组的元素。而超过该范围通过构造方法进行创建。</li></ul><div class="hljs"><pre><code class="hljs java">Integer x = <span class="hljs-keyword">new</span> Integer(<span class="hljs-number">123</span>);Integer y = <span class="hljs-keyword">new</span> Integer(<span class="hljs-number">123</span>);<span class="hljs-comment">// false</span>System.out.println(x == y);    Integer a = Integer.valueOf(<span class="hljs-number">123</span>);Integer b = Integer.valueOf(<span class="hljs-number">123</span>);<span class="hljs-comment">// true</span>System.out.println(a == b);Integer c = Integer.valueOf(<span class="hljs-number">129</span>);Integer d = Integer.valueOf(<span class="hljs-number">129</span>);<span class="hljs-comment">//false</span>System.out.println(c == d);</code></pre></div>]]></content>
+    
+    <summary type="html">
+    
+      
+      
+        &lt;h2 id=&quot;Integer&quot;&gt;&lt;a href=&quot;#Integer&quot; class=&quot;headerlink&quot; title=&quot;Integer&quot;&gt;&lt;/a&gt;Integer&lt;/h2&gt;&lt;h3 id=&quot;IntegerCache&quot;&gt;&lt;a href=&quot;#IntegerCache&quot; class=&quot;
+      
+    
+    </summary>
+    
+      <category term="Java" scheme="https://l1n.wang/categories/Java/"/>
+    
+      <category term="基础" scheme="https://l1n.wang/categories/Java/%E5%9F%BA%E7%A1%80/"/>
+    
+    
+      <category term="Java" scheme="https://l1n.wang/tags/Java/"/>
+    
+  </entry>
   
   <entry>
     <title>TreeMap源码分析</title>
@@ -553,31 +580,6 @@
       <category term="Java" scheme="https://l1n.wang/tags/Java/"/>
     
       <category term="并发" scheme="https://l1n.wang/tags/%E5%B9%B6%E5%8F%91/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>MySQL表</title>
-    <link href="https://l1n.wang/2020/04/mysql-table/"/>
-    <id>https://l1n.wang/2020/04/mysql-table/</id>
-    <published>2020-04-17T05:25:04.000Z</published>
-    <updated>2020-04-29T01:52:32.401Z</updated>
-    
-    <content type="html"><![CDATA[<h2 id="索引组织表"><a href="#索引组织表" class="headerlink" title="索引组织表"></a>索引组织表</h2><p>在InnoDB存储引擎中，表是根据主键顺序组织存放的，这种存储方式的表称为索引组织表，每张表都有一个主键，如果创建时没有显式定义主键，InnoDB存储引擎会按照如下方式进行创建主键：</p><ul><li>判断表中是否有非空的唯一索引，如果有，则该列为主键。</li><li>如果不符合上列条件，InnoDB存储引擎会自动创建一个6字节大小的指针。</li></ul><p>当表中有多个非空唯一索引，InnoDB会选择第一个定义的非空唯一索引作为主键。</p><h2 id="InnoDB逻辑存储结构"><a href="#InnoDB逻辑存储结构" class="headerlink" title="InnoDB逻辑存储结构"></a>InnoDB逻辑存储结构</h2><p>所有的数据被逻辑存放在表空间，表空间又由段，区，页（块）组成。存储结构如图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0064.PNG" srcset="/img/loading.gif" alt="InnoDB逻辑存储结构"></p><h3 id="表空间"><a href="#表空间" class="headerlink" title="表空间"></a>表空间</h3><p>表空间是InnoDB存储引擎逻辑结构的最高层，所有的数据都存放在表空间中。如果开启了<code>innodb_file_per_table</code>，每张表的数据可以单独放到一个表空间中。但是每张表的表空间存放的只是数据、索引和插入缓冲Bitmap页。其他类的数据，例如回滚信息，插入缓冲索引页，系统事务信息，二次写缓冲等还是存放在原来的共享表空间中。</p><h3 id="段"><a href="#段" class="headerlink" title="段"></a>段</h3><p>表空间由各个段构成，常见的段有：数据段、索引段、回滚段等。InnoDB存储引擎表是索引组织的，因此数据即索引，索引即数据，数据段即为B+树的叶子节点，索引段即为B+树的非索引节点。在InnoDB存储引擎中，对段的管理都是由引擎自身完成，DBA不能也没有必要对其进行控制。</p><h3 id="区"><a href="#区" class="headerlink" title="区"></a>区</h3><p>区是由连续页组成的空间，在任何情况下每个区的大小都为1MB，为了保证区的连续性，InnoDB一次从磁盘申请4~5个区，在默认情况下，页的大小为16KB，即一个区中共有64个连续页。</p><h3 id="页"><a href="#页" class="headerlink" title="页"></a>页</h3><p>页是InnoDB磁盘管理的最小单位，默认每个页大小为16KB，可以通过参数<code>innodb_page_size</code>将页的大小设置为4K，8K、16K。</p><p>常见的页类型有：</p><ul><li>数据页</li><li>undo页</li><li>系统页</li><li>事务数据页</li><li>插入缓冲位图页</li><li>插入缓冲空闲列表页</li><li>未压缩的二进制大对象页</li><li>压缩的二进制大对象页</li></ul><h3 id="行"><a href="#行" class="headerlink" title="行"></a>行</h3><p>InnoDB存储引擎是面向行（row-oriented）的，每个页最多存放16K/2~200行的记录（7992行）。</p><h2 id="InnoDB行记录格式"><a href="#InnoDB行记录格式" class="headerlink" title="InnoDB行记录格式"></a>InnoDB行记录格式</h2><h3 id="Compact行记录格式"><a href="#Compact行记录格式" class="headerlink" title="Compact行记录格式"></a>Compact行记录格式</h3><p>该格式在MySQL5.0中引入，其设计目的是高效地存储数据。简单说，一个页存放的行数据越多，其性能就越高。它的存储方式如图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0065%2820200416-174412%29.PNG" srcset="/img/loading.gif" alt="Compact行记录格式"></p><p>Compact行记录格式的首部是一个非NULL变长字段长度列表，并且是逆序放置的，其长度：</p><ul><li>若列的长度小于255字节，用1字节表示</li><li>若大于255字节，用2字节表示</li></ul><p>NULL标志位表示该行数据是否有NULL值，有则用1表示，占用1字节。头信息固定5字节（40位），每位的含义如下：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0066.PNG" srcset="/img/loading.gif" alt="Compact记录头信息"></p><p>最后的部分就是实际存储每个列的数据，NULL不占用任何空间，除了之前的标志位，每行数据除了用户定义的列之外，还有两个隐藏列，事务ID列（6字节）和回滚指针列（7字节）。如果没有定义主键，没行还会增加一个rowid列（6字节）。</p><h3 id="行溢出数据"><a href="#行溢出数据" class="headerlink" title="行溢出数据"></a>行溢出数据</h3><p>InnoDB存储引擎会将一些数据存储在数据页面之外。BLOB可以不存放在溢出页面，VARCHAR类型有可能被存放位行溢出数据。</p><h2 id="InnoDB数据页结构"><a href="#InnoDB数据页结构" class="headerlink" title="InnoDB数据页结构"></a>InnoDB数据页结构</h2><p>InnoDB数据页由以下七个部分构成，如图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0067.PNG" srcset="/img/loading.gif" alt="数据页结构"></p><p>其中<code>File Header、Page Header、File Trailer</code>的大小是固定的，这些空间是用来标记该页的一些信息，如Checksum，数据页所在的B+树索引的层数。</p><h3 id="File-Header"><a href="#File-Header" class="headerlink" title="File Header"></a>File Header</h3><p>该部分用来记录一些头信息，共由八个部分组成，占用38字节。<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0068.PNG" srcset="/img/loading.gif" alt="File Header组成部分"></p><h3 id="Page-Header"><a href="#Page-Header" class="headerlink" title="Page Header"></a>Page Header</h3><p>该部分用来记录数据页的状态信息，由14个部分组成，占用56字节，如图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0069.PNG" srcset="/img/loading.gif" alt="Page Header组成部分"></p><h3 id="Infimun和Supremum-Records"><a href="#Infimun和Supremum-Records" class="headerlink" title="Infimun和Supremum Records"></a>Infimun和Supremum Records</h3><p>Infimun用来记录是比该页中任何主键值都要小的值，Supremum Records指比任何值都大的值。这两个值在页创建时被建立。</p><h3 id="User-Record和Free-Space"><a href="#User-Record和Free-Space" class="headerlink" title="User Record和Free Space"></a>User Record和Free Space</h3><p>User Record是实际存储行记录的内容。Free Space指的是空闲空间，是一个链表数据结构，在一条记录被删除后，该空间会被加入到空闲链表中。</p><h3 id="Page-Directory"><a href="#Page-Directory" class="headerlink" title="Page Directory"></a>Page Directory</h3><p>该部分存放了记录的相对位置，有时这些记录指针称为Slots或Directory Slots，一个槽可能包含多个记录。B+树索引本身并不能找到具体的一条记录，只能找到该记录所在的页，数据库把页载入内存，通过Page Directory进行二叉查找。</p><h3 id="File-Trailer"><a href="#File-Trailer" class="headerlink" title="File Trailer"></a>File Trailer</h3><p>该部分是为了检测页是否已经完整地写入磁盘，File Trailer只有一个<code>FIL_PAGE_END_LSN</code>部分，占用8字节，前四个字节代表该页地checksum值，最后四个字节和File Header中的<code>FIL_PAGE_LSN</code>相同。将这两个值与File Header中的<code>FIL_PAGE_SPACE_OR_CHKSUM</code>和<code>FIL_PAGE_LSN</code>的值进行比较，看是否一致，以此来保证页的完整性。</p><h2 id="约束"><a href="#约束" class="headerlink" title="约束"></a>约束</h2><p>约束机制用来保证数据库中数据的完整性。<br>完整性有以下三种形式：</p><ol><li>实体完整性保证表中有一个主键。</li><li>域完整性保证数据每列的值满足特定的条件，域完整性通过以下几种方式来保证：<ul><li>选择合适的数据类型确保一个数据值满足特定条i教案</li><li>外键约束</li><li>编写触发器</li></ul></li><li>参照完整性保证两张表之间的关系。</li></ol><p>对于InnoDB存储引擎，提供了以下几种约束：</p><ul><li>Primary Key</li><li>Unique Key</li><li>Foreign Key</li><li>Default</li><li>NOT NULL</li></ul><p>约束和索引的区别：约束是一个逻辑上的概念，用来保证数据的完整性，而索引是一个数据结构，既有逻辑上的概念，在数据库上还代表着物理存储的方式。</p><h2 id="分区表"><a href="#分区表" class="headerlink" title="分区表"></a>分区表</h2><p>分区功能并不是在存储引擎层完成的，不是只有InnoDB存储引擎支持分区，MySQL5.1添加了对分区的支持，分区的国恒就是将一个表或索引分解为多个更小的、更可管理的部分。从逻辑上讲，只有一个表或一个索引，但是物理上这个表或索引可能由数十个物理分区组成，每个分区都是独立的对象。</p><p>MySQL支持的分区类型为水平分（将同一表中不同行的记录分配到不同的物理文件中），不支持垂直分（将同一表中不同列的记录分配到不同的物理文件中）。MySQL的分区是局部分区索引，一个分区既存放了数据又存放了索引，而全局分区是指，数据存放在各个分区中，数据的索引放在一个对象中。</p><p>MySQL支持以下几种类型的分区：</p><ul><li>RANGE分区：行数据基于属于一个给定连续区间的列值被放入分区。</li><li>LIST分区：面向离散值的分区。</li><li>HASH分区：根据用户自定义的表达式的返回值来进行分区，返回值不能为负数。</li><li>KEY分区：根据MySQL数据库提供的Hash函数进行分区。</li></ul><p>无论哪种分区方式，如果表中存在主键或唯一索引时，分区列必须是唯一索引的一个组成部分。</p><h3 id="子分区"><a href="#子分区" class="headerlink" title="子分区"></a>子分区</h3><p>子分区是在分区的基础上再进行分区，也成为复合分区，MySQL允许在RANGE和LIST分区上再进行HASH和KEY的子分区。<br>子分区需要注意以下几个问题：</p><ul><li>每个子分区的数量必须相同。</li><li>要在一个分区表的任何分区上使用SUBPARTITION来明确定义任何子分区，就必须定义所有的子分区。</li><li>每个SUBPARTITION子句必须包括子分区的一个名字。</li><li>子分区的名字必须是唯一的。</li></ul><h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p>《MySQL技术内幕：InnoDB存储引擎(第二版)》</p>]]></content>
-    
-    <summary type="html">
-    
-      
-      
-        &lt;h2 id=&quot;索引组织表&quot;&gt;&lt;a href=&quot;#索引组织表&quot; class=&quot;headerlink&quot; title=&quot;索引组织表&quot;&gt;&lt;/a&gt;索引组织表&lt;/h2&gt;&lt;p&gt;在InnoDB存储引擎中，表是根据主键顺序组织存放的，这种存储方式的表称为索引组织表，每张表都有一个主键，如果创建时
-      
-    
-    </summary>
-    
-      <category term="MySQL" scheme="https://l1n.wang/categories/MySQL/"/>
-    
-    
-      <category term="MySQL" scheme="https://l1n.wang/tags/MySQL/"/>
     
   </entry>
   
