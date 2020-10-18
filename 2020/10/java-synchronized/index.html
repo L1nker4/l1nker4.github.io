@@ -16,7 +16,7 @@
   <meta name="description" content="Talk is cheap,show me the code.">
   <meta name="author" content="L1nker4">
   <meta name="keywords" content="l1nker4">
-  <title>Integer小细节 - l1nker4&#39;s Blog</title>
+  <title>synchronized关键字剖析 - l1nker4&#39;s Blog</title>
 
   <link rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/css/bootstrap.min.css">
 
@@ -156,8 +156,8 @@
               
   <div class="mt-3 post-meta">
     <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-    <time datetime="2020-08-06 21:55">
-      2020年8月6日 晚上
+    <time datetime="2020-10-11 22:59">
+      2020年10月11日 晚上
     </time>
   </div>
 
@@ -167,7 +167,7 @@
     
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      461 字
+      1.5k 字
     </span>
   
 
@@ -177,7 +177,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      7
+      18
        分钟
     </span>
   
@@ -208,71 +208,119 @@
           <div class="post-content mx-auto" id="post">
             
             <article class="markdown-body">
-              <h2 id="Integer"><a href="#Integer" class="headerlink" title="Integer"></a>Integer</h2><h3 id="IntegerCache"><a href="#IntegerCache" class="headerlink" title="IntegerCache"></a>IntegerCache</h3><p>在Java中，创建的对象会存储在堆内存，·IntegerCache·主要用来做缓存，减少内存的重复消耗。但是<code>IntegerCache</code>缓存的数据范围在-128到127之间。可以通过 <code>-XX:AutoBoxCacheMax=high</code> 来指定这个缓冲池的大小，JVM通过<code>java.lang.IntegerCache.high</code> 系统属性来存储该值，<code>IntegerCache</code>初始化的时候就会读取该系统属性来决定大小。以下为源码：</p>
-<div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">IntegerCache</span> </span>&#123;
-        <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> low = -<span class="hljs-number">128</span>;
-        <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> high;
-        <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> Integer cache[];
-
-        <span class="hljs-keyword">static</span> &#123;
-            <span class="hljs-comment">// high value may be configured by property</span>
-            <span class="hljs-keyword">int</span> h = <span class="hljs-number">127</span>;
-            <span class="hljs-comment">//读取JVM参数值</span>
-            String integerCacheHighPropValue =
-                sun.misc.VM.getSavedProperty(<span class="hljs-string">"java.lang.Integer.IntegerCache.high"</span>);
-            <span class="hljs-comment">//初始化high</span>
-            <span class="hljs-keyword">if</span> (integerCacheHighPropValue != <span class="hljs-keyword">null</span>) &#123;
-                <span class="hljs-keyword">try</span> &#123;
-                    <span class="hljs-keyword">int</span> i = parseInt(integerCacheHighPropValue);
-                    i = Math.max(i, <span class="hljs-number">127</span>);
-                    <span class="hljs-comment">// Maximum array size is Integer.MAX_VALUE</span>
-                    h = Math.min(i, Integer.MAX_VALUE - (-low) -<span class="hljs-number">1</span>);
-                &#125; <span class="hljs-keyword">catch</span>( NumberFormatException nfe) &#123;
-                    <span class="hljs-comment">// If the property cannot be parsed into an int, ignore it.</span>
-                &#125;
-            &#125;
-            high = h;
-            <span class="hljs-comment">//127 - (-128) + 1为数组容量</span>
-            cache = <span class="hljs-keyword">new</span> Integer[(high - low) + <span class="hljs-number">1</span>];
-            <span class="hljs-comment">//初始化Cache数组</span>
-            <span class="hljs-keyword">int</span> j = low;
-            <span class="hljs-keyword">for</span>(<span class="hljs-keyword">int</span> k = <span class="hljs-number">0</span>; k &lt; cache.length; k++)
-                cache[k] = <span class="hljs-keyword">new</span> Integer(j++);
-
-            <span class="hljs-comment">// range [-128, 127] must be interned (JLS7 5.1.7)</span>
-            <span class="hljs-keyword">assert</span> IntegerCache.high &gt;= <span class="hljs-number">127</span>;
-        &#125;
-
-        <span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-title">IntegerCache</span><span class="hljs-params">()</span> </span>&#123;&#125;
-    &#125;</code></pre></div>
-<h3 id="Integer-valueOf"><a href="#Integer-valueOf" class="headerlink" title="Integer.valueOf()"></a>Integer.valueOf()</h3><p>首先看一下关于该方法的实现：</p>
-<div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> Integer <span class="hljs-title">valueOf</span><span class="hljs-params">(<span class="hljs-keyword">int</span> i)</span> </span>&#123;
-    	<span class="hljs-comment">//判断传入的变量是否处于IntegerCache之内，是的话直接返回缓存中的数据</span>
-        <span class="hljs-keyword">if</span> (i &gt;= IntegerCache.low &amp;&amp; i &lt;= IntegerCache.high)
-            <span class="hljs-keyword">return</span> IntegerCache.cache[i + (-IntegerCache.low)];
-        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> Integer(i);
-    &#125;
-
-<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-title">Integer</span><span class="hljs-params">(<span class="hljs-keyword">int</span> value)</span> </span>&#123;
-        <span class="hljs-keyword">this</span>.value = value;
-&#125;</code></pre></div>
-<p>因此以下代码便十分容易理解：</p>
+              <h2 id="使用"><a href="#使用" class="headerlink" title="使用"></a>使用</h2><p>在使用<code>Synchronized</code>关键字需要把握以下注意点：</p>
 <ul>
-<li>构造方法是创建一个新对象，必然不是同一个地址</li>
-<li><code>valueOf</code>在<code>-128 ~ 127</code>区间之内返回<code>IntegerCache</code>中的对应数组的元素。而超过该范围通过构造方法进行创建。</li>
+<li>一把锁只能同时被一个线程获取，没有获得锁的线程只能等待。</li>
+<li>每一个实例都有自己的一个锁资源，存放于对象头中（2bit表示锁信息）</li>
 </ul>
-<div class="hljs"><pre><code class="hljs java">Integer x = <span class="hljs-keyword">new</span> Integer(<span class="hljs-number">123</span>);
-Integer y = <span class="hljs-keyword">new</span> Integer(<span class="hljs-number">123</span>);
-<span class="hljs-comment">// false</span>
-System.out.println(x == y);    
-Integer a = Integer.valueOf(<span class="hljs-number">123</span>);
-Integer b = Integer.valueOf(<span class="hljs-number">123</span>);
-<span class="hljs-comment">// true</span>
-System.out.println(a == b);
-Integer c = Integer.valueOf(<span class="hljs-number">129</span>);
-Integer d = Integer.valueOf(<span class="hljs-number">129</span>);
-<span class="hljs-comment">//false</span>
-System.out.println(c == d);</code></pre></div>
+<h3 id="对象锁"><a href="#对象锁" class="headerlink" title="对象锁"></a>对象锁</h3><ul>
+<li>同步代码块锁（可以指定锁定对象）</li>
+<li>方法锁（默认锁定对象为this（当前实例对象））</li>
+</ul>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">synchronized</span> (obj)&#123;
+   System.out.println(<span class="hljs-string">"hello"</span>);
+&#125;
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">synchronized</span> <span class="hljs-keyword">void</span> <span class="hljs-title">test</span><span class="hljs-params">()</span> </span>&#123;
+   System.out.println(<span class="hljs-string">"hello"</span>);
+&#125;</code></pre></div>
+<h3 id="类锁"><a href="#类锁" class="headerlink" title="类锁"></a>类锁</h3><p><code>synchronized</code>修饰静态方法或指定锁对象为Class对象。</p>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">synchronized</span> <span class="hljs-keyword">void</span> <span class="hljs-title">method</span><span class="hljs-params">()</span> </span>&#123;
+    <span class="hljs-comment">//do something</span>
+&#125;
+<span class="hljs-keyword">synchronized</span>(ObjectDemo<span class="hljs-class">.<span class="hljs-keyword">class</span>)</span>&#123;
+    
+&#125;</code></pre></div>
+<h2 id="理论基础"><a href="#理论基础" class="headerlink" title="理论基础"></a>理论基础</h2><p>在操作系统进程管理中，对进程并发问题主要提供了两种解决方法：信号量和管程。在Java 1.5之前，提供的唯一并发原语就是管程，Java 1.5之后提供的JUC包也是以管程技术为基础的。</p>
+<h3 id="管程定义"><a href="#管程定义" class="headerlink" title="管程定义"></a>管程定义</h3><blockquote>
+<p>一个管程定义了一个数据结构和能为并发进程所执行的一组操作，这组操作能同步进程和改变管程中的数据。</p>
+</blockquote>
+<p>通俗而言：管程（Monitor）是管理共享变量以及对共享变量的操作过程，让他们支持并发。在OS领域一般称为管程，Java中可以称为<strong>监视器</strong>。</p>
+<h3 id="MESA模型"><a href="#MESA模型" class="headerlink" title="MESA模型"></a>MESA模型</h3><p>MESA模型是当今广泛使用的MESA模型，Java管程的实现参考的也是MESA模型。并对其进行了精简。Java内置的管程只有一个条件变量。</p>
+<p>如下图所示：管程X将共享变量queue、入队操作于出队操作封装起来。如果线程A和线程B访问共享变量queue，只能通过调用管程提供的<code>enq()</code>和<code>deq()</code>来实现。两个方法保证互斥性，，只允许一个线程进入管程并操作。该模型能实现并发编程中的互斥问题。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/java/concurrent/sync/MESA.jpg" srcset="/img/loading.gif" alt="管程"></p>
+<p>下图为MESA管程模型示意图，框中即是封装的管程，所有线程通过入口等待队列进入管程。管程还引入了条件变量的概念，<strong>每一个条件变量都对应一个等待队列</strong>。管程的同步主要通过<code>Condition</code>（条件变量）实现。<code>Condition</code>可以执行<code>wait()</code>和<code>signal()</code>。</p>
+<p>假设线程T1执行出队操作，同时有个前提条件：队列不为空，这是条件变量。如果T1进入管程发现队列为空，则会在条件变量的等待队列进行等待。调用<code>wait()</code>实现。此刻允许其它线程进入管程。</p>
+<p>此时线程T2执行入队操作，入队成功后，队列不空条件对于T1已经满足，T2调用<code>notify()</code>来通知T1。通知他条件已满足。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/java/concurrent/sync/MESA1.jpg" srcset="/img/loading.gif" alt="MESA管程模型"></p>
+<h3 id="两个操作"><a href="#两个操作" class="headerlink" title="两个操作"></a>两个操作</h3><h4 id="wait"><a href="#wait" class="headerlink" title="wait"></a>wait</h4><p>MESA模型提供了一个特有的编程范式，通过循环检查条件调用<code>wait()</code>。管程模型中：条件满足后，如何通知相关线程。管程要求同一时刻只能有一个线程能执行，那么上述问题中T1，T2谁执行呢？</p>
+<p>在MESA中，T2通过<code>notify()</code>通知完后，继续执行，T1从条件变量的等待队列进入入口等待队列中。</p>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">while</span>(条件不满足) &#123;
+	wait();
+&#125;</code></pre></div>
+<h4 id="signal"><a href="#signal" class="headerlink" title="signal"></a>signal</h4><p>尽量使用<code>notifyAll()</code>，如果满足以下三个条件则可以使用<code>notify()</code>：</p>
+<ul>
+<li>所有等待线程拥有相同的等待条件</li>
+<li>所有等待线程被唤醒后，执行相同的操作</li>
+<li>只需要唤醒一个线程</li>
+</ul>
+<h2 id="实现"><a href="#实现" class="headerlink" title="实现"></a>实现</h2><h3 id="JVM字节码层面"><a href="#JVM字节码层面" class="headerlink" title="JVM字节码层面"></a>JVM字节码层面</h3><p>从JVM层面来看，主要通过两个字节码指令实现，<code>monitorenter</code>与<code>monitorexit</code>。这两个字节码需要指定一个对象引用作为参数。这个对象引用就是monitor object。它就是synchronized传入的对象实例，该对象充当着维护了mutex以及顶层父类<code>Object</code>提供的<code>wait/notify</code>机制。</p>
+<div class="hljs"><pre><code class="hljs java">public class wang.l1n.volatile1.Demo02 &#123;
+  public wang.l1n.volatile1.Demo02();
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object."&lt;init&gt;":()V
+       4: return
+
+  public static void main(java.lang.String[]);
+    Code:
+       0: getstatic     #2                  // Field object:Ljava/lang/Object;
+       3: dup
+       4: astore_1
+       5: monitorenter
+       6: getstatic     #3                  // Field java/lang/System.out:Ljava/io/PrintStream;
+       9: ldc           #4                  // String hello world
+      11: invokevirtual #5                  // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+      14: aload_1
+      15: monitorexit
+      16: goto          24
+      19: astore_2
+      20: aload_1
+      21: monitorexit
+      22: aload_2
+      23: athrow
+      24: return
+    Exception table:
+       from    to  target type
+           6    16    19   any
+          19    22    19   any
+
+  static &#123;&#125;;
+    Code:
+       0: new           #6                  // class java/lang/Object
+       3: dup
+       4: invokespecial #1                  // Method java/lang/Object."&lt;init&gt;":()V
+       7: putstatic     #2                  // Field object:Ljava/lang/Object;
+      10: return
+&#125;</code></pre></div>
+<h3 id="JVM实现层面"><a href="#JVM实现层面" class="headerlink" title="JVM实现层面"></a>JVM实现层面</h3><p>Java在堆内存中存储，其中<code>Mark Word</code>中<code>2bit</code>存储了锁标识，Java的顶层父类<code>Object</code>定义了<code>wait()</code>，<code>notify()</code>，<code>notifyAll()</code>方法，这些方法的具体实现，依赖于<code>ObjectMonitor</code>模式，这是JVM内部基于C++实现的一套机制，基本原理如下图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/java/concurrent/sync/object%20monitor.png" srcset="/img/loading.gif" alt="ObjectMonitor"></p>
+<ul>
+<li>Entry Set：从未获得过Monitor得线程，排队竞争Monitor</li>
+<li>owner：同一时刻，只有一个线程持有Monitor</li>
+<li>Wait Set：曾经持有Monitor的线程，通过<code>Object.wait()</code>主动进入wait set</li>
+</ul>
+<p>当一个线程需要获取Object锁时，会放入<code>Entry Set</code>中进行等待，如果该线程获取到了锁，会成为当前锁的owner，该线程可以通过调用wait方法将锁释放，进入<code>wait Set</code>中进行等待，其他线程此刻可以获得锁，从而使得之前不成立的条件变量（Condition）成立，这样之前阻塞的线程就可以重新进入<code>Entry Set</code>取竞争锁。</p>
+<ul>
+<li>持有Monitor的线程t1检到条件变量c不符合，则执行<code>wait()</code>，使自己：<ul>
+<li>主动释放Monitor资源</li>
+<li>进入Wait Set，挂起自己</li>
+</ul>
+</li>
+<li>线程t2发现t1符合条件变量c之后，执行<code>notify()</code>，使得：<ul>
+<li>s继续正常执行，直到执行完毕释放Monitor或者主动<code>wait()</code></li>
+<li>s释放Monitor后，Wait Set中的t1重新竞争获取Monitor</li>
+</ul>
+</li>
+</ul>
+<p>HotSpot VM通过<a href="https://hg.openjdk.java.net/jdk/jdk/file/896e80158d35/src/hotspot/share/runtime/objectMonitor.hpp" target="_blank" rel="noopener">ObjectMonitor</a>实现该机制，该类包含以下关键字段：</p>
+<ul>
+<li>_EntryList：对应 entry set</li>
+<li>_WaitSet：对应 wait set</li>
+<li>_owner：指向持有 Monitor 线程的指针</li>
+<li>_recursions：重入次数，获得同一个Monitor 加1，释放同一个Monitor减1，为0，说明释放了Monitor。</li>
+<li>_count：近似等于 _EntryList + _WaitSet</li>
+</ul>
 
             </article>
             <hr>
@@ -284,7 +332,7 @@ System.out.println(c == d);</code></pre></div>
                     
                       <a class="hover-with-bg" href="/categories/Java/">Java</a>
                     
-                      <a class="hover-with-bg" href="/categories/Java/基础/">基础</a>
+                      <a class="hover-with-bg" href="/categories/Java/Java并发/">Java并发</a>
                     
                   </div>
                 
@@ -294,35 +342,14 @@ System.out.println(c == d);</code></pre></div>
                     
                       <a class="hover-with-bg" href="/tags/Java/">Java</a>
                     
+                      <a class="hover-with-bg" href="/tags/并发/">并发</a>
+                    
                   </div>
                 
               </div>
               
                 <p class="note note-warning">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！</p>
               
-              
-                <div class="post-prevnext row">
-                  <div class="post-prev col-6">
-                    
-                    
-                      <a href="/2020/08/java8-note/">
-                        <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">Java8特性</span>
-                        <span class="visible-mobile">上一篇</span>
-                      </a>
-                    
-                  </div>
-                  <div class="post-next col-6">
-                    
-                    
-                      <a href="/2020/08/java-treemap/">
-                        <span class="hidden-mobile">TreeMap源码分析</span>
-                        <span class="visible-mobile">下一篇</span>
-                        <i class="iconfont icon-arrowright"></i>
-                      </a>
-                    
-                  </div>
-                </div>
               
             </div>
 
@@ -464,7 +491,7 @@ System.out.println(c == d);</code></pre></div>
     var typed = new Typed('#subtitle', {
       strings: [
         '  ',
-        "Integer小细节&nbsp;",
+        "synchronized关键字剖析&nbsp;",
       ],
       cursorChar: "_",
       typeSpeed: 70,
