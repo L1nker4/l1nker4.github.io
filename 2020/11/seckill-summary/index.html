@@ -16,7 +16,7 @@
   <meta name="description" content="Talk is cheap,show me the code.">
   <meta name="author" content="L1nker4">
   <meta name="keywords" content="l1nker4">
-  <title>JVM之Java内存结构（一） - l1nker4&#39;s Blog</title>
+  <title>秒杀系统设计总结 - l1nker4&#39;s Blog</title>
 
   <link rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/css/bootstrap.min.css">
 
@@ -156,8 +156,8 @@
               
   <div class="mt-3 post-meta">
     <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-    <time datetime="2020-03-21 17:33">
-      2020年3月21日 下午
+    <time datetime="2020-11-09 13:29">
+      2020年11月9日 下午
     </time>
   </div>
 
@@ -167,7 +167,7 @@
     
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      998 字
+      1k 字
     </span>
   
 
@@ -208,62 +208,85 @@
           <div class="post-content mx-auto" id="post">
             
             <article class="markdown-body">
-              <h1 id="Java运行时数据区域"><a href="#Java运行时数据区域" class="headerlink" title="Java运行时数据区域"></a>Java运行时数据区域</h1><p>数据区域主要分为五个部分：</p>
+              <h2 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h2><p>秒杀从规模上可以分为以下两类：</p>
 <ul>
-<li>程序计数器</li>
-<li>虚拟机栈</li>
-<li>本地方法栈</li>
-<li>堆</li>
-<li>方法区</li>
+<li>大秒：类似双十一，商品数量规模大，价格低，流量超大的活动。</li>
+<li>小秒：商家自己配置的一些时段类型的活动，由商家自己指定时间上架。</li>
 </ul>
-<p>其中所有线程共享区域有：方法区和堆。</p>
-<p>每个线程独享区域有：虚拟机栈，本地方法栈，程序计数器<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/jvm/java-memory.png" srcset="/img/loading.gif" alt="Java运行时数据区域"></p>
-<h2 id="线程独享的区域"><a href="#线程独享的区域" class="headerlink" title="线程独享的区域"></a>线程独享的区域</h2><h3 id="程序计数器"><a href="#程序计数器" class="headerlink" title="程序计数器"></a>程序计数器</h3><p> 程序计数器是一块较小的内存空间，它可以看作是当前线程所执行的字节码的行号指示器，如果当前线程执行的是一个本地方法，那么此时计数器的值为<code>undefined</code>，是唯一一个不会出现<code>OutOfMemoryError</code>的内存区域。</p>
-<h3 id="Java虚拟机栈"><a href="#Java虚拟机栈" class="headerlink" title="Java虚拟机栈"></a>Java虚拟机栈</h3><p> 虚拟机栈描述的是Java方法执行的线程内存模型，每个方法被执行的时候，Java虚拟机都会同步创建一个栈帧，用于存放以下内容：</p>
+<h2 id="秒杀系统面对的问题"><a href="#秒杀系统面对的问题" class="headerlink" title="秒杀系统面对的问题"></a>秒杀系统面对的问题</h2><ul>
+<li>高并发环境下的系统稳定性：如何保证系统在面对巨大的流量情况下，不被打崩？<ul>
+<li>Redis缓存击穿/雪崩/穿透等问题</li>
+<li>关系型数据库性能问题，锁竞争对性能的消耗</li>
+</ul>
+</li>
+<li>保证数据的最终一致性：库存不能超卖。</li>
+<li>大数据分析功能：分析本次秒杀活动的商业效益。</li>
+</ul>
+<h2 id="设计"><a href="#设计" class="headerlink" title="设计"></a>设计</h2><h3 id="流量过滤"><a href="#流量过滤" class="headerlink" title="流量过滤"></a>流量过滤</h3><p>本质：逐级过滤掉无效的流量。基本有以下一些解决方案：</p>
 <ul>
-<li>局部变量表</li>
-<li>操作数栈</li>
-<li>动态链接</li>
-<li>方法出口</li>
+<li>活动开始前前端页面的Button无法点击，防止活动尚未开始时，用户进行点击产生流量。<ul>
+<li>同时后端需要做相关校验。避免用户直接请求秒杀接口。</li>
+<li>秒杀url实现动态化，可以选择进行md5加密随机字符串，然后通过另一个接口校验秒杀接口的合法性</li>
 </ul>
-<p>其中局部变量表包括以下内容：</p>
+</li>
+<li>错峰：前端添加验证码或者答题，防止瞬间产生超高的流量，增加题目辨别难度，避免以图像识别等技术进行破解。</li>
+<li>校验：对参与活动的用户进行校验拦截。主要从以下几个方面进行判断<ul>
+<li>用户白名单</li>
+<li>用户终端校验：对用户终端类型进行判断</li>
+<li>IP、MAC、ID校验</li>
+<li>参与次数校验：避免多次参与活动</li>
+<li>用户黑名单：避免羊毛党等</li>
+</ul>
+</li>
+<li>限流：通过接口限流策略判断请求是否放行<ul>
+<li>令牌桶算法</li>
+</ul>
+</li>
+</ul>
+<h3 id="性能优化"><a href="#性能优化" class="headerlink" title="性能优化"></a>性能优化</h3><p>前面的流量过滤基本过滤掉大部分流量，但是系统性能还需进行优化，主要有以下的解决方案：</p>
 <ul>
-<li>八大基本数据类型</li>
-<li>对象引用</li>
-<li>returnAddress类型（保存的是return后要执行的字节码的指令地址）</li>
+<li>页面静态化，再通过CDN分发流量，减轻服务器的压力。</li>
+<li>活动预热：将参加活动的商品独立出来，不和普通的商品库存共享服务，提前将数据缓存到<code>redis</code>，查询全部走缓存，扣减库存视情况而定。</li>
+<li>nginx性能高，使用nginx映射请求</li>
+<li>采用微服务架构部署，提高部署量，均摊请求。</li>
+<li>秒杀是典型的读多写少的场景，考虑到单体redis的性能问题，可以考虑：<ul>
+<li>redis集群</li>
+<li>主从同步</li>
+<li>读写分离</li>
+<li>如果使用redis集群，同时需要考虑保证多节点的数据一致性</li>
 </ul>
-<p>这些数据类型在局部变量表中的存储空间以局部变量槽来表示，64位长度的<code>long</code>和<code>double</code>类型占用两个变量槽，其余的占用一个。局部变量表所需的内存空间在编译期间完成分配，方法运行期间不会改变局部变量表的大小。</p>
-<p>Java 虚拟机栈会出现两种异常：<code>StackOverFlowError</code> 和 <code>OutOfMemoryError</code>。</p>
+</li>
+<li>异步处理：采用消息队列<ul>
+<li>异步，削峰，解耦</li>
+</ul>
+</li>
+</ul>
+<h3 id="解决超卖"><a href="#解决超卖" class="headerlink" title="解决超卖"></a>解决超卖</h3><p>一般情况下，针对下单和库存有以下两种方式：</p>
 <ul>
-<li>如果线程请求的栈深度大于虚拟机所允许的深度，将抛出<code>StackOverFlowError</code></li>
-<li>如果Java虚拟机栈容量可以动态扩展，当栈扩展时无法申请到足够内存会抛出<code>OutOfMemoryError</code></li>
+<li>下单即扣库存，存在锁单等问题</li>
+<li>支付完成扣库存，秒杀场景不适用。</li>
 </ul>
-<h3 id="本地方法栈"><a href="#本地方法栈" class="headerlink" title="本地方法栈"></a>本地方法栈</h3><p>本地方法栈是为JVM使用到的<code>Native</code>方法准备的空间。</p>
-<h2 id="线程共享的区域"><a href="#线程共享的区域" class="headerlink" title="线程共享的区域"></a>线程共享的区域</h2><h3 id="堆"><a href="#堆" class="headerlink" title="堆"></a>堆</h3><p>主要特点：</p>
-<ul>
-<li>堆是被所有线程共享的一块内存区域</li>
-<li>在虚拟机启动时创建</li>
-<li>堆的唯一目的就是存放对象实例</li>
-<li>堆是垃圾回收管理的内存区域</li>
-<li>可分为新生代，老年代，永久代等（一部分垃圾收集器的共同特性或者设计风格，不是具体实现的固有内存布局）</li>
-<li>从分配内存的角度看，所有线程共享的Java堆可以划分出多个线程私有的分配缓冲区（TLAB）以提升对象分配的效率，这样做可以更好地回收内存或者更快的分配内存。</li>
-<li>堆的大小可以通过<code>-Xmx</code>和<code>-Xms</code>设定。</li>
+<p>一般秒杀场景选择下单扣库存的方式：</p>
+<ol>
+<li>首先查询redis缓存库存是否充足</li>
+<li>先扣库存再落订单数据，以防订单生成没有了库存的超卖问题</li>
+<li>扣库存先扣数据库，再扣redis，并且两个操作需要在同一个事务中，一个执行失败全部回滚。<ul>
+<li>数据库更新可以采取<strong>乐观锁</strong>方式，添加version字段进行处理，性能较悲观锁高。</li>
 </ul>
-<h3 id="方法区"><a href="#方法区" class="headerlink" title="方法区"></a>方法区</h3><p>Java 虚拟机规范中定义方法区是堆的一个逻辑部分。<br>用于存储以下内容：</p>
-<ul>
-<li>已被虚拟机加载的类信息</li>
-<li>常量</li>
-<li>静态变量</li>
-<li>即时编译器编译后的代码</li>
+</li>
+</ol>
+<p>上述方案能一定程度解决问题，但是如果大量请求落在同一条库存数据库记录上去update时，行锁导致大量锁竞争，会使得数据库性能急剧下降。</p>
+<h3 id="质量保障"><a href="#质量保障" class="headerlink" title="质量保障"></a>质量保障</h3><ul>
+<li>熔断限流降级</li>
+<li>监控：QPS监控，容器监控，CPU监控，IO监控等</li>
+<li>提前压测</li>
+<li>数据核对：检查一下金额，库存等信息，是否发生超卖，是否有羊毛党等。</li>
 </ul>
-<p>方法区内的主要回收目标是对常量池的回收和对类型的卸载。</p>
-<h4 id="运行时常量池"><a href="#运行时常量池" class="headerlink" title="运行时常量池"></a>运行时常量池</h4><p>运行时常量池是方法区的一部分。主要存放以下内容：</p>
-<ul>
-<li>类信息（版本，字段，方法，接口等描述信息）</li>
-<li>常量池表（用于存放编译期生成的各种字面量与符号引用）</li>
+<h3 id="数据统计"><a href="#数据统计" class="headerlink" title="数据统计"></a>数据统计</h3><ul>
+<li>埋点，检测</li>
+<li>数据大盘，通过数据库数据配合监控系统（首选）</li>
+<li>离线数据分析</li>
 </ul>
-<p>Java并不要求常量一定在编译期间产生，并非Class文件中常量池的内容才能进入运行时常量池，运行期间产生的新的常量也能放入池中。比如<code>String</code>类的<code>intern()</code>方法。<br>当常量池无法再申请到内存会抛出<code>OutOfMemoryError</code></p>
-<h3 id="直接内存（堆外内存）"><a href="#直接内存（堆外内存）" class="headerlink" title="直接内存（堆外内存）"></a>直接内存（堆外内存）</h3><p>直接内存并不是虚拟机运行时数据区的一部分，也不是虚拟机规范中定义的内存区域，但是会被频繁地使用，也可能导致<code>OutOfMemoryError</code><br>直接内存的分配不受JVM控制，但是会受到本机总内存（物理内存，SWAP分区，分页文件）以及处理器寻址空间的限制。</p>
 
             </article>
             <hr>
@@ -275,7 +298,7 @@
                     
                       <a class="hover-with-bg" href="/categories/Java/">Java</a>
                     
-                      <a class="hover-with-bg" href="/categories/Java/JVM/">JVM</a>
+                      <a class="hover-with-bg" href="/categories/Java/面试题/">面试题</a>
                     
                   </div>
                 
@@ -285,7 +308,7 @@
                     
                       <a class="hover-with-bg" href="/tags/Java/">Java</a>
                     
-                      <a class="hover-with-bg" href="/tags/JVM/">JVM</a>
+                      <a class="hover-with-bg" href="/tags/面试题/">面试题</a>
                     
                   </div>
                 
@@ -298,18 +321,12 @@
                   <div class="post-prev col-6">
                     
                     
-                      <a href="/2020/03/jvm02-java-object/">
-                        <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">JVM之HotSpot VM对象（二）</span>
-                        <span class="visible-mobile">上一篇</span>
-                      </a>
-                    
                   </div>
                   <div class="post-next col-6">
                     
                     
-                      <a href="/2019/12/2020/">
-                        <span class="hidden-mobile">2019和2020</span>
+                      <a href="/2020/11/java-locksupport/">
+                        <span class="hidden-mobile">LockSupport原理剖析</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
@@ -457,7 +474,7 @@
     var typed = new Typed('#subtitle', {
       strings: [
         '  ',
-        "JVM之Java内存结构（一）&nbsp;",
+        "秒杀系统设计总结&nbsp;",
       ],
       cursorChar: "_",
       typeSpeed: 70,
