@@ -167,7 +167,7 @@
     
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      4.1k 字
+      6.6k 字
     </span>
   
 
@@ -177,7 +177,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      51
+      95
        分钟
     </span>
   
@@ -211,7 +211,16 @@
               <h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><p>队列同步器AbstractQueuedSynchronizer，是用来构建锁或者其他同步组键的基础框架，它使用了一个int成员变量<strong>state</strong>表示同步状态，通过CLH队列完成获取资源的线程排队工作。</p>
 <p>AQS的主要使用方式是继承，字类通过继承同步器并实现它的抽象方法来管理同步状态。AQS本身只是定义若干同步状态获取和释放的方法提供给字类来实现。</p>
 <p>锁是面向使用者的，它定义了使用者与锁交互的接口，隐藏了实现细节。AQS是面向锁的实现者，它简化了锁的实现方式，屏蔽了同步状态管理，线程的排队，等待与唤醒等底层操作。</p>
-<p>AQS的设计是基于模板方法模式的，使用者继承AQS并重写指定方法，随后同步器组合自定义同步组件的实现，并调用AQS提供的模板方法，模板方法调用使用者重写的方法。</p>
+<p>AQS定义了两种资源共享的方式：</p>
+<ul>
+<li>Exclusive（独占）：只有一个线程能执行，如ReentrantLock，其中又可分为公平锁和非公平锁：<ul>
+<li>公平锁：线程按照队列的顺序获取锁</li>
+<li>非公平锁：线程无视顺序，去抢锁</li>
+</ul>
+</li>
+<li>Share（共享）：多个线程可同时执行，如Semaphore/CountDownLatch。</li>
+</ul>
+<p>AQS的设计是基于模板方法模式的，使用者继承AbstractQueuedSynchronizer并重写指定方法，重写的方法是对同步状态<code>state</code>的获取释放等操作。</p>
 <p>可重写方法如下，arg参数为获取锁的次数。</p>
 <table>
 <thead>
@@ -223,23 +232,23 @@
 <tbody>
 <tr>
 <td style="text-align:center">protected boolean tryAcquire(int arg)</td>
-<td style="text-align:center">独占方式获取同步状态，实现该方法需要查询当前状态并判断同步状态是否符合预期，然后进行CAS设置同步状态</td>
+<td style="text-align:center">独占方式，尝试获取同步状态，实现该方法需要查询当前状态并判断同步状态是否符合预期，然后通过CAS设置同步状态，成功返回true，失败返回false</td>
 </tr>
 <tr>
 <td style="text-align:center">protected boolean tryRelease(int arg)</td>
-<td style="text-align:center">独占式释放同步状态，等待获取同步状态的线程将有机会获取同步状态。</td>
+<td style="text-align:center">独占方式，尝试释放同步状态，成功返回true，失败则返回false</td>
 </tr>
 <tr>
 <td style="text-align:center">protected int tryAcquireShared(int arg)</td>
-<td style="text-align:center">共享式获取同步状态，返回大于等于0的值，表示获取成功，反之，获取失败</td>
+<td style="text-align:center">共享方式，尝试获取同步状态，返回0表示成功，但是没有剩余可用资源，负数表示失败，正数表示成功，并且有剩余资源。</td>
 </tr>
 <tr>
 <td style="text-align:center">protected boolean tryReleaseShared(int arg)</td>
-<td style="text-align:center">共享式释放同步状态</td>
+<td style="text-align:center">共享方式，尝试释放同步状态，成功返回true，失败返回false</td>
 </tr>
 <tr>
 <td style="text-align:center">protected boolean isHeldExclusively()</td>
-<td style="text-align:center">当前同步器是否在独占模式下被线程占用，一般该方法表示是否被当前线程所独占。</td>
+<td style="text-align:center">判断当前线程是否正在独占资源</td>
 </tr>
 </tbody>
 </table>
@@ -294,13 +303,33 @@
 <p>AQS整体方法架构可以参照下图（来源：美团技术团队）</p>
 <p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/concurrency/aqs/82077ccf14127a87b77cefd1ccf562d3253591.png" srcset="/img/loading.gif" alt="AQS方法架构"></p>
 <h1 id="原理"><a href="#原理" class="headerlink" title="原理"></a>原理</h1><p>核心思想：如果被请求的共享资源空闲，则将当前请求资源的线程设置为有效的工作线程，并将共享资源设置为锁定状态，如果被请求的共享资源被占用，就将请求资源的线程加入CLH队列中。</p>
-<p>CLH：Craig、Landin and Hagersten队列，是单向链表，AQS中的队列是CLH变体的虚拟双向队列（FIFO），AQS是通过将每条请求共享资源的线程封装成一个节点来实现锁的分配。</p>
-<p>AQS使用一个volatile修饰的int类型的成员变量来表示同步状态，通过内置的FIFO队列来完成资源获取的排队工作，通过CAS完成对State值的修改。</p>
-<p>原理图如下：</p>
-<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/concurrency/aqs/%E7%BB%98%E5%9B%BE1.png" srcset="/img/loading.gif" alt="AQS原理图"></p>
-<h2 id="AQS数据结构"><a href="#AQS数据结构" class="headerlink" title="AQS数据结构"></a>AQS数据结构</h2><p>AQS中最基本的数据结构就是CLH队列中的Node节点，该源码位于AQS中的静态内部类。</p>
+<p>CLH：Craig、Landin and Hagersten队列，是单向链表，AQS中的队列是CLH变体的双向队列（FIFO），每一个节点都是等待资源的线程。</p>
+<p>AQS使用一个volatile修饰的int类型的成员变量<code>state</code>来表示同步状态，通过内置的FIFO队列来完成资源获取的排队工作，通过CAS方式完成对<code>state</code>的修改。</p>
+<h2 id="类的继承关系"><a href="#类的继承关系" class="headerlink" title="类的继承关系"></a>类的继承关系</h2><p><code>AbstractQueuedSynchronizer</code>继承自<code>AbstractOwnableSynchronizer</code>，并且实现<code>Serializable</code>接口。<br><div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">abstract</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">AbstractQueuedSynchronizer</span>
+    <span class="hljs-keyword">extends</span> <span class="hljs-title">AbstractOwnableSynchronizer</span>
+    <span class="hljs-keyword">implements</span> <span class="hljs-title">java</span>.<span class="hljs-title">io</span>.<span class="hljs-title">Serializable</span> </span>&#123;</code></pre></div></p>
+<p><code>AbstractOwnableSynchronizer</code>抽象类可以设置独占资源线程和获取独占资源的线程。<br><div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">abstract</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">AbstractOwnableSynchronizer</span> <span class="hljs-keyword">implements</span> <span class="hljs-title">java</span>.<span class="hljs-title">io</span>.<span class="hljs-title">Serializable</span> </span>&#123;
+    
+    <span class="hljs-comment">// 版本序列号</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">long</span> serialVersionUID = <span class="hljs-number">3737899427754241961L</span>;
+    <span class="hljs-comment">// 构造方法</span>
+    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-title">AbstractOwnableSynchronizer</span><span class="hljs-params">()</span> </span>&#123; &#125;
+    <span class="hljs-comment">// 独占模式下的线程</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">transient</span> Thread exclusiveOwnerThread;
+    
+    <span class="hljs-comment">// 设置独占线程 </span>
+    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">void</span> <span class="hljs-title">setExclusiveOwnerThread</span><span class="hljs-params">(Thread thread)</span> </span>&#123;
+        exclusiveOwnerThread = thread;
+    &#125;
+    
+    <span class="hljs-comment">// 获取独占线程 </span>
+    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">final</span> Thread <span class="hljs-title">getExclusiveOwnerThread</span><span class="hljs-params">()</span> </span>&#123;
+        <span class="hljs-keyword">return</span> exclusiveOwnerThread;
+    &#125;
+&#125;</code></pre></div></p>
+<h2 id="Node"><a href="#Node" class="headerlink" title="Node"></a>Node</h2><p>每一个阻塞的线程都会被封装成一个Node节点，放入Sync Queue。</p>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Node</span> </span>&#123;
-        <span class="hljs-comment">//线程节点的两种状态，独享锁和共享锁</span>
+        <span class="hljs-comment">//线程节点的两种状态，独享模式和共享模式</span>
         <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> Node SHARED = <span class="hljs-keyword">new</span> Node();
         <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> Node EXCLUSIVE = <span class="hljs-keyword">null</span>;
 
@@ -308,7 +337,7 @@
         <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> CANCELLED =  <span class="hljs-number">1</span>;
         <span class="hljs-comment">//表示后继节点在等待当前节点唤醒，后继节点入队时，会见前继节点状态更新为SIGNAL</span>
         <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> SIGNAL    = -<span class="hljs-number">1</span>;
-        <span class="hljs-comment">//表示节点等待在Condition上，当其他线程调用了Condition的signal()方法后，CONDITION状态的结点将从等待队列转移到同步队列中，等待获取同步锁。</span>
+        <span class="hljs-comment">//表示节点等待在Condition上，当其他线程调用了Condition的signal()方法后，CONDITION状态的结点将从等待队列转移到同步队列中，等待获取锁。</span>
         <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> CONDITION = -<span class="hljs-number">2</span>;
         <span class="hljs-comment">//SHARED模式下，前继节点不仅会唤醒后继节点，也可能唤醒后继的后继节点</span>
         <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> PROPAGATE = -<span class="hljs-number">3</span>;
@@ -355,6 +384,450 @@
             <span class="hljs-keyword">this</span>.thread = thread;
         &#125;
     &#125;</code></pre></div>
+<h2 id="ConditionObject"><a href="#ConditionObject" class="headerlink" title="ConditionObject"></a>ConditionObject</h2><p>该类实现了<code>Condition</code>接口，该接口定义了如下规范：<br><div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-class"><span class="hljs-keyword">interface</span> <span class="hljs-title">Condition</span> </span>&#123;
+
+    <span class="hljs-comment">// 等待，当前线程在接到信号或被中断之前一直处于等待状态</span>
+    <span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">await</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> InterruptedException</span>;
+    
+    <span class="hljs-comment">// 等待，当前线程在接到信号之前一直处于等待状态，不响应中断</span>
+    <span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">awaitUninterruptibly</span><span class="hljs-params">()</span></span>;
+    
+    <span class="hljs-comment">//等待，当前线程在接到信号、被中断或到达指定等待时间之前一直处于等待状态 </span>
+    <span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">awaitNanos</span><span class="hljs-params">(<span class="hljs-keyword">long</span> nanosTimeout)</span> <span class="hljs-keyword">throws</span> InterruptedException</span>;
+    
+    <span class="hljs-comment">// 等待，当前线程在接到信号、被中断或到达指定等待时间之前一直处于等待状态。此方法在行为上等效于: awaitNanos(unit.toNanos(time)) &gt; 0</span>
+    <span class="hljs-function"><span class="hljs-keyword">boolean</span> <span class="hljs-title">await</span><span class="hljs-params">(<span class="hljs-keyword">long</span> time, TimeUnit unit)</span> <span class="hljs-keyword">throws</span> InterruptedException</span>;
+    
+    <span class="hljs-comment">// 等待，当前线程在接到信号、被中断或到达指定最后期限之前一直处于等待状态</span>
+    <span class="hljs-function"><span class="hljs-keyword">boolean</span> <span class="hljs-title">awaitUntil</span><span class="hljs-params">(Date deadline)</span> <span class="hljs-keyword">throws</span> InterruptedException</span>;
+    
+    <span class="hljs-comment">// 唤醒一个等待线程。如果所有的线程都在等待此条件，则选择其中的一个唤醒。在从 await 返回之前，该线程必须重新获取锁。</span>
+    <span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">signal</span><span class="hljs-params">()</span></span>;
+    
+    <span class="hljs-comment">// 唤醒所有等待线程。如果所有的线程都在等待此条件，则唤醒所有线程。在从 await 返回之前，每个线程都必须重新获取锁。</span>
+    <span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">signalAll</span><span class="hljs-params">()</span></span>;
+&#125;</code></pre></div></p>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ConditionObject</span> <span class="hljs-keyword">implements</span> <span class="hljs-title">Condition</span>, <span class="hljs-title">java</span>.<span class="hljs-title">io</span>.<span class="hljs-title">Serializable</span> </span>&#123;
+        <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">long</span> serialVersionUID = <span class="hljs-number">1173984872572414699L</span>;
+        <span class="hljs-comment">//condition队列的头节点</span>
+        <span class="hljs-keyword">private</span> <span class="hljs-keyword">transient</span> Node firstWaiter;
+        <span class="hljs-comment">//condition队列的尾节点</span>
+        <span class="hljs-keyword">private</span> <span class="hljs-keyword">transient</span> Node lastWaiter;
+
+        <span class="hljs-comment">//构造方法</span>
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-title">ConditionObject</span><span class="hljs-params">()</span> </span>&#123; &#125;
+
+        <span class="hljs-comment">// Internal methods</span>
+
+        <span class="hljs-comment">//添加新的waiter到wait队列</span>
+        <span class="hljs-function"><span class="hljs-keyword">private</span> Node <span class="hljs-title">addConditionWaiter</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-comment">//保存尾节点</span>
+            Node t = lastWaiter;
+            <span class="hljs-comment">//尾节点不为空，并且尾节点的状态不为CONDITION</span>
+            <span class="hljs-keyword">if</span> (t != <span class="hljs-keyword">null</span> &amp;&amp; t.waitStatus != Node.CONDITION) &#123;
+                <span class="hljs-comment">//清除状态为CONDITION的结点</span>
+                unlinkCancelledWaiters();
+                t = lastWaiter;
+            &#125;
+            <span class="hljs-comment">//将当前线程设置为node，状态为CONDITION</span>
+            Node node = <span class="hljs-keyword">new</span> Node(Thread.currentThread(), Node.CONDITION);
+            <span class="hljs-keyword">if</span> (t == <span class="hljs-keyword">null</span>)<span class="hljs-comment">//尾节点为空</span>
+                <span class="hljs-comment">//设置头节点为node</span>
+                firstWaiter = node;
+            <span class="hljs-keyword">else</span>
+                <span class="hljs-comment">//设置尾节点的next指向node</span>
+                t.nextWaiter = node;
+            <span class="hljs-comment">//更新condition队列的尾节点</span>
+            lastWaiter = node;
+            <span class="hljs-keyword">return</span> node;
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Removes and transfers nodes until hit non-cancelled one or
+         * null. Split out from signal in part to encourage compilers
+         * to inline the case of no waiters.
+         * <span class="hljs-doctag">@param</span> first (non-null) the first node on condition queue
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">void</span> <span class="hljs-title">doSignal</span><span class="hljs-params">(Node first)</span> </span>&#123;
+            <span class="hljs-keyword">do</span> &#123;
+                <span class="hljs-keyword">if</span> ( (firstWaiter = first.nextWaiter) == <span class="hljs-keyword">null</span>)
+                    lastWaiter = <span class="hljs-keyword">null</span>;
+                first.nextWaiter = <span class="hljs-keyword">null</span>;
+            &#125; <span class="hljs-keyword">while</span> (!transferForSignal(first) &amp;&amp;
+                     (first = firstWaiter) != <span class="hljs-keyword">null</span>);
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Removes and transfers all nodes.
+         * <span class="hljs-doctag">@param</span> first (non-null) the first node on condition queue
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">void</span> <span class="hljs-title">doSignalAll</span><span class="hljs-params">(Node first)</span> </span>&#123;
+            lastWaiter = firstWaiter = <span class="hljs-keyword">null</span>;
+            <span class="hljs-keyword">do</span> &#123;
+                Node next = first.nextWaiter;
+                first.nextWaiter = <span class="hljs-keyword">null</span>;
+                transferForSignal(first);
+                first = next;
+            &#125; <span class="hljs-keyword">while</span> (first != <span class="hljs-keyword">null</span>);
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Unlinks cancelled waiter nodes from condition queue.
+         * Called only while holding lock. This is called when
+         * cancellation occurred during condition wait, and upon
+         * insertion of a new waiter when lastWaiter is seen to have
+         * been cancelled. This method is needed to avoid garbage
+         * retention in the absence of signals. So even though it may
+         * require a full traversal, it comes into play only when
+         * timeouts or cancellations occur in the absence of
+         * signals. It traverses all nodes rather than stopping at a
+         * particular target to unlink all pointers to garbage nodes
+         * without requiring many re-traversals during cancellation
+         * storms.
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">void</span> <span class="hljs-title">unlinkCancelledWaiters</span><span class="hljs-params">()</span> </span>&#123;
+            Node t = firstWaiter;
+            Node trail = <span class="hljs-keyword">null</span>;
+            <span class="hljs-keyword">while</span> (t != <span class="hljs-keyword">null</span>) &#123;
+                Node next = t.nextWaiter;
+                <span class="hljs-keyword">if</span> (t.waitStatus != Node.CONDITION) &#123;
+                    t.nextWaiter = <span class="hljs-keyword">null</span>;
+                    <span class="hljs-keyword">if</span> (trail == <span class="hljs-keyword">null</span>)
+                        firstWaiter = next;
+                    <span class="hljs-keyword">else</span>
+                        trail.nextWaiter = next;
+                    <span class="hljs-keyword">if</span> (next == <span class="hljs-keyword">null</span>)
+                        lastWaiter = trail;
+                &#125;
+                <span class="hljs-keyword">else</span>
+                    trail = t;
+                t = next;
+            &#125;
+        &#125;
+
+        <span class="hljs-comment">// public methods</span>
+
+        <span class="hljs-comment">/**
+         * Moves the longest-waiting thread, if one exists, from the
+         * wait queue for this condition to the wait queue for the
+         * owning lock.
+         *
+         * <span class="hljs-doctag">@throws</span> IllegalMonitorStateException if &#123;<span class="hljs-doctag">@link</span> #isHeldExclusively&#125;
+         *         returns &#123;<span class="hljs-doctag">@code</span> false&#125;
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">void</span> <span class="hljs-title">signal</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-keyword">if</span> (!isHeldExclusively())
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalMonitorStateException();
+            Node first = firstWaiter;
+            <span class="hljs-keyword">if</span> (first != <span class="hljs-keyword">null</span>)
+                doSignal(first);
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Moves all threads from the wait queue for this condition to
+         * the wait queue for the owning lock.
+         *
+         * <span class="hljs-doctag">@throws</span> IllegalMonitorStateException if &#123;<span class="hljs-doctag">@link</span> #isHeldExclusively&#125;
+         *         returns &#123;<span class="hljs-doctag">@code</span> false&#125;
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">void</span> <span class="hljs-title">signalAll</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-keyword">if</span> (!isHeldExclusively())
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalMonitorStateException();
+            Node first = firstWaiter;
+            <span class="hljs-keyword">if</span> (first != <span class="hljs-keyword">null</span>)
+                doSignalAll(first);
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Implements uninterruptible condition wait.
+         * &lt;ol&gt;
+         * &lt;li&gt; Save lock state returned by &#123;<span class="hljs-doctag">@link</span> #getState&#125;.
+         * &lt;li&gt; Invoke &#123;<span class="hljs-doctag">@link</span> #release&#125; with saved state as argument,
+         *      throwing IllegalMonitorStateException if it fails.
+         * &lt;li&gt; Block until signalled.
+         * &lt;li&gt; Reacquire by invoking specialized version of
+         *      &#123;<span class="hljs-doctag">@link</span> #acquire&#125; with saved state as argument.
+         * &lt;/ol&gt;
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">void</span> <span class="hljs-title">awaitUninterruptibly</span><span class="hljs-params">()</span> </span>&#123;
+            Node node = addConditionWaiter();
+            <span class="hljs-keyword">int</span> savedState = fullyRelease(node);
+            <span class="hljs-keyword">boolean</span> interrupted = <span class="hljs-keyword">false</span>;
+            <span class="hljs-keyword">while</span> (!isOnSyncQueue(node)) &#123;
+                LockSupport.park(<span class="hljs-keyword">this</span>);
+                <span class="hljs-keyword">if</span> (Thread.interrupted())
+                    interrupted = <span class="hljs-keyword">true</span>;
+            &#125;
+            <span class="hljs-keyword">if</span> (acquireQueued(node, savedState) || interrupted)
+                selfInterrupt();
+        &#125;
+
+        <span class="hljs-comment">/*
+         * For interruptible waits, we need to track whether to throw
+         * InterruptedException, if interrupted while blocked on
+         * condition, versus reinterrupt current thread, if
+         * interrupted while blocked waiting to re-acquire.
+         */</span>
+
+        <span class="hljs-comment">/** Mode meaning to reinterrupt on exit from wait */</span>
+        <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> REINTERRUPT =  <span class="hljs-number">1</span>;
+        <span class="hljs-comment">/** Mode meaning to throw InterruptedException on exit from wait */</span>
+        <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> THROW_IE    = -<span class="hljs-number">1</span>;
+
+        <span class="hljs-comment">/**
+         * Checks for interrupt, returning THROW_IE if interrupted
+         * before signalled, REINTERRUPT if after signalled, or
+         * 0 if not interrupted.
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">int</span> <span class="hljs-title">checkInterruptWhileWaiting</span><span class="hljs-params">(Node node)</span> </span>&#123;
+            <span class="hljs-keyword">return</span> Thread.interrupted() ?
+                (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :
+                <span class="hljs-number">0</span>;
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Throws InterruptedException, reinterrupts current thread, or
+         * does nothing, depending on mode.
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">void</span> <span class="hljs-title">reportInterruptAfterWait</span><span class="hljs-params">(<span class="hljs-keyword">int</span> interruptMode)</span>
+            <span class="hljs-keyword">throws</span> InterruptedException </span>&#123;
+            <span class="hljs-keyword">if</span> (interruptMode == THROW_IE)
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> InterruptedException();
+            <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (interruptMode == REINTERRUPT)
+                selfInterrupt();
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Implements interruptible condition wait.
+         * &lt;ol&gt;
+         * &lt;li&gt; If current thread is interrupted, throw InterruptedException.
+         * &lt;li&gt; Save lock state returned by &#123;<span class="hljs-doctag">@link</span> #getState&#125;.
+         * &lt;li&gt; Invoke &#123;<span class="hljs-doctag">@link</span> #release&#125; with saved state as argument,
+         *      throwing IllegalMonitorStateException if it fails.
+         * &lt;li&gt; Block until signalled or interrupted.
+         * &lt;li&gt; Reacquire by invoking specialized version of
+         *      &#123;<span class="hljs-doctag">@link</span> #acquire&#125; with saved state as argument.
+         * &lt;li&gt; If interrupted while blocked in step 4, throw InterruptedException.
+         * &lt;/ol&gt;
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">void</span> <span class="hljs-title">await</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> InterruptedException </span>&#123;
+            <span class="hljs-keyword">if</span> (Thread.interrupted())
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> InterruptedException();
+            Node node = addConditionWaiter();
+            <span class="hljs-keyword">int</span> savedState = fullyRelease(node);
+            <span class="hljs-keyword">int</span> interruptMode = <span class="hljs-number">0</span>;
+            <span class="hljs-keyword">while</span> (!isOnSyncQueue(node)) &#123;
+                LockSupport.park(<span class="hljs-keyword">this</span>);
+                <span class="hljs-keyword">if</span> ((interruptMode = checkInterruptWhileWaiting(node)) != <span class="hljs-number">0</span>)
+                    <span class="hljs-keyword">break</span>;
+            &#125;
+            <span class="hljs-keyword">if</span> (acquireQueued(node, savedState) &amp;&amp; interruptMode != THROW_IE)
+                interruptMode = REINTERRUPT;
+            <span class="hljs-keyword">if</span> (node.nextWaiter != <span class="hljs-keyword">null</span>) <span class="hljs-comment">// clean up if cancelled</span>
+                unlinkCancelledWaiters();
+            <span class="hljs-keyword">if</span> (interruptMode != <span class="hljs-number">0</span>)
+                reportInterruptAfterWait(interruptMode);
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Implements timed condition wait.
+         * &lt;ol&gt;
+         * &lt;li&gt; If current thread is interrupted, throw InterruptedException.
+         * &lt;li&gt; Save lock state returned by &#123;<span class="hljs-doctag">@link</span> #getState&#125;.
+         * &lt;li&gt; Invoke &#123;<span class="hljs-doctag">@link</span> #release&#125; with saved state as argument,
+         *      throwing IllegalMonitorStateException if it fails.
+         * &lt;li&gt; Block until signalled, interrupted, or timed out.
+         * &lt;li&gt; Reacquire by invoking specialized version of
+         *      &#123;<span class="hljs-doctag">@link</span> #acquire&#125; with saved state as argument.
+         * &lt;li&gt; If interrupted while blocked in step 4, throw InterruptedException.
+         * &lt;/ol&gt;
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">long</span> <span class="hljs-title">awaitNanos</span><span class="hljs-params">(<span class="hljs-keyword">long</span> nanosTimeout)</span>
+                <span class="hljs-keyword">throws</span> InterruptedException </span>&#123;
+            <span class="hljs-keyword">if</span> (Thread.interrupted())
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> InterruptedException();
+            Node node = addConditionWaiter();
+            <span class="hljs-keyword">int</span> savedState = fullyRelease(node);
+            <span class="hljs-keyword">final</span> <span class="hljs-keyword">long</span> deadline = System.nanoTime() + nanosTimeout;
+            <span class="hljs-keyword">int</span> interruptMode = <span class="hljs-number">0</span>;
+            <span class="hljs-keyword">while</span> (!isOnSyncQueue(node)) &#123;
+                <span class="hljs-keyword">if</span> (nanosTimeout &lt;= <span class="hljs-number">0L</span>) &#123;
+                    transferAfterCancelledWait(node);
+                    <span class="hljs-keyword">break</span>;
+                &#125;
+                <span class="hljs-keyword">if</span> (nanosTimeout &gt;= spinForTimeoutThreshold)
+                    LockSupport.parkNanos(<span class="hljs-keyword">this</span>, nanosTimeout);
+                <span class="hljs-keyword">if</span> ((interruptMode = checkInterruptWhileWaiting(node)) != <span class="hljs-number">0</span>)
+                    <span class="hljs-keyword">break</span>;
+                nanosTimeout = deadline - System.nanoTime();
+            &#125;
+            <span class="hljs-keyword">if</span> (acquireQueued(node, savedState) &amp;&amp; interruptMode != THROW_IE)
+                interruptMode = REINTERRUPT;
+            <span class="hljs-keyword">if</span> (node.nextWaiter != <span class="hljs-keyword">null</span>)
+                unlinkCancelledWaiters();
+            <span class="hljs-keyword">if</span> (interruptMode != <span class="hljs-number">0</span>)
+                reportInterruptAfterWait(interruptMode);
+            <span class="hljs-keyword">return</span> deadline - System.nanoTime();
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Implements absolute timed condition wait.
+         * &lt;ol&gt;
+         * &lt;li&gt; If current thread is interrupted, throw InterruptedException.
+         * &lt;li&gt; Save lock state returned by &#123;<span class="hljs-doctag">@link</span> #getState&#125;.
+         * &lt;li&gt; Invoke &#123;<span class="hljs-doctag">@link</span> #release&#125; with saved state as argument,
+         *      throwing IllegalMonitorStateException if it fails.
+         * &lt;li&gt; Block until signalled, interrupted, or timed out.
+         * &lt;li&gt; Reacquire by invoking specialized version of
+         *      &#123;<span class="hljs-doctag">@link</span> #acquire&#125; with saved state as argument.
+         * &lt;li&gt; If interrupted while blocked in step 4, throw InterruptedException.
+         * &lt;li&gt; If timed out while blocked in step 4, return false, else true.
+         * &lt;/ol&gt;
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">awaitUntil</span><span class="hljs-params">(Date deadline)</span>
+                <span class="hljs-keyword">throws</span> InterruptedException </span>&#123;
+            <span class="hljs-keyword">long</span> abstime = deadline.getTime();
+            <span class="hljs-keyword">if</span> (Thread.interrupted())
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> InterruptedException();
+            Node node = addConditionWaiter();
+            <span class="hljs-keyword">int</span> savedState = fullyRelease(node);
+            <span class="hljs-keyword">boolean</span> timedout = <span class="hljs-keyword">false</span>;
+            <span class="hljs-keyword">int</span> interruptMode = <span class="hljs-number">0</span>;
+            <span class="hljs-keyword">while</span> (!isOnSyncQueue(node)) &#123;
+                <span class="hljs-keyword">if</span> (System.currentTimeMillis() &gt; abstime) &#123;
+                    timedout = transferAfterCancelledWait(node);
+                    <span class="hljs-keyword">break</span>;
+                &#125;
+                LockSupport.parkUntil(<span class="hljs-keyword">this</span>, abstime);
+                <span class="hljs-keyword">if</span> ((interruptMode = checkInterruptWhileWaiting(node)) != <span class="hljs-number">0</span>)
+                    <span class="hljs-keyword">break</span>;
+            &#125;
+            <span class="hljs-keyword">if</span> (acquireQueued(node, savedState) &amp;&amp; interruptMode != THROW_IE)
+                interruptMode = REINTERRUPT;
+            <span class="hljs-keyword">if</span> (node.nextWaiter != <span class="hljs-keyword">null</span>)
+                unlinkCancelledWaiters();
+            <span class="hljs-keyword">if</span> (interruptMode != <span class="hljs-number">0</span>)
+                reportInterruptAfterWait(interruptMode);
+            <span class="hljs-keyword">return</span> !timedout;
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Implements timed condition wait.
+         * &lt;ol&gt;
+         * &lt;li&gt; If current thread is interrupted, throw InterruptedException.
+         * &lt;li&gt; Save lock state returned by &#123;<span class="hljs-doctag">@link</span> #getState&#125;.
+         * &lt;li&gt; Invoke &#123;<span class="hljs-doctag">@link</span> #release&#125; with saved state as argument,
+         *      throwing IllegalMonitorStateException if it fails.
+         * &lt;li&gt; Block until signalled, interrupted, or timed out.
+         * &lt;li&gt; Reacquire by invoking specialized version of
+         *      &#123;<span class="hljs-doctag">@link</span> #acquire&#125; with saved state as argument.
+         * &lt;li&gt; If interrupted while blocked in step 4, throw InterruptedException.
+         * &lt;li&gt; If timed out while blocked in step 4, return false, else true.
+         * &lt;/ol&gt;
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">await</span><span class="hljs-params">(<span class="hljs-keyword">long</span> time, TimeUnit unit)</span>
+                <span class="hljs-keyword">throws</span> InterruptedException </span>&#123;
+            <span class="hljs-keyword">long</span> nanosTimeout = unit.toNanos(time);
+            <span class="hljs-keyword">if</span> (Thread.interrupted())
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> InterruptedException();
+            Node node = addConditionWaiter();
+            <span class="hljs-keyword">int</span> savedState = fullyRelease(node);
+            <span class="hljs-keyword">final</span> <span class="hljs-keyword">long</span> deadline = System.nanoTime() + nanosTimeout;
+            <span class="hljs-keyword">boolean</span> timedout = <span class="hljs-keyword">false</span>;
+            <span class="hljs-keyword">int</span> interruptMode = <span class="hljs-number">0</span>;
+            <span class="hljs-keyword">while</span> (!isOnSyncQueue(node)) &#123;
+                <span class="hljs-keyword">if</span> (nanosTimeout &lt;= <span class="hljs-number">0L</span>) &#123;
+                    timedout = transferAfterCancelledWait(node);
+                    <span class="hljs-keyword">break</span>;
+                &#125;
+                <span class="hljs-keyword">if</span> (nanosTimeout &gt;= spinForTimeoutThreshold)
+                    LockSupport.parkNanos(<span class="hljs-keyword">this</span>, nanosTimeout);
+                <span class="hljs-keyword">if</span> ((interruptMode = checkInterruptWhileWaiting(node)) != <span class="hljs-number">0</span>)
+                    <span class="hljs-keyword">break</span>;
+                nanosTimeout = deadline - System.nanoTime();
+            &#125;
+            <span class="hljs-keyword">if</span> (acquireQueued(node, savedState) &amp;&amp; interruptMode != THROW_IE)
+                interruptMode = REINTERRUPT;
+            <span class="hljs-keyword">if</span> (node.nextWaiter != <span class="hljs-keyword">null</span>)
+                unlinkCancelledWaiters();
+            <span class="hljs-keyword">if</span> (interruptMode != <span class="hljs-number">0</span>)
+                reportInterruptAfterWait(interruptMode);
+            <span class="hljs-keyword">return</span> !timedout;
+        &#125;
+
+        <span class="hljs-comment">//  support for instrumentation</span>
+
+        <span class="hljs-comment">/**
+         * Returns true if this condition was created by the given
+         * synchronization object.
+         *
+         * <span class="hljs-doctag">@return</span> &#123;<span class="hljs-doctag">@code</span> true&#125; if owned
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">final</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">isOwnedBy</span><span class="hljs-params">(AbstractQueuedSynchronizer sync)</span> </span>&#123;
+            <span class="hljs-keyword">return</span> sync == AbstractQueuedSynchronizer.<span class="hljs-keyword">this</span>;
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Queries whether any threads are waiting on this condition.
+         * Implements &#123;<span class="hljs-doctag">@link</span> AbstractQueuedSynchronizer#hasWaiters(ConditionObject)&#125;.
+         *
+         * <span class="hljs-doctag">@return</span> &#123;<span class="hljs-doctag">@code</span> true&#125; if there are any waiting threads
+         * <span class="hljs-doctag">@throws</span> IllegalMonitorStateException if &#123;<span class="hljs-doctag">@link</span> #isHeldExclusively&#125;
+         *         returns &#123;<span class="hljs-doctag">@code</span> false&#125;
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">hasWaiters</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-keyword">if</span> (!isHeldExclusively())
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalMonitorStateException();
+            <span class="hljs-keyword">for</span> (Node w = firstWaiter; w != <span class="hljs-keyword">null</span>; w = w.nextWaiter) &#123;
+                <span class="hljs-keyword">if</span> (w.waitStatus == Node.CONDITION)
+                    <span class="hljs-keyword">return</span> <span class="hljs-keyword">true</span>;
+            &#125;
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">false</span>;
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Returns an estimate of the number of threads waiting on
+         * this condition.
+         * Implements &#123;<span class="hljs-doctag">@link</span> AbstractQueuedSynchronizer#getWaitQueueLength(ConditionObject)&#125;.
+         *
+         * <span class="hljs-doctag">@return</span> the estimated number of waiting threads
+         * <span class="hljs-doctag">@throws</span> IllegalMonitorStateException if &#123;<span class="hljs-doctag">@link</span> #isHeldExclusively&#125;
+         *         returns &#123;<span class="hljs-doctag">@code</span> false&#125;
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> <span class="hljs-title">getWaitQueueLength</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-keyword">if</span> (!isHeldExclusively())
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalMonitorStateException();
+            <span class="hljs-keyword">int</span> n = <span class="hljs-number">0</span>;
+            <span class="hljs-keyword">for</span> (Node w = firstWaiter; w != <span class="hljs-keyword">null</span>; w = w.nextWaiter) &#123;
+                <span class="hljs-keyword">if</span> (w.waitStatus == Node.CONDITION)
+                    ++n;
+            &#125;
+            <span class="hljs-keyword">return</span> n;
+        &#125;
+
+        <span class="hljs-comment">/**
+         * Returns a collection containing those threads that may be
+         * waiting on this Condition.
+         * Implements &#123;<span class="hljs-doctag">@link</span> AbstractQueuedSynchronizer#getWaitingThreads(ConditionObject)&#125;.
+         *
+         * <span class="hljs-doctag">@return</span> the collection of threads
+         * <span class="hljs-doctag">@throws</span> IllegalMonitorStateException if &#123;<span class="hljs-doctag">@link</span> #isHeldExclusively&#125;
+         *         returns &#123;<span class="hljs-doctag">@code</span> false&#125;
+         */</span>
+        <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">final</span> Collection&lt;Thread&gt; <span class="hljs-title">getWaitingThreads</span><span class="hljs-params">()</span> </span>&#123;
+            <span class="hljs-keyword">if</span> (!isHeldExclusively())
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> IllegalMonitorStateException();
+            ArrayList&lt;Thread&gt; list = <span class="hljs-keyword">new</span> ArrayList&lt;Thread&gt;();
+            <span class="hljs-keyword">for</span> (Node w = firstWaiter; w != <span class="hljs-keyword">null</span>; w = w.nextWaiter) &#123;
+                <span class="hljs-keyword">if</span> (w.waitStatus == Node.CONDITION) &#123;
+                    Thread t = w.thread;
+                    <span class="hljs-keyword">if</span> (t != <span class="hljs-keyword">null</span>)
+                        list.add(t);
+                &#125;
+            &#125;
+            <span class="hljs-keyword">return</span> list;
+        &#125;
+    &#125;</code></pre></div>
 <h2 id="State"><a href="#State" class="headerlink" title="State"></a>State</h2><p>AQS中有一个state字段，为同步状态，用volatile修饰。AQS中提供了几个访问该字段的方法：</p>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-comment">//返回当前state</span>
    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">int</span> <span class="hljs-title">getState</span><span class="hljs-params">()</span> </span>&#123;
@@ -368,18 +841,54 @@
 <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">compareAndSetState</span><span class="hljs-params">(<span class="hljs-keyword">int</span> expect, <span class="hljs-keyword">int</span> update)</span> </span>&#123;
        <span class="hljs-keyword">return</span> unsafe.compareAndSwapInt(<span class="hljs-keyword">this</span>, stateOffset, expect, update);
    &#125;</code></pre></div>
+<h2 id="类的属性"><a href="#类的属性" class="headerlink" title="类的属性"></a>类的属性</h2><div class="hljs"><pre><code class="hljs java">//头节点
+private transient volatile Node head;
+
+尾节点
+private transient volatile Node tail;
+
+//state
+private volatile int state;
+
+//unsafe
+private static final Unsafe unsafe = Unsafe.getUnsafe();
+//通过内存偏移地址来修改变量值
+private static final long stateOffset;
+private static final long headOffset;
+private static final long tailOffset;
+private static final long waitStatusOffset;
+private static final long nextOffset;
+
+static final long spinForTimeoutThreshold = 1000L;
+//获取各个变量的内存偏移地址
+static &#123;
+    try &#123;
+        stateOffset = unsafe.objectFieldOffset
+            (AbstractQueuedSynchronizer.class.getDeclaredField("state"));
+        headOffset = unsafe.objectFieldOffset
+            (AbstractQueuedSynchronizer.class.getDeclaredField("head"));
+        tailOffset = unsafe.objectFieldOffset
+            (AbstractQueuedSynchronizer.class.getDeclaredField("tail"));
+        waitStatusOffset = unsafe.objectFieldOffset
+            (Node.class.getDeclaredField("waitStatus"));
+        nextOffset = unsafe.objectFieldOffset
+            (Node.class.getDeclaredField("next"));
+
+    &#125; catch (Exception ex) &#123; throw new Error(ex); &#125;
+&#125;</code></pre></div>
+<h2 id="构造方法"><a href="#构造方法" class="headerlink" title="构造方法"></a>构造方法</h2><p><code>protected</code>修饰，供子类调用。</p>
+<div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-title">AbstractQueuedSynchronizer</span><span class="hljs-params">()</span> </span>&#123; &#125;</code></pre></div>
 <h2 id="方法"><a href="#方法" class="headerlink" title="方法"></a>方法</h2><h3 id="acquire"><a href="#acquire" class="headerlink" title="acquire"></a>acquire</h3><p>独占模式下获取共享资源，如果当前线程获取共享资源成功，则由该方法返回，否则，将会进入同步队列等待，直到获取资源为止，整个过程忽略中断。</p>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">void</span> <span class="hljs-title">acquire</span><span class="hljs-params">(<span class="hljs-keyword">int</span> arg)</span> </span>&#123;
        <span class="hljs-keyword">if</span> (!tryAcquire(arg) &amp;&amp;
            acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
            selfInterrupt();
    &#125;</code></pre></div>
-<p>该方法中出现的其他方法，下文都会详细解释。</p>
 <h4 id="tryAcquire"><a href="#tryAcquire" class="headerlink" title="tryAcquire"></a>tryAcquire</h4><p>尝试去获取独占资源，如果获取成功，直接返回true，否则返回false。</p>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">tryAcquire</span><span class="hljs-params">(<span class="hljs-keyword">int</span> arg)</span> </span>&#123;
        <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> UnsupportedOperationException();
    &#125;</code></pre></div>
-<p>在AQS中只是定义一个接口，具体的资源获取和释放方式交给自定义同步器去实现。</p>
+<p>在AQS中只是定义一个接口，具体的资源获取和释放方式交给自定义的同步器去实现。</p>
 <h4 id="addWaiter"><a href="#addWaiter" class="headerlink" title="addWaiter"></a>addWaiter</h4><p>此方法将当前线程加到队尾，并返回当前线程所在的节点。</p>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">private</span> Node <span class="hljs-title">addWaiter</span><span class="hljs-params">(Node mode)</span> </span>&#123;
        <span class="hljs-comment">//将当前线程和模式构造成节点</span>
@@ -389,8 +898,9 @@
        <span class="hljs-keyword">if</span> (pred != <span class="hljs-keyword">null</span>) &#123;
            <span class="hljs-comment">//新构造的节点加入队尾</span>
            node.prev = pred;
-           <span class="hljs-comment">//compareAndSetTail方法完成尾节点的设置</span>
+           <span class="hljs-comment">//比较pred是否为尾节点，是则将尾节点设置为node</span>
            <span class="hljs-keyword">if</span> (compareAndSetTail(pred, node)) &#123;
+               <span class="hljs-comment">//设置尾节点的next</span>
                pred.next = node;
                <span class="hljs-keyword">return</span> node;
            &#125;
@@ -399,7 +909,7 @@
        enq(node);
        <span class="hljs-keyword">return</span> node;
    &#125;</code></pre></div>
-<h4 id="enq"><a href="#enq" class="headerlink" title="enq"></a>enq</h4><p>此方法将节点加入队尾。</p>
+<h4 id="enq"><a href="#enq" class="headerlink" title="enq"></a>enq</h4><p><code>enq</code>使用自旋方式来确保节点的插入</p>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">private</span> Node <span class="hljs-title">enq</span><span class="hljs-params">(<span class="hljs-keyword">final</span> Node node)</span> </span>&#123;
     <span class="hljs-comment">//CAS自旋，直到成功加入队尾</span>
     <span class="hljs-keyword">for</span> (;;) &#123;
@@ -409,9 +919,11 @@
             <span class="hljs-keyword">if</span> (compareAndSetHead(<span class="hljs-keyword">new</span> Node()))
                 tail = head;
         &#125; <span class="hljs-keyword">else</span> &#123;
-            <span class="hljs-comment">//队列不空时，执行该方法</span>
+            <span class="hljs-comment">//尾节点不为空时，将node节点的prev连接到t</span>
             node.prev = t;
+            <span class="hljs-comment">//比较节点t是否为尾节点，若是则将尾节点设置为node</span>
             <span class="hljs-keyword">if</span> (compareAndSetTail(t, node)) &#123;
+                <span class="hljs-comment">//设置尾节点的next指向node</span>
                 t.next = node;
                 <span class="hljs-keyword">return</span> t;
             &#125;
@@ -420,9 +932,9 @@
 &#125;</code></pre></div>
 <h4 id="acquireQueued"><a href="#acquireQueued" class="headerlink" title="acquireQueued"></a>acquireQueued</h4><p>如果执行到此方法，说明该线程获取资源失败，已被放入队列尾部。acquireQueued方法具体流程如下：</p>
 <ol>
-<li>节点进入队尾后，判断如果是头节点就尝试获取资源，如果成功，直接返回</li>
-<li>否则就通过shouldParkAfterFailedAcquire判断节点状态是否为SIGNAL，是返回true，不是返回false。</li>
-<li>如果2中返回true，执行parkAndCheckInterrupt，通过park挂起线程，他需要等待一个中断或unpark唤醒</li>
+<li>节点进入队尾后，判断如果前驱节点是头节点就尝试获取资源，如果成功，直接返回</li>
+<li>否则就通过shouldParkAfterFailedAcquire判断前驱节点状态是否为SIGNAL，是则park当前节点，否则不进行park操作。</li>
+<li>如果park了当前线程，之后某个线程对本线程的unpark后，本线程会被唤醒，将</li>
 </ol>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">final</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">acquireQueued</span><span class="hljs-params">(<span class="hljs-keyword">final</span> Node node, <span class="hljs-keyword">int</span> arg)</span> </span>&#123;
        <span class="hljs-comment">//标记是否成功拿到锁</span>
@@ -432,11 +944,11 @@
            <span class="hljs-keyword">boolean</span> interrupted = <span class="hljs-keyword">false</span>;
            <span class="hljs-comment">//自旋</span>
            <span class="hljs-keyword">for</span> (;;) &#123;
-               <span class="hljs-comment">//定义p为该节点地前驱节点</span>
+               <span class="hljs-comment">//定义p为该节点的前驱节点</span>
                <span class="hljs-keyword">final</span> Node p = node.predecessor();
-               <span class="hljs-comment">//如果前驱节点是head，就尝试获取锁</span>
+               <span class="hljs-comment">//如果前驱节点是head，并且成功获得锁</span>
                <span class="hljs-keyword">if</span> (p == head &amp;&amp; tryAcquire(arg)) &#123;
-                   <span class="hljs-comment">//获取成功，将头结点设置为当前节点</span>
+                   <span class="hljs-comment">//将头结点设置为当前节点</span>
                    setHead(node);
                    p.next = <span class="hljs-keyword">null</span>; <span class="hljs-comment">// help GC</span>
                    <span class="hljs-comment">//成功获取锁</span>
@@ -444,7 +956,7 @@
                    <span class="hljs-comment">//返回等待过程中是否被中断过</span>
                    <span class="hljs-keyword">return</span> interrupted;
                &#125;
-               <span class="hljs-comment">//不是头节点就通过shouldParkAfterFailedAcquire方法判断节点状态是否为SIGNAL</span>
+               <span class="hljs-comment">//获取资源失败就通过shouldParkAfterFailedAcquire方法判断节点状态是否为SIGNAL</span>
                <span class="hljs-comment">//如果是SIGNAL状态，执行parkAndCheckInterrupt方法挂起线程，如果被唤醒，检查是否被中断</span>
                <span class="hljs-keyword">if</span> (shouldParkAfterFailedAcquire(p, node) &amp;&amp;
                    parkAndCheckInterrupt())
@@ -457,43 +969,45 @@
                cancelAcquire(node);
        &#125;
    &#125;</code></pre></div>
-<h5 id="shouldParkAfterFailedAcquire"><a href="#shouldParkAfterFailedAcquire" class="headerlink" title="shouldParkAfterFailedAcquire"></a>shouldParkAfterFailedAcquire</h5><p>此方法用于检查状态，检查是否进入SIGNAL状态。</p>
+<h5 id="shouldParkAfterFailedAcquire"><a href="#shouldParkAfterFailedAcquire" class="headerlink" title="shouldParkAfterFailedAcquire"></a>shouldParkAfterFailedAcquire</h5><p>此方法用于检查状态，检查是否进入SIGNAL状态。只有当前节点的前驱节点的状态为<code>SIGNAL</code>时，才对该节点内部线程进行<code>park</code>操作。</p>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">shouldParkAfterFailedAcquire</span><span class="hljs-params">(Node pred, Node node)</span> </span>&#123;
     	<span class="hljs-comment">//定义pred节点的状态</span>
         <span class="hljs-keyword">int</span> ws = pred.waitStatus;
         <span class="hljs-keyword">if</span> (ws == Node.SIGNAL)
-            <span class="hljs-comment">//表示pred节点处于SIGNAL状态</span>
+            <span class="hljs-comment">//表示pred节点处于SIGNAL状态，可以进行park操作</span>
             <span class="hljs-keyword">return</span> <span class="hljs-keyword">true</span>;
         <span class="hljs-keyword">if</span> (ws &gt; <span class="hljs-number">0</span>) &#123;
-            <span class="hljs-comment">//CANCELLED状态，表示获取锁地请求取消</span>
+            <span class="hljs-comment">//CANCELLED状态，表示获取锁的请求取消</span>
             <span class="hljs-keyword">do</span> &#123;
                 <span class="hljs-comment">//如果前驱节点放弃了请求，就一直往前找到正常等待状态的节点</span>
                 node.prev = pred = pred.prev;
             &#125; <span class="hljs-keyword">while</span> (pred.waitStatus &gt; <span class="hljs-number">0</span>);
+            <span class="hljs-comment">//改变pred的next域</span>
             pred.next = node;
         &#125; <span class="hljs-keyword">else</span> &#123;
             <span class="hljs-comment">//如果前驱节点正常，就把前驱节点地状态设置为SIGNAL</span>
             compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
         &#125;
+        <span class="hljs-comment">//不能进行park操作</span>
         <span class="hljs-keyword">return</span> <span class="hljs-keyword">false</span>;
     &#125;</code></pre></div>
-<h5 id="parkAndCheckInterrupt"><a href="#parkAndCheckInterrupt" class="headerlink" title="parkAndCheckInterrupt"></a>parkAndCheckInterrupt</h5><p>此方法主要用于挂起当前线程，并返回中断标志</p>
+<h5 id="parkAndCheckInterrupt"><a href="#parkAndCheckInterrupt" class="headerlink" title="parkAndCheckInterrupt"></a>parkAndCheckInterrupt</h5><p>此方法主要用于挂起当前线程，并返回中断标志。</p>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">boolean</span> <span class="hljs-title">parkAndCheckInterrupt</span><span class="hljs-params">()</span> </span>&#123;
     	<span class="hljs-comment">//调用park方法使线程进入waiting状态</span>
         LockSupport.park(<span class="hljs-keyword">this</span>);
-    	<span class="hljs-comment">//如果被唤醒，检查是否是被中断</span>
+    	<span class="hljs-comment">//如果被唤醒，检查是否是被中断，并清除中断标记位</span>
         <span class="hljs-keyword">return</span> Thread.interrupted();
     &#125;</code></pre></div>
-<h4 id="cancelAcquire"><a href="#cancelAcquire" class="headerlink" title="cancelAcquire"></a>cancelAcquire</h4><p>acquireQueued方法中，获取资源失败执行的方法。</p>
+<h4 id="cancelAcquire"><a href="#cancelAcquire" class="headerlink" title="cancelAcquire"></a>cancelAcquire</h4><p>acquireQueued方法中，获取资源失败执行的方法。主要功能就是取消当前线程对资源的获取，即设置该节点的状态为CANCELLED。</p>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">void</span> <span class="hljs-title">cancelAcquire</span><span class="hljs-params">(Node node)</span> </span>&#123;
         <span class="hljs-comment">//过滤空节点</span>
         <span class="hljs-keyword">if</span> (node == <span class="hljs-keyword">null</span>)
             <span class="hljs-keyword">return</span>;
 		<span class="hljs-comment">//将该节点中保存的线程信息删除</span>
         node.thread = <span class="hljs-keyword">null</span>;
-    	<span class="hljs-comment">//定义pred线程为node的前驱节点</span>
+    	<span class="hljs-comment">//定义pred节点为node的前驱节点</span>
         Node pred = node.prev;
-    	<span class="hljs-comment">//通过前驱节点过滤waitStatus为CANCELLED状态的节点</span>
+    	<span class="hljs-comment">//通过前驱节点找到不为CANCELLED状态的节点</span>
         <span class="hljs-keyword">while</span> (pred.waitStatus &gt; <span class="hljs-number">0</span>)
             node.prev = pred = pred.prev;
 
@@ -501,12 +1015,12 @@
         Node predNext = pred.next;
        	<span class="hljs-comment">//将node状态设置为CANCELLED</span>
         node.waitStatus = Node.CANCELLED;
-        <span class="hljs-comment">//如果当前节点是尾节点，将从后往前的第一个非CANCELLED状态的节点设置为尾节点</span>
+        <span class="hljs-comment">//如果node节点是尾节点，则设置尾节点是pred节点</span>
         <span class="hljs-keyword">if</span> (node == tail &amp;&amp; compareAndSetTail(node, pred)) &#123;
-            <span class="hljs-comment">//如果更新成功，将tail的后继节点设置为null</span>
+            <span class="hljs-comment">//将tail的后继节点设置为null</span>
             compareAndSetNext(pred, predNext, <span class="hljs-keyword">null</span>);
         &#125; <span class="hljs-keyword">else</span> &#123;
-            <span class="hljs-comment">//更新失败的话，则进入else</span>
+            <span class="hljs-comment">//node节点不为尾节点，或者compareAndSet失败</span>
             <span class="hljs-keyword">int</span> ws;
             <span class="hljs-comment">//如果pred不是头节点</span>
             <span class="hljs-comment">//判断状态是否为SIGNAL，不是的话，将节点状态设置为SIGNAL看是否成功</span>
