@@ -6,7 +6,7 @@
   <link href="/atom.xml" rel="self"/>
   
   <link href="https://l1n.wang/"/>
-  <updated>2020-11-09T06:38:14.358Z</updated>
+  <updated>2020-11-14T13:06:16.915Z</updated>
   <id>https://l1n.wang/</id>
   
   <author>
@@ -21,7 +21,7 @@
     <link href="https://l1n.wang/2020/11/seckill-summary/"/>
     <id>https://l1n.wang/2020/11/seckill-summary/</id>
     <published>2020-11-09T05:29:50.000Z</published>
-    <updated>2020-11-09T06:38:14.358Z</updated>
+    <updated>2020-11-14T13:06:16.915Z</updated>
     
     <content type="html"><![CDATA[<h2 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h2><p>秒杀从规模上可以分为以下两类：</p><ul><li>大秒：类似双十一，商品数量规模大，价格低，流量超大的活动。</li><li>小秒：商家自己配置的一些时段类型的活动，由商家自己指定时间上架。</li></ul><h2 id="秒杀系统面对的问题"><a href="#秒杀系统面对的问题" class="headerlink" title="秒杀系统面对的问题"></a>秒杀系统面对的问题</h2><ul><li>高并发环境下的系统稳定性：如何保证系统在面对巨大的流量情况下，不被打崩？<ul><li>Redis缓存击穿/雪崩/穿透等问题</li><li>关系型数据库性能问题，锁竞争对性能的消耗</li></ul></li><li>保证数据的最终一致性：库存不能超卖。</li><li>大数据分析功能：分析本次秒杀活动的商业效益。</li></ul><h2 id="设计"><a href="#设计" class="headerlink" title="设计"></a>设计</h2><h3 id="流量过滤"><a href="#流量过滤" class="headerlink" title="流量过滤"></a>流量过滤</h3><p>本质：逐级过滤掉无效的流量。基本有以下一些解决方案：</p><ul><li>活动开始前前端页面的Button无法点击，防止活动尚未开始时，用户进行点击产生流量。<ul><li>同时后端需要做相关校验。避免用户直接请求秒杀接口。</li><li>秒杀url实现动态化，可以选择进行md5加密随机字符串，然后通过另一个接口校验秒杀接口的合法性</li></ul></li><li>错峰：前端添加验证码或者答题，防止瞬间产生超高的流量，增加题目辨别难度，避免以图像识别等技术进行破解。</li><li>校验：对参与活动的用户进行校验拦截。主要从以下几个方面进行判断<ul><li>用户白名单</li><li>用户终端校验：对用户终端类型进行判断</li><li>IP、MAC、ID校验</li><li>参与次数校验：避免多次参与活动</li><li>用户黑名单：避免羊毛党等</li></ul></li><li>限流：通过接口限流策略判断请求是否放行<ul><li>令牌桶算法</li></ul></li></ul><h3 id="性能优化"><a href="#性能优化" class="headerlink" title="性能优化"></a>性能优化</h3><p>前面的流量过滤基本过滤掉大部分流量，但是系统性能还需进行优化，主要有以下的解决方案：</p><ul><li>页面静态化，再通过CDN分发流量，减轻服务器的压力。</li><li>活动预热：将参加活动的商品独立出来，不和普通的商品库存共享服务，提前将数据缓存到<code>redis</code>，查询全部走缓存，扣减库存视情况而定。</li><li>nginx性能高，使用nginx映射请求</li><li>采用微服务架构部署，提高部署量，均摊请求。</li><li>秒杀是典型的读多写少的场景，考虑到单体redis的性能问题，可以考虑：<ul><li>redis集群</li><li>主从同步</li><li>读写分离</li><li>如果使用redis集群，同时需要考虑保证多节点的数据一致性</li></ul></li><li>异步处理：采用消息队列<ul><li>异步，削峰，解耦</li></ul></li></ul><h3 id="解决超卖"><a href="#解决超卖" class="headerlink" title="解决超卖"></a>解决超卖</h3><p>一般情况下，针对下单和库存有以下两种方式：</p><ul><li>下单即扣库存，存在锁单等问题</li><li>支付完成扣库存，秒杀场景不适用。</li></ul><p>一般秒杀场景选择下单扣库存的方式：</p><ol><li>首先查询redis缓存库存是否充足</li><li>先扣库存再落订单数据，以防订单生成没有了库存的超卖问题</li><li>扣库存先扣数据库，再扣redis，并且两个操作需要在同一个事务中，一个执行失败全部回滚。<ul><li>数据库更新可以采取<strong>乐观锁</strong>方式，添加version字段进行处理，性能较悲观锁高。</li></ul></li></ol><p>上述方案能一定程度解决问题，但是如果大量请求落在同一条库存数据库记录上去update时，行锁导致大量锁竞争，会使得数据库性能急剧下降。</p><h3 id="质量保障"><a href="#质量保障" class="headerlink" title="质量保障"></a>质量保障</h3><ul><li>熔断限流降级</li><li>监控：QPS监控，容器监控，CPU监控，IO监控等</li><li>提前压测</li><li>数据核对：检查一下金额，库存等信息，是否发生超卖，是否有羊毛党等。</li></ul><h3 id="数据统计"><a href="#数据统计" class="headerlink" title="数据统计"></a>数据统计</h3><ul><li>埋点，检测</li><li>数据大盘，通过数据库数据配合监控系统（首选）</li><li>离线数据分析</li></ul>]]></content>
     
@@ -37,14 +37,10 @@
     
     </summary>
     
-      <category term="Java" scheme="https://l1n.wang/categories/Java/"/>
-    
-      <category term="面试题" scheme="https://l1n.wang/categories/Java/%E9%9D%A2%E8%AF%95%E9%A2%98/"/>
+      <category term="系统设计" scheme="https://l1n.wang/categories/%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/"/>
     
     
-      <category term="Java" scheme="https://l1n.wang/tags/Java/"/>
-    
-      <category term="面试题" scheme="https://l1n.wang/tags/%E9%9D%A2%E8%AF%95%E9%A2%98/"/>
+      <category term="系统设计" scheme="https://l1n.wang/tags/%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/"/>
     
   </entry>
   
