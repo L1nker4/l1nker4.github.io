@@ -244,7 +244,6 @@
         <span class="hljs-keyword">return</span> singleton;
     &#125;
 &#125;</code></pre></div>
-
 <p>上述案例在<code>singleton = new Singleton();</code>这句代码，可以分解为三个步骤：</p>
 <ol>
 <li>分配内存空间</li>
@@ -289,9 +288,6 @@
         t.b = <span class="hljs-keyword">false</span>;
     &#125;
 &#125;</code></pre></div>
-
-
-
 <h3 id="无法保证原子性"><a href="#无法保证原子性" class="headerlink" title="无法保证原子性"></a>无法保证原子性</h3><h4 id="i-问题"><a href="#i-问题" class="headerlink" title="i++问题"></a>i++问题</h4><p><code>i++</code>在指令层面主要分为三步：</p>
 <ul>
 <li>load i</li>
@@ -328,9 +324,6 @@
         System.out.println(test.i);
     &#125;
 &#125;</code></pre></div>
-
-
-
 <h4 id="long-double变量"><a href="#long-double变量" class="headerlink" title="long,double变量"></a>long,double变量</h4><p>32位JVM将<code>long</code>和<code>double</code>变量的操作分为高32位和低32位两部分，普通的long/double的r/w操作可能不是原子性的，使用volatile可以保证r/w操作是原子性的。</p>
 <blockquote>
 <p>For the purposes of the Java programming language memory model, a single write to a non-volatile <code>long</code> or <code>double</code> value is treated as two separate writes: one to each 32-bit half. This can result in a situation where a thread sees the first 32 bits of a 64-bit value from one write, and the second 32 bits from another write.</p>
@@ -356,25 +349,15 @@
         stop = <span class="hljs-keyword">true</span>;
     &#125;
 &#125;</code></pre></div>
-
 <p>通过添加VM options打印程序汇编代码：</p>
 <div class="hljs"><pre><code class="hljs groovy">-<span class="hljs-attr">XX:</span>+UnlockDiagnosticVMOptions -<span class="hljs-attr">XX:</span>+LogCompilation -<span class="hljs-attr">XX:</span>+PrintAssembly -Xcomp -<span class="hljs-attr">XX:</span>CompileCommand=dontinline,*VolatileDemo05.main -<span class="hljs-attr">XX:</span>CompileCommand=compileonly,*VolatileDemo05.main</code></pre></div>
-
-
-
 <p>如果提示以下内容，需要将<code>hedis-amd64.dll</code>放在<code>jre/bin/server</code>目录下。</p>
 <div class="hljs"><pre><code class="hljs pgsql">Java HotSpot(TM) <span class="hljs-number">64</span>-<span class="hljs-type">Bit</span> <span class="hljs-keyword">Server</span> VM <span class="hljs-built_in">warning</span>: PrintAssembly <span class="hljs-keyword">is</span> enabled; turning <span class="hljs-keyword">on</span> DebugNonSafepoints <span class="hljs-keyword">to</span> gain additional output</code></pre></div>
-
-
-
 <p>volatile变量操作部分汇编代码如下：</p>
 <div class="hljs"><pre><code class="hljs java"><span class="hljs-number">0x0000000003941c9b</span>: movabs $<span class="hljs-number">0x76baa20b0</span>,%rsi  ;   &#123;oop(a <span class="hljs-string">&#x27;java/lang/Class&#x27;</span> = <span class="hljs-string">&#x27;wang/l1n/concurrent/volatiledemo/VolatileDemo05&#x27;</span>)&#125;
 <span class="hljs-number">0x0000000003941ca5</span>: mov    $<span class="hljs-number">0x1</span>,%edi
 <span class="hljs-number">0x0000000003941caa</span>: mov    %dil,<span class="hljs-number">0x68</span>(%rsi)
 <span class="hljs-number">0x0000000003941cae</span>: lock addl $<span class="hljs-number">0x0</span>,(%rsp)     ;*putstatic stop</code></pre></div>
-
-
-
 <p>可以看到在<code>mov %dil,0x68(%rsi)</code>写操作之后有<code>lock addl $0x0,(%rsp)</code>，lock前缀指令在处理器发生了两件事：</p>
 <ol>
 <li>将当前处理器缓存行的数据回写到系统内存。</li>
@@ -395,40 +378,44 @@
 <hr>
 <h3 id="有序性"><a href="#有序性" class="headerlink" title="有序性"></a>有序性</h3><h4 id="volatile的happens-before规则"><a href="#volatile的happens-before规则" class="headerlink" title="volatile的happens-before规则"></a>volatile的happens-before规则</h4><p><code>happens-before</code>规则中有一条关于volatile变量规则：对一个 volatile 域的写，happens-before 于任意后续对这个 volatile 域的读。</p>
 <h4 id="volatile禁止重排序"><a href="#volatile禁止重排序" class="headerlink" title="volatile禁止重排序"></a>volatile禁止重排序</h4><p>JMM使用内存屏障来解决，下表是JMM针对编译器制定的重排序规则表：</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
-<th align="center">能否重排序</th>
-<th align="center"></th>
-<th align="center"></th>
-<th align="center"></th>
+<th style="text-align:center">能否重排序</th>
+<th style="text-align:center"></th>
+<th style="text-align:center"></th>
+<th style="text-align:center"></th>
 </tr>
 </thead>
-<tbody><tr>
-<td align="center">第一个操作</td>
-<td align="center">普通读/写</td>
-<td align="center">volatile读</td>
-<td align="center">volatile写</td>
+<tbody>
+<tr>
+<td style="text-align:center">第一个操作</td>
+<td style="text-align:center">普通读/写</td>
+<td style="text-align:center">volatile读</td>
+<td style="text-align:center">volatile写</td>
 </tr>
 <tr>
-<td align="center">普通读/写</td>
-<td align="center"></td>
-<td align="center"></td>
-<td align="center">NO</td>
+<td style="text-align:center">普通读/写</td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td style="text-align:center">NO</td>
 </tr>
 <tr>
-<td align="center">volatile读</td>
-<td align="center">NO</td>
-<td align="center">NO</td>
-<td align="center">NO</td>
+<td style="text-align:center">volatile读</td>
+<td style="text-align:center">NO</td>
+<td style="text-align:center">NO</td>
+<td style="text-align:center">NO</td>
 </tr>
 <tr>
-<td align="center">volatile写</td>
-<td align="center"></td>
-<td align="center">NO</td>
-<td align="center">NO</td>
+<td style="text-align:center">volatile写</td>
+<td style="text-align:center"></td>
+<td style="text-align:center">NO</td>
+<td style="text-align:center">NO</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <p>为了能实现该表中制定的顺序，编译器再生成字节码文件时，会插入内存屏障来禁止重排序。</p>
 <ul>
 <li><p>在每个 volatile 写操作的前面插入一个 StoreStore 屏障。</p>
@@ -441,30 +428,34 @@
 </li>
 </ul>
 <hr>
+<div class="table-container">
 <table>
 <thead>
 <tr>
-<th align="center">内存屏障指令</th>
-<th align="center">说明</th>
+<th style="text-align:center">内存屏障指令</th>
+<th style="text-align:center">说明</th>
 </tr>
 </thead>
-<tbody><tr>
-<td align="center">StoreStore</td>
-<td align="center">禁止上面的普通写和下面的 volatile 写重排序。</td>
+<tbody>
+<tr>
+<td style="text-align:center">StoreStore</td>
+<td style="text-align:center">禁止上面的普通写和下面的 volatile 写重排序。</td>
 </tr>
 <tr>
-<td align="center">StoreLoad</td>
-<td align="center">防止上面的 volatile 写与下面可能有的 volatile 读/写重排序。</td>
+<td style="text-align:center">StoreLoad</td>
+<td style="text-align:center">防止上面的 volatile 写与下面可能有的 volatile 读/写重排序。</td>
 </tr>
 <tr>
-<td align="center">LoadLoad</td>
-<td align="center">禁止下面所有的普通读操作和上面的 volatile 读重排序。</td>
+<td style="text-align:center">LoadLoad</td>
+<td style="text-align:center">禁止下面所有的普通读操作和上面的 volatile 读重排序。</td>
 </tr>
 <tr>
-<td align="center">LoadStore</td>
-<td align="center">禁止下面所有的普通写操作和上面的 volatile 读重排序。</td>
+<td style="text-align:center">LoadStore</td>
+<td style="text-align:center">禁止下面所有的普通写操作和上面的 volatile 读重排序。</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p>《Java并发编程的艺术》</p>
 
             </article>

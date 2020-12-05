@@ -274,160 +274,176 @@
 <span class="hljs-comment"># 加锁的SELECT和增删改都是用当前读</span>
 <span class="hljs-keyword">SELECT</span> * <span class="hljs-keyword">FROM</span> player <span class="hljs-keyword">LOCK</span> <span class="hljs-keyword">IN</span> <span class="hljs-keyword">SHARE</span> <span class="hljs-keyword">MODE</span>;
 <span class="hljs-keyword">INSERT</span> <span class="hljs-keyword">INTO</span> player <span class="hljs-keyword">values</span> ...</code></pre></div>
-
 <p>MVCC只在<code>Read Commited</code>和<code>Repeatable Read</code>两种级别下工作。核心是Undo Log + Read View。</p>
 <h3 id="Read-VIew"><a href="#Read-VIew" class="headerlink" title="Read VIew"></a>Read VIew</h3><p>在 MVCC 机制中，多个事务对同一个行记录进行更新会产生多个历史快照，这些历史快照保存在 Undo Log 里。而Read View保存了不应该让这个事务看到的其他的事务ID列表。在<code>Read Commited</code>级别下，每一次SELECT查询都会获取一次Read View。如果两次读取的Read View不同，就会产生不可重复读和幻读的情况。</p>
 <h2 id="并发事务问题"><a href="#并发事务问题" class="headerlink" title="并发事务问题"></a>并发事务问题</h2><h3 id="丢失更新"><a href="#丢失更新" class="headerlink" title="丢失更新"></a>丢失更新</h3><p><strong>丢失更新</strong>就是两个事务在并发下同时进行更新，后一个事务的更新覆盖了前一个事务更新的情况。基本情景如下表：</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
-<th align="center">时间</th>
-<th align="center">事务A</th>
-<th align="center">事务B</th>
+<th style="text-align:center">时间</th>
+<th style="text-align:center">事务A</th>
+<th style="text-align:center">事务B</th>
 </tr>
 </thead>
-<tbody><tr>
-<td align="center">1</td>
-<td align="center">开启事务</td>
-<td align="center">开启事务</td>
+<tbody>
+<tr>
+<td style="text-align:center">1</td>
+<td style="text-align:center">开启事务</td>
+<td style="text-align:center">开启事务</td>
 </tr>
 <tr>
-<td align="center">2</td>
-<td align="center">a = 100</td>
-<td align="center">a = 100</td>
+<td style="text-align:center">2</td>
+<td style="text-align:center">a = 100</td>
+<td style="text-align:center">a = 100</td>
 </tr>
 <tr>
-<td align="center">3</td>
-<td align="center">/</td>
-<td align="center">a -= 10</td>
+<td style="text-align:center">3</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">a -= 10</td>
 </tr>
 <tr>
-<td align="center">4</td>
-<td align="center">/</td>
-<td align="center">commit</td>
+<td style="text-align:center">4</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">commit</td>
 </tr>
 <tr>
-<td align="center">5</td>
-<td align="center">/</td>
-<td align="center">/</td>
+<td style="text-align:center">5</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">/</td>
 </tr>
 <tr>
-<td align="center">6</td>
-<td align="center">a += 20</td>
-<td align="center">/</td>
+<td style="text-align:center">6</td>
+<td style="text-align:center">a += 20</td>
+<td style="text-align:center">/</td>
 </tr>
 <tr>
-<td align="center">7</td>
-<td align="center">commit</td>
-<td align="center">/</td>
+<td style="text-align:center">7</td>
+<td style="text-align:center">commit</td>
+<td style="text-align:center">/</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <h3 id="脏读"><a href="#脏读" class="headerlink" title="脏读"></a>脏读</h3><p>一个事务读取了另一个未提交的事务写的数据，被称为脏读。基本情景如下：</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
-<th align="center">时间</th>
-<th align="center">事务A</th>
-<th align="center">事务B</th>
+<th style="text-align:center">时间</th>
+<th style="text-align:center">事务A</th>
+<th style="text-align:center">事务B</th>
 </tr>
 </thead>
-<tbody><tr>
-<td align="center">1</td>
-<td align="center">开启事务</td>
-<td align="center">开启事务</td>
+<tbody>
+<tr>
+<td style="text-align:center">1</td>
+<td style="text-align:center">开启事务</td>
+<td style="text-align:center">开启事务</td>
 </tr>
 <tr>
-<td align="center">2</td>
-<td align="center">a = 100</td>
-<td align="center">a = 100</td>
+<td style="text-align:center">2</td>
+<td style="text-align:center">a = 100</td>
+<td style="text-align:center">a = 100</td>
 </tr>
 <tr>
-<td align="center">3</td>
-<td align="center">/</td>
-<td align="center">a = 110</td>
+<td style="text-align:center">3</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">a = 110</td>
 </tr>
 <tr>
-<td align="center">4</td>
-<td align="center">a = 110</td>
-<td align="center">/</td>
+<td style="text-align:center">4</td>
+<td style="text-align:center">a = 110</td>
+<td style="text-align:center">/</td>
 </tr>
 <tr>
-<td align="center">5</td>
-<td align="center">/</td>
-<td align="center">rollback</td>
+<td style="text-align:center">5</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">rollback</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <h3 id="不可重复读"><a href="#不可重复读" class="headerlink" title="不可重复读"></a>不可重复读</h3><p>一个事务读取到另一个事务已经提交的修改数据。基本情景如下：</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
-<th align="center">时间</th>
-<th align="center">事务A</th>
-<th align="center">事务B</th>
+<th style="text-align:center">时间</th>
+<th style="text-align:center">事务A</th>
+<th style="text-align:center">事务B</th>
 </tr>
 </thead>
-<tbody><tr>
-<td align="center">1</td>
-<td align="center">开启事务</td>
-<td align="center">开启事务</td>
+<tbody>
+<tr>
+<td style="text-align:center">1</td>
+<td style="text-align:center">开启事务</td>
+<td style="text-align:center">开启事务</td>
 </tr>
 <tr>
-<td align="center"></td>
-<td align="center">a = 100</td>
-<td align="center">a = 100</td>
+<td style="text-align:center"></td>
+<td style="text-align:center">a = 100</td>
+<td style="text-align:center">a = 100</td>
 </tr>
 <tr>
-<td align="center">3</td>
-<td align="center">/</td>
-<td align="center">a = 110</td>
+<td style="text-align:center">3</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">a = 110</td>
 </tr>
 <tr>
-<td align="center">4</td>
-<td align="center">a = 110</td>
-<td align="center">commit</td>
+<td style="text-align:center">4</td>
+<td style="text-align:center">a = 110</td>
+<td style="text-align:center">commit</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <h3 id="幻读"><a href="#幻读" class="headerlink" title="幻读"></a>幻读</h3><p>一个事务按查询条件检索数据，发现其它事务插入了满足条件的数据，这被称为幻读。基本情景如下：</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
-<th align="center">时间</th>
-<th align="center">事务A</th>
-<th align="center">事务B</th>
+<th style="text-align:center">时间</th>
+<th style="text-align:center">事务A</th>
+<th style="text-align:center">事务B</th>
 </tr>
 </thead>
-<tbody><tr>
-<td align="center">1</td>
-<td align="center">开启事务</td>
-<td align="center">开启事务</td>
+<tbody>
+<tr>
+<td style="text-align:center">1</td>
+<td style="text-align:center">开启事务</td>
+<td style="text-align:center">开启事务</td>
 </tr>
 <tr>
-<td align="center">2</td>
-<td align="center">select * from table where id = 1(记录为0条)</td>
-<td align="center">/</td>
+<td style="text-align:center">2</td>
+<td style="text-align:center">select * from table where id = 1(记录为0条)</td>
+<td style="text-align:center">/</td>
 </tr>
 <tr>
-<td align="center">3</td>
-<td align="center">/</td>
-<td align="center">insert into table (id) value(1)</td>
+<td style="text-align:center">3</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">insert into table (id) value(1)</td>
 </tr>
 <tr>
-<td align="center">4</td>
-<td align="center">/</td>
-<td align="center">commit</td>
+<td style="text-align:center">4</td>
+<td style="text-align:center">/</td>
+<td style="text-align:center">commit</td>
 </tr>
 <tr>
-<td align="center">5</td>
-<td align="center">insert into table (id) value(1)</td>
-<td align="center">/</td>
+<td style="text-align:center">5</td>
+<td style="text-align:center">insert into table (id) value(1)</td>
+<td style="text-align:center">/</td>
 </tr>
 <tr>
-<td align="center">6</td>
-<td align="center">commit(报错，主键冲突)</td>
-<td align="center">/</td>
+<td style="text-align:center">6</td>
+<td style="text-align:center">commit(报错，主键冲突)</td>
+<td style="text-align:center">/</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <h2 id="隔离级别"><a href="#隔离级别" class="headerlink" title="隔离级别"></a>隔离级别</h2><p>由于数据库在并发事务中带来一些问题，数据库提供了事务隔离机制来解决相对应的问题。数据库的锁也是为了构建这些隔离级别而存在的。</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
@@ -437,7 +453,8 @@
 <th>幻读（Phantom Read）</th>
 </tr>
 </thead>
-<tbody><tr>
+<tbody>
+<tr>
 <td>未提交读(Read uncommited)</td>
 <td>可能</td>
 <td>可能</td>
@@ -461,7 +478,9 @@
 <td>不可能</td>
 <td>不可能</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <ul>
 <li>未提交读(Read Uncommitted)：一个事务还没提交时，它的修改能被别的事务看到。</li>
 <li>提交读(Read Committed)：一个事务提交后，它的修改才能被其它事务看到。</li>
@@ -477,15 +496,13 @@
 <span class="hljs-keyword">SET</span> <span class="hljs-keyword">session</span> <span class="hljs-keyword">TRANSACTION</span> <span class="hljs-keyword">ISOLATION</span> <span class="hljs-keyword">LEVEL</span> <span class="hljs-keyword">serializable</span>;
 <span class="hljs-comment">-- 设置全局系统隔离级别</span>
 <span class="hljs-keyword">SET</span> <span class="hljs-keyword">GLOBAL</span> <span class="hljs-keyword">TRANSACTION</span> <span class="hljs-keyword">ISOLATION</span> <span class="hljs-keyword">LEVEL</span> <span class="hljs-keyword">READ</span> UNCOMMITTED;</code></pre></div>
-
-
 <h2 id="ACID的实现"><a href="#ACID的实现" class="headerlink" title="ACID的实现"></a>ACID的实现</h2><h3 id="原子性的实现"><a href="#原子性的实现" class="headerlink" title="原子性的实现"></a>原子性的实现</h3><p>每一个写事务，都会修改Buffer Pool，并产生对应的Redo日志，Redo日志以Write Ahead Log方式写，如果不写日志，数据库宕机恢复后，事务无法回滚，无法保证原子性。</p>
 <h3 id="持久性的实现"><a href="#持久性的实现" class="headerlink" title="持久性的实现"></a>持久性的实现</h3><p>通过WAL可以保证逻辑上的持久性，物理上的持久性通过存储引擎的数据刷盘实现。</p>
 <h3 id="隔离性的实现"><a href="#隔离性的实现" class="headerlink" title="隔离性的实现"></a>隔离性的实现</h3><p>通常用Read View表示一个事务的可见性，读提交状态每一条读操作语句都会获得一次Read View，每次更新都会获取最新事务的提交状态，即每条语句执行都会更新其可见性视图。可重复读的隔离级别下，可见性视图只有在自己当前事务提交之后，才会更新，所以与其他事务没有关系。</p>
 <p><strong>在MySQL中，实际上每条记录在更新的时候都会同时记录一条回滚操作。记录上的最新值，通过回滚操作，可以得到之前一个状态的值</strong>。假设一个值从1被按照顺序改成了2，3，4，在回滚日志中会有类似下面的记录。</p>
 <p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/transaction/1.jpg" srcset="/img/loading.gif" alt="记录"></p>
 <p>当前值是4，但是在查询这条记录的时候，不同时刻启动的事务会有不同的<code>read-view</code>，在视图A、B、C中，记录的值分别为1、2、4。同一条记录在系统中可以存在多个版本，就是数据库的多版本并发控制（MVCC ）。对于<code>read-view A</code>要得到1，就必须将当前值依次执行图中所有的回滚操作得到。</p>
-<p>即使现在有另外一个事务正在将 4 改成 5，这个事务跟 <code>read-view A、B、C </code>对应的事务是不会冲突的。</p>
+<p>即使现在有另外一个事务正在将 4 改成 5，这个事务跟 <code>read-view A、B、C</code>对应的事务是不会冲突的。</p>
 <h3 id="一致性的实现"><a href="#一致性的实现" class="headerlink" title="一致性的实现"></a>一致性的实现</h3><p>一致性是通过其它三个特性来保证的。而其它三个特性由Redo、Undo来保证的。</p>
 <h1 id="锁"><a href="#锁" class="headerlink" title="锁"></a>锁</h1><p>在MySQL中有三种级别的锁：页级锁，表级锁，行级锁。其中表锁包括读锁和写锁。</p>
 <ul>
@@ -515,8 +532,6 @@
 
 <span class="hljs-comment"># 对 user_id=912178 的数据行加上排他锁</span>
 <span class="hljs-keyword">SELECT</span> comment_id, product_id, comment_text, user_id <span class="hljs-keyword">FROM</span> product_comment <span class="hljs-keyword">WHERE</span> user_id = <span class="hljs-number">912178</span> <span class="hljs-keyword">FOR</span> <span class="hljs-keyword">UPDATE</span>;</code></pre></div>
-
-
 <p>InnoDB为了允许行锁和表锁共存，实现多粒度锁机制，InnoDB还有两种内部使用的意向锁，也都是表锁，表锁分为三种：</p>
 <ul>
 <li>意向共享锁（IS）：事务计划给数据行加行共享锁，事务在给一个数据行加共享锁前必须先取得该表的IS锁。</li>
