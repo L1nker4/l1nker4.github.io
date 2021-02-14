@@ -180,7 +180,7 @@
     
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      5.6k 字
+      6.2k 字
     </span>
   
 
@@ -190,7 +190,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      116
+      129
        分钟
     </span>
   
@@ -461,9 +461,9 @@
 <h4 id="单节点变更"><a href="#单节点变更" class="headerlink" title="单节点变更"></a>单节点变更</h4><p>通过一次变更一个节点实现成员变更，如果需要变更多个节点，那么则需要执行多次单节点变更。</p>
 <p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/raft/single-node.jpg" srcset="/img/loading.gif" alt=""></p>
 <p>但是如果并发执行单节点变更，坑里出现一次单节点变更尚未完成，新的单节点变更又在执行，导致集群出现两个领导者的情况。</p>
-<h2 id="一致性哈希算法"><a href="#一致性哈希算法" class="headerlink" title="一致性哈希算法"></a>一致性哈希算法</h2><p>Q：Raft算法实现了分布式存储，但是集群性能约等于单机性能，，如果通过分集群，那么会存在数据迁移的过程，一致性哈希主要解决该问题。</p>
+<h3 id="一致性哈希算法"><a href="#一致性哈希算法" class="headerlink" title="一致性哈希算法"></a>一致性哈希算法</h3><p>Q：Raft算法实现了分布式存储，但是集群性能约等于单机性能，，如果通过分集群来提升性能，那么会存在数据迁移的过程，一致性哈希主要解决数据迁移成本高的问题。</p>
 <p>一致性哈希算法具有较好的容错性和可扩展性。</p>
-<h3 id="哈希寻址"><a href="#哈希寻址" class="headerlink" title="哈希寻址"></a>哈希寻址</h3><p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/hashing/hashing-1.jpg" srcset="/img/loading.gif" alt=""></p>
+<h4 id="哈希寻址"><a href="#哈希寻址" class="headerlink" title="哈希寻址"></a>哈希寻址</h4><p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/hashing/hashing-1.jpg" srcset="/img/loading.gif" alt=""></p>
 <p>当需要对指定key的值进行读写的时候，通过下面两步进行寻址：</p>
 <ul>
 <li>首先：将key作为参数执行<code>c - hash()</code>计算哈希值，并确定此key在环上的位置。</li>
@@ -476,6 +476,38 @@
 <p>该问题主要通过<strong>虚拟节点</strong>来解决。</p>
 <p>对每个节点计算多个哈希值，在每个计算结果位置上，都放置一个虚拟节点，并将虚拟节点映射到实际节点。如下图：</p>
 <p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/hashing/pic1.jpg" srcset="/img/loading.gif" alt=""></p>
+<ul>
+<li>一致性哈希是一种特殊的哈希算法，节点增减变化时只影响到部分数据的路由寻址，因此只需要迁移部分数据。</li>
+<li>节点数量较少时，可能出现节点在哈希环上分布不均匀的情况，导致节点的访问冷热不均。</li>
+<li>一致性哈希算法本质是一种路由寻址算法，适合简单的路由寻址场景。</li>
+</ul>
+<h2 id="Gossip协议"><a href="#Gossip协议" class="headerlink" title="Gossip协议"></a>Gossip协议</h2><p>用于实现最终一致性。利用一种随机、带有传染性的方式，将消息传播到整个网络中，并在一定时间内，使得系统内的所有节点数据一致。</p>
+<p>三个主要功能：</p>
+<ul>
+<li>直接邮寄（Direct Mail）：直接发送更新数据，当数据发送失败时，将数据缓存下来，然后重传。<ul>
+<li>可能因为缓存队列满了而丢失数据。无法实现最终一致性。</li>
+</ul>
+</li>
+<li>反熵（Anti-entropy）：本质上是通过异步修复实现最终一致性。<ul>
+<li>本意是指集群中的节点，每隔一段时间就随机选择某个其它节点，然后通过交换自己所有数据来消除两者之间的差异，实现数据的最终一致性。</li>
+<li>推、拉、推拉三种方式。</li>
+<li>反熵需要节点两两交换数据，成本较高。可以通过引入校验和等机制，降低需要对比的数据量和通讯消息。</li>
+<li>但是如果在节点数量动态变化的分布式环境下，反熵不适用。</li>
+</ul>
+</li>
+<li>谣言传播（Rumor mongering）：一个节点有了新数据后，这个节点变成活跃状态，并周期性地联系其它节点向其发送新数据，直到所有的节点都存储了该数据。</li>
+</ul>
+<h2 id="Quorum-NWR算法"><a href="#Quorum-NWR算法" class="headerlink" title="Quorum NWR算法"></a>Quorum NWR算法</h2><p>Quorum NWR算法可以通过组合NWR三个元素来实现自定义一致性级别的。</p>
+<h3 id="三要素"><a href="#三要素" class="headerlink" title="三要素"></a>三要素</h3><ul>
+<li>N：代表集群中同一份数据有多少个副本。</li>
+<li>W：写一致性级别，表示成功完成W个副本的更新，才完成写操作。</li>
+<li>R：读一致性级别，表示读取一个数据对象时需要读R个副本。换而言之，读取R副本时，返回R个副本中最新的那份数据。</li>
+</ul>
+<p>NWR三者的不同组合，会产生不同的一致性效果：</p>
+<ol>
+<li>W + R &gt; N时，对于客户端来讲，一定能保证强一致性。</li>
+<li>W + R &lt; N时，对于客户端来讲，能保证最终一致性。</li>
+</ol>
 
             </article>
             <hr>
