@@ -19,10 +19,21 @@
   <meta name="description" content="没有退路，唯有一往无前">
   <meta name="author" content="L1nker4">
   <meta name="keywords" content="l1nker4">
-  <title>标签 - l1nker4&#39;s Blog</title>
+  <title>Bitcask存储模型 - l1nker4&#39;s Blog</title>
 
   <link  rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/css/bootstrap.min.css" />
 
+
+  <link  rel="stylesheet" href="https://cdn.staticfile.org/github-markdown-css/4.0.0/github-markdown.min.css" />
+  <link  rel="stylesheet" href="/lib/hint/hint.min.css" />
+
+  
+    <link  rel="stylesheet" href="https://cdn.staticfile.org/highlight.js/10.0.0/styles/atom-one-dark.min.css" />
+  
+
+  
+    <link  rel="stylesheet" href="https://cdn.staticfile.org/gitalk/1.6.2/gitalk.css" />
+  
 
 
 <!-- 主题依赖的图标库，不要自行修改 -->
@@ -45,7 +56,7 @@
 
 
 <body>
-  <header style="height: 80vh;">
+  <header style="height: 70vh;">
     <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
   <div class="container">
     <a class="navbar-brand"
@@ -155,6 +166,40 @@
             </span>
 
             
+              
+  <div class="mt-3 post-meta">
+    <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+    <time datetime="2022-01-13 17:45">
+      2022年1月13日 下午
+    </time>
+  </div>
+
+
+<div class="mt-1">
+  
+    
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-chart"></i>
+      441 字
+    </span>
+  
+
+  
+    
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-clock-fill"></i>
+      
+      
+      9
+       分钟
+    </span>
+  
+
+  
+  
+</div>
+
+            
           </div>
 
           
@@ -165,24 +210,121 @@
 
   <main>
     
-      <div class="container nopadding-md">
-        <div class="py-5" id="board"
-          >
-          
-          <div class="container">
-            <div class="row">
-              <div class="col-12 col-md-10 m-auto">
+      
+
+<div class="container-fluid">
+  <div class="row">
+    <div class="d-none d-lg-block col-lg-2"></div>
+    <div class="col-lg-8 nopadding-md">
+      <div class="container nopadding-md" id="board-ctn">
+        <div class="py-5" id="board">
+          <div class="post-content mx-auto" id="post">
+            
+            <article class="markdown-body">
+              <h2 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h2><p>Bitcask是Riak分布式数据库使用的日志型存储模型，主要有以下几点特性：</p>
+<ul>
+<li>读写低延迟</li>
+<li>高吞吐量，尤其是随机写</li>
+<li>能处理大量的数据集而不降低性能</li>
+<li>故障时快速恢复且不丢失数据</li>
+<li>易于备份和恢复</li>
+<li>易于理解的代码结构和数据格式</li>
+</ul>
+<h2 id="结构"><a href="#结构" class="headerlink" title="结构"></a>结构</h2><h3 id="硬盘结构"><a href="#硬盘结构" class="headerlink" title="硬盘结构"></a>硬盘结构</h3><p>在给定的一段时间内，只有一个<code>active data file</code>能提供<code>append</code>（写入）功能，当该文件大小达到指定阈值时，则会创建一个新的<code>active data file</code>。每一个写入到file的entry结构如下：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/bitcask/entry.jpg" srcset="/img/loading.gif" alt="Entry结构"></p>
+<p>包括以下内容：</p>
+<ul>
+<li>crc：校验值</li>
+<li>tstamp：记录写入该数据的时间</li>
+<li>ksz：key_size</li>
+<li>value_sz：value_size</li>
+<li>key：key</li>
+<li>value：value</li>
+</ul>
+<h3 id="内存结构"><a href="#内存结构" class="headerlink" title="内存结构"></a>内存结构</h3><p>在写入之后，一个被称为<code>keydir</code>（hash table）的内存结构将被更新，每一个键映射到固定大小的结构中，包括了以下内容：</p>
+<ul>
+<li>file_id：去哪个文件查询</li>
+<li>value_size：读取value多长的字节</li>
+<li>value_position：value在文件中的位置</li>
+</ul>
+<p>每一次写操作发生，<code>keydir</code>都会进行原子性的更新。</p>
+<h2 id="操作"><a href="#操作" class="headerlink" title="操作"></a>操作</h2><h3 id="read"><a href="#read" class="headerlink" title="read"></a>read</h3><p>读取value的过程：</p>
+<ol>
+<li>查找keydir中的key，并读取<code>file_id</code>，<code>position</code>，<code>size</code>。</li>
+<li>通过<code>file_id</code>找到对应的<code>data file</code>，再通过<code>position</code>和<code>size</code>字段找到entry中的value。</li>
+</ol>
+<h3 id="merge"><a href="#merge" class="headerlink" title="merge"></a>merge</h3><p>由于删除操作并不会真正删除掉entry，只是将删除操作封装成entry写入文件，因此需要<code>merge</code>操作将所有的非<code>active</code>文件中entry遍历，并重组为一个新文件。同时生成一个<code>hint file</code>，用于存储<code>data file</code>的位置和大小。</p>
+<blockquote>
+<p>Q：hint file的作用是什么？</p>
+</blockquote>
+<p>答：每次进程重启时需要重建<code>keydir</code>，需要扫描所有的数据文件，因此使用<code>hint file</code>加速构建<code>keydir</code>的速度。</p>
+
+            </article>
+            <hr>
+            <div>
+              <div class="post-metas mb-3">
                 
-
-<div class="text-center tagcloud">
-  <a href="/tags/CTF/" style="font-size: 22.5px; color: #779bd3">CTF</a> <a href="/tags/Docker/" style="font-size: 15px; color: #bbe">Docker</a> <a href="/tags/Git/" style="font-size: 15px; color: #bbe">Git</a> <a href="/tags/JVM/" style="font-size: 25.5px; color: #5c8ec8">JVM</a> <a href="/tags/Java/" style="font-size: 30px; color: #337ab7">Java</a> <a href="/tags/MySQL/" style="font-size: 21px; color: #85a1d8">MySQL</a> <a href="/tags/Mybatis/" style="font-size: 15px; color: #bbe">Mybatis</a> <a href="/tags/PHP%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1/" style="font-size: 21px; color: #85a1d8">PHP代码审计</a> <a href="/tags/Redis/" style="font-size: 24px; color: #6994cd">Redis</a> <a href="/tags/Spring/" style="font-size: 15px; color: #bbe">Spring</a> <a href="/tags/Spring-Cloud/" style="font-size: 15px; color: #bbe">Spring Cloud</a> <a href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/" style="font-size: 16.5px; color: #adb5e9">分布式系统</a> <a href="/tags/%E5%AD%98%E5%82%A8%E6%A8%A1%E5%9E%8B/" style="font-size: 15px; color: #bbe">存储模型</a> <a href="/tags/%E5%AE%89%E5%85%A8/" style="font-size: 21px; color: #85a1d8">安全</a> <a href="/tags/%E5%B9%B6%E5%8F%91/" style="font-size: 28.5px; color: #4181bd">并发</a> <a href="/tags/%E5%BE%AE%E6%9C%8D%E5%8A%A1/" style="font-size: 15px; color: #bbe">微服务</a> <a href="/tags/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" style="font-size: 18px; color: #a0aee3">操作系统</a> <a href="/tags/%E6%95%B0%E6%8D%AE%E5%BA%93/" style="font-size: 15px; color: #bbe">数据库</a> <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/" style="font-size: 27px; color: #4e87c2">数据结构</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 24px; color: #6994cd">源码分析</a> <a href="/tags/%E7%AE%97%E6%B3%95/" style="font-size: 18px; color: #a0aee3">算法</a> <a href="/tags/%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/" style="font-size: 15px; color: #bbe">系统设计</a> <a href="/tags/%E7%BA%A2%E9%BB%91%E6%A0%91/" style="font-size: 15px; color: #bbe">红黑树</a> <a href="/tags/%E7%BA%BF%E7%A8%8B%E6%B1%A0/" style="font-size: 15px; color: #bbe">线程池</a> <a href="/tags/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/" style="font-size: 19.5px; color: #92a8de">设计模式</a>
-</div>
-
+                  <div class="post-meta mr-3">
+                    <i class="iconfont icon-category"></i>
+                    
+                      <a class="hover-with-bg" href="/categories/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/">分布式系统</a>
+                    
+                  </div>
+                
+                
+                  <div class="post-meta">
+                    <i class="iconfont icon-tags"></i>
+                    
+                      <a class="hover-with-bg" href="/tags/%E5%AD%98%E5%82%A8%E6%A8%A1%E5%9E%8B/">存储模型</a>
+                    
+                      <a class="hover-with-bg" href="/tags/%E6%95%B0%E6%8D%AE%E5%BA%93/">数据库</a>
+                    
+                  </div>
+                
               </div>
+              
+                <p class="note note-warning">本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！</p>
+              
+              
+                <div class="post-prevnext row">
+                  <div class="post-prev col-6">
+                    
+                    
+                  </div>
+                  <div class="post-next col-6">
+                    
+                    
+                      <a href="/2021/07/2021-6-summary/">
+                        <span class="hidden-mobile">2021年6月</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </div>
+                </div>
+              
             </div>
+
+            
           </div>
         </div>
       </div>
+    </div>
+    
+      <div class="d-none d-lg-block col-lg-2 toc-container" id="toc-ctn">
+        <div id="toc">
+  <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
+  <div id="tocbot"></div>
+</div>
+
+      </div>
+    
+  </div>
+</div>
+
+<!-- Custom -->
+
+
     
   </main>
 
@@ -261,6 +403,31 @@
 
 
 
+  <script  src="https://cdn.staticfile.org/tocbot/4.11.1/tocbot.min.js" ></script>
+  <script>
+    $(document).ready(function () {
+      var boardCtn = $('#board-ctn');
+      var boardTop = boardCtn.offset().top;
+
+      tocbot.init({
+        tocSelector: '#tocbot',
+        contentSelector: 'article.markdown-body',
+        headingSelector: 'h1,h2,h3,h4,h5,h6',
+        linkClass: 'tocbot-link',
+        activeLinkClass: 'tocbot-active-link',
+        listClass: 'tocbot-list',
+        isCollapsedClass: 'tocbot-is-collapsed',
+        collapsibleClass: 'tocbot-is-collapsible',
+        collapseDepth: 0,
+        scrollSmooth: true,
+        headingsOffset: -boardTop
+      });
+      if ($('.toc-list-item').length > 0) {
+        $('#toc').css('visibility', 'visible');
+      }
+    });
+  </script>
+
 
 
   <script  src="https://cdn.staticfile.org/typed.js/2.0.11/typed.min.js" ></script>
@@ -268,7 +435,7 @@
     var typed = new Typed('#subtitle', {
       strings: [
         '  ',
-        "标签&nbsp;",
+        "Bitcask存储模型&nbsp;",
       ],
       cursorChar: "_",
       typeSpeed: 70,
@@ -283,6 +450,21 @@
 
 
 
+  <script  src="https://cdn.staticfile.org/anchor-js/4.2.2/anchor.min.js" ></script>
+  <script>
+    anchors.options = {
+      placement: "right",
+      visible: "hover",
+      
+    };
+    var el = "h1,h2,h3,h4,h5,h6".split(",");
+    var res = [];
+    for (item of el) {
+      res.push(".markdown-body > " + item)
+    }
+    anchors.add(res.join(", "))
+  </script>
+
 
 
   <script  src="/js/local-search.js" ></script>
@@ -296,6 +478,20 @@
   </script>
 
 
+
+  <script  src="https://cdn.staticfile.org/fancybox/3.5.7/jquery.fancybox.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.staticfile.org/fancybox/3.5.7/jquery.fancybox.min.css" />
+
+  <script>
+    $('#post img:not(.no-zoom img, img[no-zoom]), img[zoom]').each(
+      function () {
+        var element = document.createElement('a');
+        $(element).attr('data-fancybox', 'images');
+        $(element).attr('href', $(this).attr('src'));
+        $(this).wrap(element);
+      }
+    );
+  </script>
 
 
 
