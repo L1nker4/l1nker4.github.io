@@ -180,7 +180,7 @@
     
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      2.4k 字
+      3.2k 字
     </span>
   
 
@@ -190,7 +190,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      51
+      67
        分钟
     </span>
   
@@ -462,7 +462,97 @@
 <blockquote>
 <p>优化：算法可以通过减少被拒绝的附加日志 RPCs 的次数来优化。例如，当附加日志 RPC 的请求被拒绝的时候，跟随者可以(返回)冲突条目的任期号和该任期号对应的最小索引地址。借助这些信息，领导人可以减小 nextIndex 一次性越过该冲突任期的所有日志条目；这样就变成每个任期需要一次附加条目 RPC 而不是每个条目一次。</p>
 </blockquote>
-<h2 id="安全性"><a href="#安全性" class="headerlink" title="安全性"></a>安全性</h2>
+<h2 id="安全性"><a href="#安全性" class="headerlink" title="安全性"></a>安全性</h2><h3 id="选举限制"><a href="#选举限制" class="headerlink" title="选举限制"></a>选举限制</h3><p>Raft算法要求选举产生的新领导者拥有最全的日志entry，RequestVote RPC中包含了候选者的日志信息，通过相应的策略选择最全entry的候选者。</p>
+<h3 id="时间"><a href="#时间" class="headerlink" title="时间"></a>时间</h3><p>集群需要满足以下条件：</p>
+<blockquote>
+<p>广播时间（broadcastTime）  &lt;&lt;  选举超时时间（electionTimeout） &lt;&lt;  平均故障间隔时间（MTBF）</p>
+</blockquote>
+<ul>
+<li>广播时间：从一个服务器并行的发送RPC给集群中的其他服务器并接受响应的平均时间</li>
+<li>选举超时时间：一次选举活动允许的最大时间</li>
+<li>平均故障间隔时间：两次故障之间的平均时间</li>
+</ul>
+<h2 id="日志压缩"><a href="#日志压缩" class="headerlink" title="日志压缩"></a>日志压缩</h2><p>几个方法：</p>
+<ul>
+<li>快照：将整个系统的状态以快照的形式写入到持久化存储中。然后到那个时间点之前的日志全部丢弃，快照技术被使用在 Chubby 和 ZooKeeper 中。</li>
+<li>增量压缩：每次只对一小部分数据进行操作</li>
+</ul>
+<p><strong>安装快照 RPC</strong>：</p>
+<p>由领导人调用以将快照的分块发送给跟随者。领导人总是按顺序发送分块。</p>
+<div class="table-container">
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>解释</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>term</td>
+<td>领导人的任期号</td>
+</tr>
+<tr>
+<td>leaderId</td>
+<td>领导人的 ID，以便于跟随者重定向请求</td>
+</tr>
+<tr>
+<td>lastIncludedIndex</td>
+<td>快照中包含的最后日志条目的索引值</td>
+</tr>
+<tr>
+<td>lastIncludedTerm</td>
+<td>快照中包含的最后日志条目的任期号</td>
+</tr>
+<tr>
+<td>offset</td>
+<td>分块在快照中的字节偏移量</td>
+</tr>
+<tr>
+<td>data[]</td>
+<td>从偏移量开始的快照分块的原始字节</td>
+</tr>
+<tr>
+<td>done</td>
+<td>如果这是最后一个分块则为 true</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="table-container">
+<table>
+<thead>
+<tr>
+<th>结果</th>
+<th>解释</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>term</td>
+<td>当前任期号（currentTerm），便于领导人更新自己</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>接收者实现</strong>：</p>
+<ol>
+<li>如果<code>term &lt; currentTerm</code>就立即回复</li>
+<li>如果是第一个分块（offset 为 0）就创建一个新的快照</li>
+<li>在指定偏移量写入数据</li>
+<li>如果 done 是 false，则继续等待更多的数据</li>
+<li>保存快照文件，丢弃具有较小索引的任何现有或部分快照</li>
+<li>如果现存的日志条目与快照中最后包含的日志条目具有相同的索引值和任期号，则保留其后的日志条目并进行回复</li>
+<li>丢弃整个日志</li>
+<li>使用快照重置状态机（并加载快照的集群配置）</li>
+</ol>
+<h2 id="客户端交互"><a href="#客户端交互" class="headerlink" title="客户端交互"></a>客户端交互</h2><p>所有请求全部发送给领导者节点，如果请求的不是领导者节点，那么该节点会拒绝客户端请求，并且提供他最近接收到的领导者信息，如果领导者节点崩溃，那么客户端请求则超时，客户端之后重新挑选服务器。</p>
+<p>其中只读的操作直接处理而不需要记录日志，需要几个措施防止脏读：</p>
+<ul>
+<li>领导者在任期开始的时候，需要在它的任期里提交一次entry，以保证自己的日志是最新的。</li>
+<li>领导者节点在处理只读请求前需要检查自己是否被解除领导者身份。</li>
+</ul>
+
             </article>
             <hr>
             <div>
@@ -497,7 +587,7 @@
                     
                     
                       <a href="/2022/01/bitcask/">
-                        <span class="hidden-mobile">Bitcask存储模型</span>
+                        <span class="hidden-mobile">Bitcask论文阅读笔记</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
