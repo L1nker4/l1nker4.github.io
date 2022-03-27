@@ -221,17 +221,17 @@
           <div class="post-content mx-auto" id="post">
             
             <article class="markdown-body">
-              <h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><p>quicklist是Redis 3.2中引入的数据结构，其本质是一个双向链表，链表的节点类型是ziplist，当ziplist节点过多，quicklist会退化成双向链表，以提高效率。</p>
-<h1 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h1><h2 id="quicklistNode"><a href="#quicklistNode" class="headerlink" title="quicklistNode"></a>quicklistNode</h2><p>该结构为节点类型。</p>
-<ul>
-<li>prev：指向前驱节点</li>
-<li>next：指向后继节点</li>
-<li>zl：指向对应的压缩列表</li>
-<li>sz：压缩列表的大小</li>
-<li>encoding：采用的编码方式，1为原生，2代表使用LZF进行压缩</li>
-<li>container：为节点指向的容器类型，1代表none，2代表ziplist存储数据</li>
-<li>recompress：代表这个节点是否是压缩节点，如果是，则使用压缩节点前先进行解压缩，使用后重新压缩</li>
-<li>attempted_compress：测试时使用<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklistNode</span> &#123;</span>
+              <h1 id="简介">简介</h1>
+<p>quicklist是Redis
+3.2中引入的数据结构，其本质是一个双向链表，链表的节点类型是ziplist，当ziplist节点过多，quicklist会退化成双向链表，以提高效率。</p>
+<h1 id="数据结构">数据结构</h1>
+<h2 id="quicklistnode">quicklistNode</h2>
+<p>该结构为节点类型。 - prev：指向前驱节点 - next：指向后继节点 -
+zl：指向对应的压缩列表 - sz：压缩列表的大小 -
+encoding：采用的编码方式，1为原生，2代表使用LZF进行压缩 -
+container：为节点指向的容器类型，1代表none，2代表ziplist存储数据 -
+recompress：代表这个节点是否是压缩节点，如果是，则使用压缩节点前先进行解压缩，使用后重新压缩
+- attempted_compress：测试时使用 <div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklistNode</span> &#123;</span>
     <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklistNode</span> *<span class="hljs-title">prev</span>;</span>
     <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklistNode</span> *<span class="hljs-title">next</span>;</span>
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *zl;
@@ -242,37 +242,33 @@
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> recompress : <span class="hljs-number">1</span>; <span class="hljs-comment">/* was this node previous compressed? */</span>
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> attempted_compress : <span class="hljs-number">1</span>; <span class="hljs-comment">/* node can&#x27;t compress; too small */</span>
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> extra : <span class="hljs-number">10</span>; <span class="hljs-comment">/* more bits to steal for future usage */</span>
-&#125; quicklistNode;</code></pre></div>
-</li>
-</ul>
-<h2 id="quicklistLZF"><a href="#quicklistLZF" class="headerlink" title="quicklistLZF"></a>quicklistLZF</h2><p>如果使用LZF算法进行压缩，节点指向的结构为quicklistLZF，其中sz表示compressed数组所占用字节大小。<br><div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklistLZF</span> &#123;</span>
+&#125; quicklistNode;</code></pre></div></p>
+<h2 id="quicklistlzf">quicklistLZF</h2>
+<p>如果使用LZF算法进行压缩，节点指向的结构为quicklistLZF，其中sz表示compressed数组所占用字节大小。
+<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklistLZF</span> &#123;</span>
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> sz; <span class="hljs-comment">/* LZF size in bytes*/</span>
     <span class="hljs-keyword">char</span> compressed[];
-&#125; quicklistLZF;</code></pre></div></p>
-<h2 id="quicklist"><a href="#quicklist" class="headerlink" title="quicklist"></a>quicklist</h2><ul>
-<li>head：指向头节点</li>
-<li>tail：指向尾节点</li>
-<li>count：quicklist中压缩列表的entry总数</li>
-<li>len：节点个数</li>
-<li>fill：每个节点的ziplist长度，可以通过参数<code>list-max-ziplist-size</code>配置节点所占内存大小</li>
-<li>compress：该值表示两端各有compress个节点不压缩<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklist</span> &#123;</span>
+&#125; quicklistLZF;</code></pre></div> ## quicklist - head：指向头节点 - tail：指向尾节点 -
+count：quicklist中压缩列表的entry总数 - len：节点个数 -
+fill：每个节点的ziplist长度，可以通过参数<code>list-max-ziplist-size</code>配置节点所占内存大小
+- compress：该值表示两端各有compress个节点不压缩 <div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklist</span> &#123;</span>
     quicklistNode *head;
     quicklistNode *tail;
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> count;        <span class="hljs-comment">/* total count of all entries in all ziplists */</span>
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> len;          <span class="hljs-comment">/* number of quicklistNodes */</span>
     <span class="hljs-keyword">int</span> fill : <span class="hljs-number">16</span>;              <span class="hljs-comment">/* fill factor for individual nodes */</span>
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> compress : <span class="hljs-number">16</span>; <span class="hljs-comment">/* depth of end nodes not to compress;0=off */</span>
-&#125; quicklist;</code></pre></div>
-</li>
-</ul>
-<h2 id="quicklistEntry"><a href="#quicklistEntry" class="headerlink" title="quicklistEntry"></a>quicklistEntry</h2><ul>
+&#125; quicklist;</code></pre></div></p>
+<h2 id="quicklistentry">quicklistEntry</h2>
+<ul>
 <li>quicklist：指向当前元素所在的quicklist</li>
 <li>node：指向当前元素所在的节点</li>
 <li>zi：当前元素所在的ziplist</li>
 <li>value：当前节点的字符串内容</li>
 <li>longval：当前节点的整型值</li>
 <li>sz：节点的大小</li>
-<li>offset：该节点相对于整个ziplist的偏移量，即相当于第几个entry<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklistEntry</span> &#123;</span>
+<li>offset：该节点相对于整个ziplist的偏移量，即相当于第几个entry
+<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklistEntry</span> &#123;</span>
     <span class="hljs-keyword">const</span> quicklist *quicklist;
     quicklistNode *node;
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *zi;
@@ -280,28 +276,25 @@
     <span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span> longval;
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> sz;
     <span class="hljs-keyword">int</span> offset;
-&#125; quicklistEntry;</code></pre></div>
-</li>
+&#125; quicklistEntry;</code></pre></div></li>
 </ul>
-<h2 id="quicklistIter"><a href="#quicklistIter" class="headerlink" title="quicklistIter"></a>quicklistIter</h2><p>用于quicklist遍历的迭代器。</p>
-<ul>
-<li>quicklist：指向对应的quicklist</li>
-<li>current：指向元素所在的节点</li>
-<li>zi：指向元素所在的ziplist</li>
-<li>offset：表示节点在ziplist中的偏移量</li>
-<li>direction：表示迭代器的方向<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklistIter</span> &#123;</span>
+<h2 id="quicklistiter">quicklistIter</h2>
+<p>用于quicklist遍历的迭代器。 - quicklist：指向对应的quicklist -
+current：指向元素所在的节点 - zi：指向元素所在的ziplist -
+offset：表示节点在ziplist中的偏移量 - direction：表示迭代器的方向
+<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">quicklistIter</span> &#123;</span>
     <span class="hljs-keyword">const</span> quicklist *quicklist;
     quicklistNode *current;
     <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *zi;
     <span class="hljs-keyword">long</span> offset; <span class="hljs-comment">/* offset in current ziplist */</span>
     <span class="hljs-keyword">int</span> direction;
-&#125; quicklistIter;</code></pre></div>
-</li>
-</ul>
-<h1 id="接口"><a href="#接口" class="headerlink" title="接口"></a>接口</h1><h2 id="quicklistPushHead"><a href="#quicklistPushHead" class="headerlink" title="quicklistPushHead"></a>quicklistPushHead</h2><p>该接口在头部插入元素。传入参数分别是待插入的quicklist，插入的数据value，大小sz。返回指为0代表没有新建head节点，1代表新建了head节点<br>基本逻辑如下：</p>
-<ul>
-<li>查看quicklist的head节点是否允许插入，可以就利用ziplist的接口进行插入。</li>
-<li>否则新建head节点进行插入。<div class="hljs"><pre><code class="hljs C"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">quicklistPushHead</span><span class="hljs-params">(quicklist *quicklist, <span class="hljs-keyword">void</span> *value, <span class="hljs-keyword">size_t</span> sz)</span> </span>&#123;
+&#125; quicklistIter;</code></pre></div></p>
+<h1 id="接口">接口</h1>
+<h2 id="quicklistpushhead">quicklistPushHead</h2>
+<p>该接口在头部插入元素。传入参数分别是待插入的quicklist，插入的数据value，大小sz。返回指为0代表没有新建head节点，1代表新建了head节点
+基本逻辑如下： -
+查看quicklist的head节点是否允许插入，可以就利用ziplist的接口进行插入。 -
+否则新建head节点进行插入。 <div class="hljs"><pre><code class="hljs C"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">quicklistPushHead</span><span class="hljs-params">(quicklist *quicklist, <span class="hljs-keyword">void</span> *value, <span class="hljs-keyword">size_t</span> sz)</span> </span>&#123;
     quicklistNode *orig_head = quicklist-&gt;head;
     <span class="hljs-comment">//检查头节点是否允许插入</span>
     <span class="hljs-keyword">if</span> (likely(
@@ -322,13 +315,10 @@
     quicklist-&gt;count++;
     quicklist-&gt;head-&gt;count++;
     <span class="hljs-keyword">return</span> (orig_head != quicklist-&gt;head);
-&#125;</code></pre></div>
-</li>
-</ul>
-<h2 id="quicklistReplaceAtIndex"><a href="#quicklistReplaceAtIndex" class="headerlink" title="quicklistReplaceAtIndex"></a>quicklistReplaceAtIndex</h2><p>更改元素需要传入index，基本逻辑是：</p>
-<ul>
-<li>删除原有元素</li>
-<li>插入新元素<div class="hljs"><pre><code class="hljs C"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">quicklistReplaceAtIndex</span><span class="hljs-params">(quicklist *quicklist, <span class="hljs-keyword">long</span> index, <span class="hljs-keyword">void</span> *data,</span></span>
+&#125;</code></pre></div></p>
+<h2 id="quicklistreplaceatindex">quicklistReplaceAtIndex</h2>
+<p>更改元素需要传入index，基本逻辑是： - 删除原有元素 - 插入新元素
+<div class="hljs"><pre><code class="hljs C"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">quicklistReplaceAtIndex</span><span class="hljs-params">(quicklist *quicklist, <span class="hljs-keyword">long</span> index, <span class="hljs-keyword">void</span> *data,</span></span>
 <span class="hljs-function"><span class="hljs-params">                            <span class="hljs-keyword">int</span> sz)</span> </span>&#123;
     quicklistEntry entry;
     <span class="hljs-comment">//检查index位置的元素是否存在</span>
@@ -344,10 +334,10 @@
     &#125; <span class="hljs-keyword">else</span> &#123;
         <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
     &#125;
-&#125;</code></pre></div>
-</li>
-</ul>
-<h2 id="quicklistIndex"><a href="#quicklistIndex" class="headerlink" title="quicklistIndex"></a>quicklistIndex</h2><p>该方法主要通过元素的下标查找对应元素，找到index对应数据所在的节点，再调用ziplist的<code>ziplistGet</code>得到Index对应的数据。<br><div class="hljs"><pre><code class="hljs C">
+&#125;</code></pre></div></p>
+<h2 id="quicklistindex">quicklistIndex</h2>
+<p>该方法主要通过元素的下标查找对应元素，找到index对应数据所在的节点，再调用ziplist的<code>ziplistGet</code>得到Index对应的数据。
+<div class="hljs"><pre><code class="hljs C">
 <span class="hljs-comment">//idx为需要查找的下标, 结果写入entry，返回0代表没找到，1代表找到</span>
 <span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">quicklistIndex</span><span class="hljs-params">(<span class="hljs-keyword">const</span> quicklist *quicklist, <span class="hljs-keyword">const</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span> idx,</span></span>
 <span class="hljs-function"><span class="hljs-params">                   quicklistEntry *entry)</span> </span>&#123;
@@ -407,7 +397,8 @@
 <span class="hljs-comment">     * The caller can recompress or delete the node as needed. */</span>
     <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
 &#125;</code></pre></div></p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文主要介绍了Quicklist的基本数据结构，并对该结构的基本增删改查接口做了简要分析。</p>
+<h1 id="总结">总结</h1>
+<p>本文主要介绍了Quicklist的基本数据结构，并对该结构的基本增删改查接口做了简要分析。</p>
 
             </article>
             <hr>
