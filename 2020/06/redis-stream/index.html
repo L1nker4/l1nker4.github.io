@@ -1,48 +1,67 @@
+
+
 <!DOCTYPE html>
-<html lang="zh-CN">
-
-
+<html lang="zh-CN" >
 
 
 
 <head>
   <meta charset="UTF-8">
   <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
-  <link rel="icon" type="image/png" href="/favicon.ico">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
+  <link rel="icon" href="/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
   <meta http-equiv="x-ua-compatible" content="ie=edge">
   
     <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
   
   <meta name="theme-color" content="#2f4154">
-  <meta name="description" content="没有退路，唯有一往无前">
   <meta name="author" content="L1nker4">
   <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介 Redis在5.0.0版本中引进了消息队列的功能，该功能由Stream实现，本文主要介绍Stream的相关实现。 数据结构 stream Stream的实现依赖于Rax树与listpack结构，每个消息流都包含一个Rax树，以消息ID为key，listpack为value存储在Rax树中。其基本结构如下：  rax：rax存储生产者生产的具体消息，每个消息有唯一ID为键 len">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Redis底层数据结构-Stream源码分析">
+<meta property="og:url" content="https://l1n.wang/2020/06/redis-stream/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="简介 Redis在5.0.0版本中引进了消息队列的功能，该功能由Stream实现，本文主要介绍Stream的相关实现。 数据结构 stream Stream的实现依赖于Rax树与listpack结构，每个消息流都包含一个Rax树，以消息ID为key，listpack为value存储在Rax树中。其基本结构如下：  rax：rax存储生产者生产的具体消息，每个消息有唯一ID为键 len">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-06-27T06:21:30.000Z">
+<meta property="article:modified_time" content="2020-06-27T06:51:17.169Z">
+<meta property="article:author" content="L1nker4">
+<meta property="article:tag" content="数据结构">
+<meta property="article:tag" content="源码分析">
+<meta property="article:tag" content="Redis">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
   <title>Redis底层数据结构-Stream源码分析 - l1nker4&#39;s Blog</title>
 
-  <link  rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/css/bootstrap.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
 
 
-  <link  rel="stylesheet" href="https://cdn.staticfile.org/github-markdown-css/4.0.0/github-markdown.min.css" />
-  <link  rel="stylesheet" href="/lib/hint/hint.min.css" />
-
-  
-    <link  rel="stylesheet" href="https://cdn.staticfile.org/highlight.js/10.0.0/styles/atom-one-dark-reasonable.min.css" />
-  
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
 
   
-    <link  rel="stylesheet" href="https://cdn.staticfile.org/gitalk/1.6.2/gitalk.css" />
+    
+    
+      
+      <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@10/styles/github-gist.min.css" />
+    
+  
+
+  
+    <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
   
 
 
 <!-- 主题依赖的图标库，不要自行修改 -->
 
-<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_yg9cfy8wd6.css">
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_ba1fz6golrf.css">
 
 
 
-<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_pjno9b9zyxs.css">
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
 
 
 <link  rel="stylesheet" href="/css/main.css" />
@@ -50,8 +69,13 @@
 <!-- 自定义样式保持在最底部 -->
 
 
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.8.14","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"copy_btn":true,"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"baidu":"14b7dca7880e79dfe4d7db3cfc3b7e98","google":null,"gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+  </script>
   <script  src="/js/utils.js" ></script>
-<meta name="generator" content="Hexo 5.2.0"><link rel="alternate" href="/atom.xml" title="l1nker4's Blog" type="application/atom+xml">
+  <script  src="/js/color-schema.js" ></script>
+<meta name="generator" content="Hexo 5.4.1"><link rel="alternate" href="/atom.xml" title="l1nker4's Blog" type="application/atom+xml">
 </head>
 
 
@@ -59,8 +83,9 @@
   <header style="height: 70vh;">
     <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
   <div class="container">
-    <a class="navbar-brand"
-       href="/">&nbsp;<strong>l1nker4 's Blog'</strong>&nbsp;</a>
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4 &#39;s Blog</strong>
+    </a>
 
     <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
             data-target="#navbarSupportedContent"
@@ -146,52 +171,54 @@
         
         
           <li class="nav-item" id="search-btn">
-            <a class="nav-link" data-toggle="modal" data-target="#modalSearch">&nbsp;&nbsp;<i
-                class="iconfont icon-search"></i>&nbsp;&nbsp;</a>
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              &nbsp;<i class="iconfont icon-search"></i>&nbsp;
+            </a>
           </li>
+        
         
       </ul>
     </div>
   </div>
 </nav>
 
-    <div class="view intro-2" id="background" parallax=true
-         style="background: url('/images/bg.jpg') no-repeat center center;
+    <div class="banner" id="banner" parallax=true
+         style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center;
            background-size: cover;">
       <div class="full-bg-img">
         <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
-          <div class="container text-center white-text fadeInUp">
-            <span class="h2" id="subtitle">
+          <div class="page-header text-center fade-in-up">
+            <span class="h2" id="subtitle" title="Redis底层数据结构-Stream源码分析">
               
             </span>
 
             
-              
-  <div class="mt-3 post-meta">
-    <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-    <time datetime="2020-06-27 14:21">
-      2020年6月27日 下午
-    </time>
-  </div>
-
+              <div class="mt-3">
+  
+  
+    <span class="post-meta">
+      <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+      <time datetime="2020-06-27 14:21" pubdate>
+        2020年6月27日 下午
+      </time>
+    </span>
+  
+</div>
 
 <div class="mt-1">
   
-    
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      2k 字
+      5.6k 字
     </span>
   
 
   
-    
     <span class="post-meta mr-2">
       <i class="iconfont icon-clock-fill"></i>
       
       
-      52
-       分钟
+      47 分钟
     </span>
   
 
@@ -212,15 +239,17 @@
     
       
 
-<div class="container-fluid">
-  <div class="row">
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
     <div class="d-none d-lg-block col-lg-2"></div>
-    <div class="col-lg-8 nopadding-md">
-      <div class="container nopadding-md" id="board-ctn">
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
         <div class="py-5" id="board">
-          <div class="post-content mx-auto" id="post">
+          <article class="post-content mx-auto">
+            <!-- SEO header -->
+            <h1 style="display: none">Redis底层数据结构-Stream源码分析</h1>
             
-            <article class="markdown-body">
+            <div class="markdown-body">
               <h1 id="简介">简介</h1>
 <p>Redis在5.0.0版本中引进了消息队列的功能，该功能由Stream实现，本文主要介绍Stream的相关实现。</p>
 <h1 id="数据结构">数据结构</h1>
@@ -231,52 +260,32 @@
 <li>length：代表当前stream中消息个数。</li>
 <li>last_id：为当前stream中最后插入的消息ID，stream为空时，该值为0。</li>
 <li>cgroups：存储了当前stream相关的消费组，以消费组组名为键，streamCG为值存储在rax中。
-<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stream</span> &#123;</span>
-    rax *rax;               <span class="hljs-comment">/* The radix tree holding the stream. */</span>
-    <span class="hljs-keyword">uint64_t</span> length;        <span class="hljs-comment">/* Number of elements inside this stream. */</span>
-    streamID last_id;       <span class="hljs-comment">/* Zero if there are yet no items. */</span>
-    rax *cgroups;           <span class="hljs-comment">/* Consumer groups dictionary: name -&gt; streamCG */</span>
-&#125; stream;</code></pre></div></li>
+<figure class="highlight c"><table><tr><td class="gutter"><div class="code-wrapper"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></div></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stream</span> &#123;</span><br>    rax *rax;               <span class="hljs-comment">/* The radix tree holding the stream. */</span><br>    <span class="hljs-type">uint64_t</span> length;        <span class="hljs-comment">/* Number of elements inside this stream. */</span><br>    streamID last_id;       <span class="hljs-comment">/* Zero if there are yet no items. */</span><br>    rax *cgroups;           <span class="hljs-comment">/* Consumer groups dictionary: name -&gt; streamCG */</span><br>&#125; stream;<br></code></pre></td></tr></table></figure></li>
 </ul>
 <p>一个Stream的基本结构如图所示： <img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/structure.PNG" srcset="/img/loading.gif"
+src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/structure.PNG" srcset="/img/loading.gif" lazyload
 alt="Stream结构" /></p>
 <p>每一个listpack都有一个master
 entry，该结构存储了该listpack待插入消息的所有field。</p>
 <h3 id="streamid">streamID</h3>
 <p>消息ID的基本结构如下： - ms：消息创建时的时间 - seq：序号
-<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamID</span> &#123;</span>
-    <span class="hljs-keyword">uint64_t</span> ms;        <span class="hljs-comment">/* Unix time in milliseconds. */</span>
-    <span class="hljs-keyword">uint64_t</span> seq;       <span class="hljs-comment">/* Sequence number. */</span>
-&#125; streamID;</code></pre></div></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamID</span> &#123;</span><br>    <span class="hljs-type">uint64_t</span> ms;        <span class="hljs-comment">/* Unix time in milliseconds. */</span><br>    <span class="hljs-type">uint64_t</span> seq;       <span class="hljs-comment">/* Sequence number. */</span><br>&#125; streamID;<br></code></pre></td></tr></table></figure></p>
 <h3 id="streamcg">streamCG</h3>
 <p>每个stream会有多个消费组，每个消费组通过组名称进行唯一标识，同时关联一个streamCG结构。该结构如下：
 - last_id：该消费组已经确认的最后一个消息ID -
 pel：为该消费组尚未确认的消息，消息ID为键，streamNACK为值，存储在rax树中
 - consumers：消费组中的所有消费者，消费者名称为键，streamConsumer为值。
-<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamCG</span> &#123;</span>
-    streamID last_id;
-    rax *pel;
-    rax *consumers;
-&#125; streamCG;</code></pre></div></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamCG</span> &#123;</span><br>    streamID last_id;<br>    rax *pel;<br>    rax *consumers;<br>&#125; streamCG;<br></code></pre></td></tr></table></figure></p>
 <h3 id="streamconsumer">streamConsumer</h3>
 <p>消费者结构如下： - seen_time：为该消费者最后一次活跃的时间 -
 name：消费者名称，为sds结构 -
 pel：为该消费者尚未确认的消息，消息ID为键，streamNACK为值，存储在rax树中
-<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamConsumer</span> &#123;</span>
-    <span class="hljs-keyword">mstime_t</span> seen_time;
-    sds name;
-    rax *pel;
-&#125; streamConsumer;</code></pre></div></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamConsumer</span> &#123;</span><br>    <span class="hljs-type">mstime_t</span> seen_time;<br>    sds name;<br>    rax *pel;<br>&#125; streamConsumer;<br></code></pre></td></tr></table></figure></p>
 <h3 id="streamnack">streamNACK</h3>
 <p>该结构为未确认消息，streamNACK维护了消费组或消费者尚未确认的消息，消费组中的pel的元素与消费者的pel元素是共享的。该结构如下：
 - delivery_time：为该消息最后发送给消费方的时间 -
 delivery_count：该消息已发送的次数 - consumer：当前归属的消费者
-<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamNACK</span> &#123;</span>
-    <span class="hljs-keyword">mstime_t</span> delivery_time;
-    <span class="hljs-keyword">uint64_t</span> delivery_count;
-    streamConsumer *consumer;
-&#125; streamNACK;</code></pre></div></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamNACK</span> &#123;</span><br>    <span class="hljs-type">mstime_t</span> delivery_time;<br>    <span class="hljs-type">uint64_t</span> delivery_count;<br>    streamConsumer *consumer;<br>&#125; streamNACK;<br></code></pre></td></tr></table></figure></p>
 <h3 id="streamiterator">streamIterator</h3>
 <p>该结构主要提供遍历功能，基本结构如下： -
 stream：当前迭代器正在遍历的消息流 -
@@ -287,30 +296,11 @@ master_fields_ptr：记录field的位置 - entry_flags：当前遍历的消息�
 - rev：迭代器方向 - start_key,end_key：遍历范围 -
 ri：rax迭代器，用于遍历rax树中的所有key - lp：当前的listpack指针 -
 lp_ele：当前正在遍历的listpack中的元素 - lp_flags：指向翻墙消息的flag域
-- field_buf,value_buf：从listpack读取数据的缓存 <div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamIterator</span> &#123;</span>
-    stream *stream;         <span class="hljs-comment">/* The stream we are iterating. */</span>
-    streamID master_id;     <span class="hljs-comment">/* ID of the master entry at listpack head. */</span>
-    <span class="hljs-keyword">uint64_t</span> master_fields_count;       <span class="hljs-comment">/* Master entries # of fields. */</span>
-    <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *master_fields_start; <span class="hljs-comment">/* Master entries start in listpack. */</span>
-    <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *master_fields_ptr;   <span class="hljs-comment">/* Master field to emit next. */</span>
-    <span class="hljs-keyword">int</span> entry_flags;                    <span class="hljs-comment">/* Flags of entry we are emitting. */</span>
-    <span class="hljs-keyword">int</span> rev;                <span class="hljs-comment">/* True if iterating end to start (reverse). */</span>
-    <span class="hljs-keyword">uint64_t</span> start_key[<span class="hljs-number">2</span>];  <span class="hljs-comment">/* Start key as 128 bit big endian. */</span>
-    <span class="hljs-keyword">uint64_t</span> end_key[<span class="hljs-number">2</span>];    <span class="hljs-comment">/* End key as 128 bit big endian. */</span>
-    raxIterator ri;         <span class="hljs-comment">/* Rax iterator. */</span>
-    <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *lp;      <span class="hljs-comment">/* Current listpack. */</span>
-    <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *lp_ele;  <span class="hljs-comment">/* Current listpack cursor. */</span>
-    <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *lp_flags; <span class="hljs-comment">/* Current entry flags pointer. */</span>
-    <span class="hljs-comment">/* Buffers used to hold the string of lpGet() when the element is</span>
-<span class="hljs-comment">     * integer encoded, so that there is no string representation of the</span>
-<span class="hljs-comment">     * element inside the listpack itself. */</span>
-    <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> field_buf[LP_INTBUF_SIZE];
-    <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> value_buf[LP_INTBUF_SIZE];
-&#125; streamIterator;</code></pre></div></p>
+- field_buf,value_buf：从listpack读取数据的缓存 <figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamIterator</span> &#123;</span><br>    stream *stream;         <span class="hljs-comment">/* The stream we are iterating. */</span><br>    streamID master_id;     <span class="hljs-comment">/* ID of the master entry at listpack head. */</span><br>    <span class="hljs-type">uint64_t</span> master_fields_count;       <span class="hljs-comment">/* Master entries # of fields. */</span><br>    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *master_fields_start; <span class="hljs-comment">/* Master entries start in listpack. */</span><br>    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *master_fields_ptr;   <span class="hljs-comment">/* Master field to emit next. */</span><br>    <span class="hljs-type">int</span> entry_flags;                    <span class="hljs-comment">/* Flags of entry we are emitting. */</span><br>    <span class="hljs-type">int</span> rev;                <span class="hljs-comment">/* True if iterating end to start (reverse). */</span><br>    <span class="hljs-type">uint64_t</span> start_key[<span class="hljs-number">2</span>];  <span class="hljs-comment">/* Start key as 128 bit big endian. */</span><br>    <span class="hljs-type">uint64_t</span> end_key[<span class="hljs-number">2</span>];    <span class="hljs-comment">/* End key as 128 bit big endian. */</span><br>    raxIterator ri;         <span class="hljs-comment">/* Rax iterator. */</span><br>    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *lp;      <span class="hljs-comment">/* Current listpack. */</span><br>    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *lp_ele;  <span class="hljs-comment">/* Current listpack cursor. */</span><br>    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *lp_flags; <span class="hljs-comment">/* Current entry flags pointer. */</span><br>    <span class="hljs-comment">/* Buffers used to hold the string of lpGet() when the element is</span><br><span class="hljs-comment">     * integer encoded, so that there is no string representation of the</span><br><span class="hljs-comment">     * element inside the listpack itself. */</span><br>    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> field_buf[LP_INTBUF_SIZE];<br>    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> value_buf[LP_INTBUF_SIZE];<br>&#125; streamIterator;<br></code></pre></td></tr></table></figure></p>
 <h2 id="listpack">listpack</h2>
 <p>listpack是一个字符串列表的序列化格式，该结构可用于存储字符串或整型。其主要结构如下图所示：
 <img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/listpack.PNG" srcset="/img/loading.gif"
+src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/listpack.PNG" srcset="/img/loading.gif" lazyload
 alt="listpack基本结构" /> listpack主要由四部分构成，分别是： - Total
 Bytes为整个listpack的空间大小 - Num
 Elem：listpack的Entry个数，占用两个字节，但是Entry个数大于等于65535时，该值为65535，所以这种情况下获取元素个数，需要遍历整个listpack
@@ -319,11 +309,11 @@ End：为listpack的结束标志，占用一个字节，内容为0xFF</p>
 <p>Entry由三部分构成，基本如下： - Encode：元素的编码方式，占用一个字节
 - content：内容 - backlen：记录entry的长度（不包括该字段本身）</p>
 <p>其中编码方式取值如下图所示： <img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/encode.PNG" srcset="/img/loading.gif"
+src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/encode.PNG" srcset="/img/loading.gif" lazyload
 alt="编码取值" /></p>
 <p>Stream的消息内容存储在listpack中，消息存储格式是每个字段都是一个entry，而不是键整个消息作为字符串存储的，每个listpack会存储多个消息，具体存储个数由<code>stream-node-max-bytes</code>（listpack节点最大占用字节数，默认4096）和<code>stream-node-max-entries</code>（最大存储元素个数，默认100）决定.</p>
 <p>每个listpack在创建时，会将第一个插入的entry构建成master
-entry，其基本结构如下所示： <div class="hljs"><pre><code class="hljs coq">count   |   <span class="hljs-type">deleted</span>  |  <span class="hljs-type">num</span>-fields  |   <span class="hljs-type">field</span><span class="hljs-number">-1</span> |   <span class="hljs-type">field</span><span class="hljs-number">-2</span> |   <span class="hljs-type">0</span></code></pre></div> 其中： -
+entry，其基本结构如下所示： <figure class="highlight coq"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs coq">count   |   <span class="hljs-type">deleted</span>  |  <span class="hljs-type">num</span>-fields  |   <span class="hljs-type">field</span><span class="hljs-number">-1</span> |   <span class="hljs-type">field</span><span class="hljs-number">-2</span> |   <span class="hljs-type">0</span><br></code></pre></td></tr></table></figure> 其中： -
 count：为当前listpack中所有未删除的消息个数 -
 deleted：当前listpack中所有已经删除的消息个数 - num-fields：field个数 -
 field-N：field域 - 0为标识位，再从后向前遍历listpack时使用</p>
@@ -332,11 +322,7 @@ entry完全相同，则不需要再次存储field域</p>
 <h2 id="rax">Rax</h2>
 <p>Redis对于Rax的解释为<code>A radix tree implement</code>，基数树的一种实现。Rax中不仅可以存储字符串，也可以为该字符串设置值形成kv结构。其基本结构如下：
 - head：指向头节点 - numele：元素个数（key） - numnodes：节点个数
-<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rax</span> &#123;</span>
-    raxNode *head;
-    <span class="hljs-keyword">uint64_t</span> numele;
-    <span class="hljs-keyword">uint64_t</span> numnodes;
-&#125; rax;</code></pre></div></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rax</span> &#123;</span><br>    raxNode *head;<br>    <span class="hljs-type">uint64_t</span> numele;<br>    <span class="hljs-type">uint64_t</span> numnodes;<br>&#125; rax;<br></code></pre></td></tr></table></figure></p>
 <h2 id="raxnode">raxNode</h2>
 <p>raxNode代表Rax树中的一个节点，其基本结构如下所示： -
 iskey：表明当前节点是否包含一个key，占用1bit -
@@ -344,25 +330,14 @@ isnull：表明当前key对应的value是否为空，占用1bit -
 iscompr：表明当前节点是否为压缩节点，占用1bit -
 size：压缩节点压缩的字符串长度或者非压缩节点的子节点个数，占用29bit -
 data：包含填充字段，同时存储了当前节点包含的字符串以及子节点的指针，key对应的value指针。
-<div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxNode</span> &#123;</span>
-    <span class="hljs-keyword">uint32_t</span> iskey:<span class="hljs-number">1</span>;
-    <span class="hljs-keyword">uint32_t</span> isnull:<span class="hljs-number">1</span>;
-    <span class="hljs-keyword">uint32_t</span> iscompr:<span class="hljs-number">1</span>;
-    <span class="hljs-keyword">uint32_t</span> size:<span class="hljs-number">29</span>;
-    <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> data[];
-&#125; raxNode;</code></pre></div></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxNode</span> &#123;</span><br>    <span class="hljs-type">uint32_t</span> iskey:<span class="hljs-number">1</span>;<br>    <span class="hljs-type">uint32_t</span> isnull:<span class="hljs-number">1</span>;<br>    <span class="hljs-type">uint32_t</span> iscompr:<span class="hljs-number">1</span>;<br>    <span class="hljs-type">uint32_t</span> size:<span class="hljs-number">29</span>;<br>    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> data[];<br>&#125; raxNode;<br></code></pre></td></tr></table></figure></p>
 <p>其中raxNode分为压缩节点域非压缩节点。主要区别在于非压缩节点的每个字符都有子节点，如果字符个数小于2，都是非压缩节点。</p>
 <h2 id="raxstack">raxStack</h2>
 <p>raxStack结构用于存储从根节点到当前节点的路径，基本结构如下： -
 stack：用于记录路径，该指针可能指向static_items或者堆内存 -
 items,maxitems：代表stack指向的空间的已用空间以及最大空间 -
 static_items：一个数组，每个元素都是指针，存储路径 -
-oom：代表当前栈是否出现过内存溢出 <div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxStack</span> &#123;</span>
-    <span class="hljs-keyword">void</span> **<span class="hljs-built_in">stack</span>;
-    <span class="hljs-keyword">size_t</span> items, maxitems;
-    <span class="hljs-keyword">void</span> *static_items[RAX_STACK_STATIC_ITEMS];
-    <span class="hljs-keyword">int</span> oom;
-&#125; raxStack;</code></pre></div></p>
+oom：代表当前栈是否出现过内存溢出 <figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxStack</span> &#123;</span><br>    <span class="hljs-type">void</span> **<span class="hljs-built_in">stack</span>;<br>    <span class="hljs-type">size_t</span> items, maxitems;<br>    <span class="hljs-type">void</span> *static_items[RAX_STACK_STATIC_ITEMS];<br>    <span class="hljs-type">int</span> oom;<br>&#125; raxStack;<br></code></pre></td></tr></table></figure></p>
 <h2 id="raxiterator">raxIterator</h2>
 <p>raxIterator用于遍历Rax树中的所有key，基本结构如下： -
 flags：代表当前迭代器标志位,取值如下： -
@@ -375,23 +350,12 @@ key：存储了当前迭代器遍历到的key，该指针指向key_static_string
 key_static_string：key的默认存储空间，key过大时，会使用堆内存 -
 node：当前key所在的raxNode -
 stack：记录了从根节点到当前节点的路径，用于raxNode线上遍历 -
-node_cb：为节点的回调函数，默认为空 <div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxIterator</span> &#123;</span>
-    <span class="hljs-keyword">int</span> flags;
-    rax *rt;                <span class="hljs-comment">/* Radix tree we are iterating. */</span>
-    <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *key;     <span class="hljs-comment">/* The current string. */</span>
-    <span class="hljs-keyword">void</span> *data;             <span class="hljs-comment">/* Data associated to this key. */</span>
-    <span class="hljs-keyword">size_t</span> key_len;         <span class="hljs-comment">/* Current key length. */</span>
-    <span class="hljs-keyword">size_t</span> key_max;         <span class="hljs-comment">/* Max key len the current key buffer can hold. */</span>
-    <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> key_static_string[RAX_ITER_STATIC_LEN];
-    raxNode *node;          <span class="hljs-comment">/* Current node. Only for unsafe iteration. */</span>
-    raxStack <span class="hljs-built_in">stack</span>;         <span class="hljs-comment">/* Stack used for unsafe iteration. */</span>
-    raxNodeCallback node_cb; <span class="hljs-comment">/* Optional node callback. Normally set to NULL. */</span>
-&#125; raxIterator;</code></pre></div></p>
+node_cb：为节点的回调函数，默认为空 <figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxIterator</span> &#123;</span><br>    <span class="hljs-type">int</span> flags;<br>    rax *rt;                <span class="hljs-comment">/* Radix tree we are iterating. */</span><br>    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *key;     <span class="hljs-comment">/* The current string. */</span><br>    <span class="hljs-type">void</span> *data;             <span class="hljs-comment">/* Data associated to this key. */</span><br>    <span class="hljs-type">size_t</span> key_len;         <span class="hljs-comment">/* Current key length. */</span><br>    <span class="hljs-type">size_t</span> key_max;         <span class="hljs-comment">/* Max key len the current key buffer can hold. */</span><br>    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> key_static_string[RAX_ITER_STATIC_LEN];<br>    raxNode *node;          <span class="hljs-comment">/* Current node. Only for unsafe iteration. */</span><br>    raxStack <span class="hljs-built_in">stack</span>;         <span class="hljs-comment">/* Stack used for unsafe iteration. */</span><br>    raxNodeCallback node_cb; <span class="hljs-comment">/* Optional node callback. Normally set to NULL. */</span><br>&#125; raxIterator;<br></code></pre></td></tr></table></figure></p>
 <h1 id="总结">总结</h1>
 <p>上文主要对Redis
 Stream的基本结构与其底层数据结构做了简要分析，了解了消息由listpack结构存储，以消息ID为key，listpack为value存储在Rax树中。</p>
 
-            </article>
+            </div>
             <hr>
             <div>
               <div class="post-metas mb-3">
@@ -419,11 +383,15 @@ Stream的基本结构与其底层数据结构做了简要分析，了解了消�
                 
               </div>
               
-                <p class="note note-warning">本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！</p>
+                <p class="note note-warning">
+                  
+                    本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！
+                  
+                </p>
               
               
-                <div class="post-prevnext row">
-                  <div class="post-prev col-6">
+                <div class="post-prevnext">
+                  <article class="post-prev col-6">
                     
                     
                       <a href="/2020/07/mysql-structure-and-engine/">
@@ -432,8 +400,8 @@ Stream的基本结构与其底层数据结构做了简要分析，了解了消�
                         <span class="visible-mobile">上一篇</span>
                       </a>
                     
-                  </div>
-                  <div class="post-next col-6">
+                  </article>
+                  <article class="post-next col-6">
                     
                     
                       <a href="/2020/06/redis-quicklist/">
@@ -442,13 +410,13 @@ Stream的基本结构与其底层数据结构做了简要分析，了解了消�
                         <i class="iconfont icon-arrowright"></i>
                       </a>
                     
-                  </div>
+                  </article>
                 </div>
               
             </div>
 
             
-          </div>
+          </article>
         </div>
       </div>
     </div>
@@ -456,7 +424,7 @@ Stream的基本结构与其底层数据结构做了简要分析，了解了消�
       <div class="d-none d-lg-block col-lg-2 toc-container" id="toc-ctn">
         <div id="toc">
   <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
-  <div id="tocbot"></div>
+  <div class="toc-body" id="toc-body"></div>
 </div>
 
       </div>
@@ -468,16 +436,15 @@ Stream的基本结构与其底层数据结构做了简要分析，了解了消�
 
 
     
-  </main>
 
-  
-    <a id="scroll-top-button" href="#" role="button">
-      <i class="iconfont icon-arrowup" aria-hidden="true"></i>
-    </a>
-  
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
 
-  
-    <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
      aria-hidden="true">
   <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
     <div class="modal-content">
@@ -498,202 +465,133 @@ Stream的基本结构与其底层数据结构做了简要分析，了解了消�
     </div>
   </div>
 </div>
-  
-
-  
-
-  
-
-  <footer class="mt-5">
-  <div class="text-center py-3">
     
 
     
-  <!-- 备案信息 -->
-  <div class="beian">
-    <a href="http://beian.miit.gov.cn/" target="_blank"
-       rel="nofollow noopener">苏ICP备20022682号</a>
-    
+  </main>
+
+  <footer class="text-center mt-5 py-3">
+  <div class="footer-content">
+     <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
   </div>
+  
 
+  
 
-    
-  </div>
+  
 </footer>
 
-<!-- SCRIPTS -->
-<script  src="https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js" ></script>
-<script  src="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/js/bootstrap.min.js" ></script>
-<script  src="/js/debouncer.js" ></script>
-<script  src="/js/main.js" ></script>
+
+  <!-- SCRIPTS -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
 
 <!-- Plugins -->
 
 
-  
-    <script  src="/js/lazyload.js" ></script>
-  
-
-
-
-  <script defer src="https://cdn.staticfile.org/clipboard.js/2.0.6/clipboard.min.js" ></script>
-  <script  src="/js/clipboard-use.js" ></script>
-
-
-
-
-
-
-
-  <script  src="https://cdn.staticfile.org/tocbot/4.11.1/tocbot.min.js" ></script>
-  <script>
-    $(document).ready(function () {
-      var boardCtn = $('#board-ctn');
-      var boardTop = boardCtn.offset().top;
-
-      tocbot.init({
-        tocSelector: '#tocbot',
-        contentSelector: 'article.markdown-body',
-        headingSelector: 'h1,h2,h3,h4,h5,h6',
-        linkClass: 'tocbot-link',
-        activeLinkClass: 'tocbot-active-link',
-        listClass: 'tocbot-list',
-        isCollapsedClass: 'tocbot-is-collapsed',
-        collapsibleClass: 'tocbot-is-collapsible',
-        collapseDepth: 0,
-        scrollSmooth: true,
-        headingsOffset: -boardTop
-      });
-      if ($('.toc-list-item').length > 0) {
-        $('#toc').css('visibility', 'visible');
-      }
-    });
-  </script>
-
-
-
-  <script  src="https://cdn.staticfile.org/typed.js/2.0.11/typed.min.js" ></script>
-  <script>
-    var typed = new Typed('#subtitle', {
-      strings: [
-        '  ',
-        "Redis底层数据结构-Stream源码分析&nbsp;",
-      ],
-      cursorChar: "_",
-      typeSpeed: 70,
-      loop: false,
-    });
-    typed.stop();
-    $(document).ready(function () {
-      $(".typed-cursor").addClass("h2");
-      typed.start();
-    });
-  </script>
-
-
-
-  <script  src="https://cdn.staticfile.org/anchor-js/4.2.2/anchor.min.js" ></script>
-  <script>
-    anchors.options = {
-      placement: "right",
-      visible: "hover",
-      
-    };
-    var el = "h1,h2,h3,h4,h5,h6".split(",");
-    var res = [];
-    for (item of el) {
-      res.push(".markdown-body > " + item)
-    }
-    anchors.add(res.join(", "))
-  </script>
-
-
-
   <script  src="/js/local-search.js" ></script>
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+  
+
+
+
+  
+    <script  src="https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js" ></script>
+  
+  
+    <script defer src="https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js" ></script>
+  
+
+
+
+
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
   <script>
-    var path = "/local-search.xml";
-    var inputArea = document.querySelector("#local-search-input");
-    inputArea.onclick = function () {
-      searchFunc(path, 'local-search-input', 'local-search-result');
-      this.onclick = null
-    }
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var title = document.getElementById('subtitle').title;
+      
+        typing(title);
+      
+    })(window, document);
   </script>
-
-
-
-  <script  src="https://cdn.staticfile.org/fancybox/3.5.7/jquery.fancybox.min.js" ></script>
-  <link  rel="stylesheet" href="https://cdn.staticfile.org/fancybox/3.5.7/jquery.fancybox.min.css" />
-
-  <script>
-    $('#post img:not(.no-zoom img, img[no-zoom]), img[zoom]').each(
-      function () {
-        var element = document.createElement('a');
-        $(element).attr('data-fancybox', 'images');
-        $(element).attr('href', $(this).attr('src'));
-        $(this).wrap(element);
-      }
-    );
-  </script>
-
-
 
 
 
 
 
   
+
   
+    <!-- MathJax -->
     <script>
-      !function (e, t, a) {
-        function r() {
-          for (var e = 0; e < s.length; e++) s[e].alpha <= 0 ? (t.body.removeChild(s[e].el), s.splice(e, 1)) : (s[e].y--, s[e].scale += .004, s[e].alpha -= .013, s[e].el.style.cssText = "left:" + s[e].x + "px;top:" + s[e].y + "px;opacity:" + s[e].alpha + ";transform:scale(" + s[e].scale + "," + s[e].scale + ") rotate(45deg);background:" + s[e].color + ";z-index:99999");
-          requestAnimationFrame(r)
-        }
-
-        function n() {
-          var t = "function" == typeof e.onclick && e.onclick;
-          e.onclick = function (e) {
-            t && t(), o(e)
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        },
+        loader: {
+          load: ['ui/lazy']
+        },
+        options: {
+          renderActions: {
+            findScript: [10, doc => {
+              document.querySelectorAll('script[type^="math/tex"]').forEach(node => {
+                const display = !!node.type.match(/; *mode=display/);
+                const math = new doc.options.MathItem(node.textContent, doc.inputJax[0], display);
+                const text = document.createTextNode('');
+                node.parentNode.replaceChild(text, node);
+                math.start = { node: text, delim: '', n: 0 };
+                math.end = { node: text, delim: '', n: 0 };
+                doc.math.push(math);
+              });
+            }, '', false],
+            insertedScript: [200, () => {
+              document.querySelectorAll('mjx-container').forEach(node => {
+                let target = node.parentNode;
+                if (target.nodeName.toLowerCase() === 'li') {
+                  target.parentNode.classList.add('has-jax');
+                }
+              });
+            }, '', false]
           }
         }
-
-        function o(e) {
-          var a = t.createElement("div");
-          a.className = "heart", s.push({
-            el: a,
-            x: e.clientX - 5,
-            y: e.clientY - 5,
-            scale: 1,
-            alpha: 1,
-            color: c()
-          }), t.body.appendChild(a)
-        }
-
-        function i(e) {
-          var a = t.createElement("style");
-          a.type = "text/css";
-          try {
-            a.appendChild(t.createTextNode(e))
-          } catch (t) {
-            a.styleSheet.cssText = e
-          }
-          t.getElementsByTagName("head")[0].appendChild(a)
-        }
-
-        function c() {
-          return "rgb(" + ~~(255 * Math.random()) + "," + ~~(255 * Math.random()) + "," + ~~(255 * Math.random()) + ")"
-        }
-
-        var s = [];
-        e.requestAnimationFrame = e.requestAnimationFrame || e.webkitRequestAnimationFrame || e.mozRequestAnimationFrame || e.oRequestAnimationFrame || e.msRequestAnimationFrame || function (e) {
-          setTimeout(e, 1e3 / 60)
-        }, i(".heart{width: 10px;height: 10px;position: fixed;background: #f00;transform: rotate(45deg);-webkit-transform: rotate(45deg);-moz-transform: rotate(45deg);}.heart:after,.heart:before{content: '';width: inherit;height: inherit;background: inherit;border-radius: 50%;-webkit-border-radius: 50%;-moz-border-radius: 50%;position: fixed;}.heart:after{top: -5px;}.heart:before{left: -5px;}"), n(), r()
-      }(window, document);
+      };
     </script>
+
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" ></script>
+
   
-
-
-
 
 
 
@@ -727,6 +625,10 @@ Stream的基本结构与其底层数据结构做了简要分析，了解了消�
 
 
 
+
+
+<!-- 主题的启动项 保持在最底部 -->
+<script  src="/js/boot.js" ></script>
 
 
 </body>

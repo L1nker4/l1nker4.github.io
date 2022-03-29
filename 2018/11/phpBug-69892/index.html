@@ -1,48 +1,67 @@
+
+
 <!DOCTYPE html>
-<html lang="zh-CN">
-
-
+<html lang="zh-CN" >
 
 
 
 <head>
   <meta charset="UTF-8">
   <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
-  <link rel="icon" type="image/png" href="/favicon.ico">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
+  <link rel="icon" href="/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
   <meta http-equiv="x-ua-compatible" content="ie=edge">
   
     <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
   
   <meta name="theme-color" content="#2f4154">
-  <meta name="description" content="没有退路，唯有一往无前">
   <meta name="author" content="L1nker4">
   <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="前言 这段时间在做CHY师傅整理的CTF代码审计题目，遇到较难或者比较有意思的题目，都会记下笔记，这次分享一篇关于PHP处理数组时的一个漏洞，这里给出CHY师傅的题目地址： &gt; https:&#x2F;&#x2F;github.com&#x2F;CHYbeta&#x2F;Code-Audit-Challenges&#x2F; 分析 首先看看PHP官方对这个错误的介绍： &gt; https:&#x2F;&#x2F;bugs.php.net&#x2F;bug.">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PHP数组整数键名截断问题">
+<meta property="og:url" content="https://l1n.wang/2018/11/phpBug-69892/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="前言 这段时间在做CHY师傅整理的CTF代码审计题目，遇到较难或者比较有意思的题目，都会记下笔记，这次分享一篇关于PHP处理数组时的一个漏洞，这里给出CHY师傅的题目地址： &gt; https:&#x2F;&#x2F;github.com&#x2F;CHYbeta&#x2F;Code-Audit-Challenges&#x2F; 分析 首先看看PHP官方对这个错误的介绍： &gt; https:&#x2F;&#x2F;bugs.php.net&#x2F;bug.">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2018-11-23T09:02:35.000Z">
+<meta property="article:modified_time" content="2020-05-01T01:31:05.686Z">
+<meta property="article:author" content="L1nker4">
+<meta property="article:tag" content="PHP代码审计">
+<meta property="article:tag" content="安全">
+<meta property="article:tag" content="CTF">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
   <title>PHP数组整数键名截断问题 - l1nker4&#39;s Blog</title>
 
-  <link  rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/css/bootstrap.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
 
 
-  <link  rel="stylesheet" href="https://cdn.staticfile.org/github-markdown-css/4.0.0/github-markdown.min.css" />
-  <link  rel="stylesheet" href="/lib/hint/hint.min.css" />
-
-  
-    <link  rel="stylesheet" href="https://cdn.staticfile.org/highlight.js/10.0.0/styles/atom-one-dark-reasonable.min.css" />
-  
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
 
   
-    <link  rel="stylesheet" href="https://cdn.staticfile.org/gitalk/1.6.2/gitalk.css" />
+    
+    
+      
+      <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@10/styles/github-gist.min.css" />
+    
+  
+
+  
+    <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
   
 
 
 <!-- 主题依赖的图标库，不要自行修改 -->
 
-<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_yg9cfy8wd6.css">
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_ba1fz6golrf.css">
 
 
 
-<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_pjno9b9zyxs.css">
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
 
 
 <link  rel="stylesheet" href="/css/main.css" />
@@ -50,8 +69,13 @@
 <!-- 自定义样式保持在最底部 -->
 
 
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.8.14","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"copy_btn":true,"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"baidu":"14b7dca7880e79dfe4d7db3cfc3b7e98","google":null,"gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+  </script>
   <script  src="/js/utils.js" ></script>
-<meta name="generator" content="Hexo 5.2.0"><link rel="alternate" href="/atom.xml" title="l1nker4's Blog" type="application/atom+xml">
+  <script  src="/js/color-schema.js" ></script>
+<meta name="generator" content="Hexo 5.4.1"><link rel="alternate" href="/atom.xml" title="l1nker4's Blog" type="application/atom+xml">
 </head>
 
 
@@ -59,8 +83,9 @@
   <header style="height: 70vh;">
     <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
   <div class="container">
-    <a class="navbar-brand"
-       href="/">&nbsp;<strong>l1nker4 's Blog'</strong>&nbsp;</a>
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4 &#39;s Blog</strong>
+    </a>
 
     <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
             data-target="#navbarSupportedContent"
@@ -146,52 +171,54 @@
         
         
           <li class="nav-item" id="search-btn">
-            <a class="nav-link" data-toggle="modal" data-target="#modalSearch">&nbsp;&nbsp;<i
-                class="iconfont icon-search"></i>&nbsp;&nbsp;</a>
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              &nbsp;<i class="iconfont icon-search"></i>&nbsp;
+            </a>
           </li>
+        
         
       </ul>
     </div>
   </div>
 </nav>
 
-    <div class="view intro-2" id="background" parallax=true
-         style="background: url('/images/bg.jpg') no-repeat center center;
+    <div class="banner" id="banner" parallax=true
+         style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center;
            background-size: cover;">
       <div class="full-bg-img">
         <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
-          <div class="container text-center white-text fadeInUp">
-            <span class="h2" id="subtitle">
+          <div class="page-header text-center fade-in-up">
+            <span class="h2" id="subtitle" title="PHP数组整数键名截断问题">
               
             </span>
 
             
-              
-  <div class="mt-3 post-meta">
-    <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-    <time datetime="2018-11-23 17:02">
-      2018年11月23日 下午
-    </time>
-  </div>
-
+              <div class="mt-3">
+  
+  
+    <span class="post-meta">
+      <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+      <time datetime="2018-11-23 17:02" pubdate>
+        2018年11月23日 下午
+      </time>
+    </span>
+  
+</div>
 
 <div class="mt-1">
   
-    
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      917 字
+      5.1k 字
     </span>
   
 
   
-    
     <span class="post-meta mr-2">
       <i class="iconfont icon-clock-fill"></i>
       
       
-      31
-       分钟
+      43 分钟
     </span>
   
 
@@ -212,16 +239,18 @@
     
       
 
-<div class="container-fluid">
-  <div class="row">
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
     <div class="d-none d-lg-block col-lg-2"></div>
-    <div class="col-lg-8 nopadding-md">
-      <div class="container nopadding-md" id="board-ctn">
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
         <div class="py-5" id="board">
-          <div class="post-content mx-auto" id="post">
+          <article class="post-content mx-auto">
+            <!-- SEO header -->
+            <h1 style="display: none">PHP数组整数键名截断问题</h1>
             
-            <article class="markdown-body">
-              <a id="more"></a>
+            <div class="markdown-body">
+              <span id="more"></span>
 <h1 id="前言">前言</h1>
 <p>这段时间在做CHY师傅整理的CTF代码审计题目，遇到较难或者比较有意思的题目，都会记下笔记，这次分享一篇关于PHP处理数组时的一个漏洞，这里给出CHY师傅的题目地址：
 &gt; <a
@@ -232,80 +261,7 @@ target="_blank" rel="noopener" href="https://bugs.php.net/bug.php?id=69892">http
 <blockquote>
 <p>var_dump([0 =&gt; 0] === [0x100000000 =&gt; 0]); // bool(true)</p>
 </blockquote>
-<p>下面来看代码： <div class="hljs"><pre><code class="hljs PHP"><span class="hljs-meta">&lt;?php</span>
-
-<span class="hljs-comment">/*******************************************************************</span>
-<span class="hljs-comment"> * PHP Challenge 2015</span>
-<span class="hljs-comment"> *******************************************************************</span>
-<span class="hljs-comment"> * Why leave all the fun to the XSS crowd?</span>
-<span class="hljs-comment"> *</span>
-<span class="hljs-comment"> * Do you know PHP?</span>
-<span class="hljs-comment"> * And are you up to date with all its latest peculiarities?</span>
-<span class="hljs-comment"> *</span>
-<span class="hljs-comment"> * Are you sure?</span>
-<span class="hljs-comment"> *</span>
-<span class="hljs-comment"> * If you believe you do then solve this challenge and create an</span>
-<span class="hljs-comment"> * input that will make the following code believe you are the ADMIN.</span>
-<span class="hljs-comment"> * Becoming any other user is not good enough, but a first step.</span>
-<span class="hljs-comment"> *</span>
-<span class="hljs-comment"> * Attention this code is installed on a Mac OS X 10.9 system</span>
-<span class="hljs-comment"> * that is running PHP 5.4.30 !!!</span>
-<span class="hljs-comment"> *</span>
-<span class="hljs-comment"> * TIPS: OS X is mentioned because OS X never runs latest PHP</span>
-<span class="hljs-comment"> *       Challenge will not work with latest PHP</span>
-<span class="hljs-comment"> *       Also challenge will only work on 64bit systems</span>
-<span class="hljs-comment"> *       To solve challenge you need to combine what a normal</span>
-<span class="hljs-comment"> *       attacker would do when he sees this code with knowledge</span>
-<span class="hljs-comment"> *       about latest known PHP quirks</span>
-<span class="hljs-comment"> *       And you cannot bruteforce the admin password directly.</span>
-<span class="hljs-comment"> *       To give you an idea - first half is:</span>
-<span class="hljs-comment"> *          orewgfpeowöfgphewoöfeiuwgöpuerhjwfiuvuger</span>
-<span class="hljs-comment"> *</span>
-<span class="hljs-comment"> * If you know the answer please submit it to info<span class="hljs-doctag">@sektioneins</span>.de</span>
-<span class="hljs-comment"> ********************************************************************/</span>
-
-<span class="hljs-variable">$users</span> = <span class="hljs-keyword">array</span>(
-        <span class="hljs-string">&quot;0:9b5c3d2b64b8f74e56edec71462bd97a&quot;</span> ,
-        <span class="hljs-string">&quot;1:4eb5fb1501102508a86971773849d266&quot;</span>,
-        <span class="hljs-string">&quot;2:facabd94d57fc9f1e655ef9ce891e86e&quot;</span>,
-        <span class="hljs-string">&quot;3:ce3924f011fe323df3a6a95222b0c909&quot;</span>,
-        <span class="hljs-string">&quot;4:7f6618422e6a7ca2e939bd83abde402c&quot;</span>,
-        <span class="hljs-string">&quot;5:06e2b745f3124f7d670f78eabaa94809&quot;</span>,
-        <span class="hljs-string">&quot;6:8e39a6e40900bb0824a8e150c0d0d59f&quot;</span>,
-        <span class="hljs-string">&quot;7:d035e1a80bbb377ce1edce42728849f2&quot;</span>,
-        <span class="hljs-string">&quot;8:0927d64a71a9d0078c274fc5f4f10821&quot;</span>,
-        <span class="hljs-string">&quot;9:e2e23d64a642ee82c7a270c6c76df142&quot;</span>,
-        <span class="hljs-string">&quot;10:70298593dd7ada576aff61b6750b9118&quot;</span>
-);
-
-<span class="hljs-variable">$valid_user</span> = <span class="hljs-literal">false</span>;
-
-<span class="hljs-variable">$input</span> = <span class="hljs-variable">$_COOKIE</span>[<span class="hljs-string">&#x27;user&#x27;</span>];
-<span class="hljs-variable">$input</span>[<span class="hljs-number">1</span>] = md5(<span class="hljs-variable">$input</span>[<span class="hljs-number">1</span>]);
-
-<span class="hljs-keyword">foreach</span> (<span class="hljs-variable">$users</span> <span class="hljs-keyword">as</span> <span class="hljs-variable">$user</span>)
-&#123;
-        <span class="hljs-variable">$user</span> = explode(<span class="hljs-string">&quot;:&quot;</span>, <span class="hljs-variable">$user</span>);
-        <span class="hljs-keyword">if</span> (<span class="hljs-variable">$input</span> === <span class="hljs-variable">$user</span>) &#123;
-                <span class="hljs-variable">$uid</span> = <span class="hljs-variable">$input</span>[<span class="hljs-number">0</span>] + <span class="hljs-number">0</span>;
-                <span class="hljs-variable">$valid_user</span> = <span class="hljs-literal">true</span>;
-        &#125;
-&#125;
-
-<span class="hljs-keyword">if</span> (!<span class="hljs-variable">$valid_user</span>) &#123;
-        <span class="hljs-keyword">die</span>(<span class="hljs-string">&quot;not a valid user\n&quot;</span>);
-&#125;
-
-<span class="hljs-keyword">if</span> (<span class="hljs-variable">$uid</span> == <span class="hljs-number">0</span>) &#123;
-
-        <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;Hello Admin How can I serve you today?\n&quot;</span>;
-        <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;SECRETS ....\n&quot;</span>;
-
-&#125; <span class="hljs-keyword">else</span> &#123;
-        <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;Welcome back user\n&quot;</span>;
-&#125;
-<span class="hljs-meta">?&gt;</span>
-</code></pre></div> 首先来看看代码逻辑： &gt; *
+<p>下面来看代码： <figure class="highlight php"><table><tr><td class="gutter"><div class="code-wrapper"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br></pre></div></td><td class="code"><pre><code class="hljs PHP"><span class="hljs-meta">&lt;?php</span><br><br><span class="hljs-comment">/*******************************************************************</span><br><span class="hljs-comment"> * PHP Challenge 2015</span><br><span class="hljs-comment"> *******************************************************************</span><br><span class="hljs-comment"> * Why leave all the fun to the XSS crowd?</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * Do you know PHP?</span><br><span class="hljs-comment"> * And are you up to date with all its latest peculiarities?</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * Are you sure?</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * If you believe you do then solve this challenge and create an</span><br><span class="hljs-comment"> * input that will make the following code believe you are the ADMIN.</span><br><span class="hljs-comment"> * Becoming any other user is not good enough, but a first step.</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * Attention this code is installed on a Mac OS X 10.9 system</span><br><span class="hljs-comment"> * that is running PHP 5.4.30 !!!</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * TIPS: OS X is mentioned because OS X never runs latest PHP</span><br><span class="hljs-comment"> *       Challenge will not work with latest PHP</span><br><span class="hljs-comment"> *       Also challenge will only work on 64bit systems</span><br><span class="hljs-comment"> *       To solve challenge you need to combine what a normal</span><br><span class="hljs-comment"> *       attacker would do when he sees this code with knowledge</span><br><span class="hljs-comment"> *       about latest known PHP quirks</span><br><span class="hljs-comment"> *       And you cannot bruteforce the admin password directly.</span><br><span class="hljs-comment"> *       To give you an idea - first half is:</span><br><span class="hljs-comment"> *          orewgfpeowöfgphewoöfeiuwgöpuerhjwfiuvuger</span><br><span class="hljs-comment"> *</span><br><span class="hljs-comment"> * If you know the answer please submit it to info<span class="hljs-doctag">@sektioneins</span>.de</span><br><span class="hljs-comment"> ********************************************************************/</span><br><br><span class="hljs-variable">$users</span> = <span class="hljs-keyword">array</span>(<br>        <span class="hljs-string">&quot;0:9b5c3d2b64b8f74e56edec71462bd97a&quot;</span> ,<br>        <span class="hljs-string">&quot;1:4eb5fb1501102508a86971773849d266&quot;</span>,<br>        <span class="hljs-string">&quot;2:facabd94d57fc9f1e655ef9ce891e86e&quot;</span>,<br>        <span class="hljs-string">&quot;3:ce3924f011fe323df3a6a95222b0c909&quot;</span>,<br>        <span class="hljs-string">&quot;4:7f6618422e6a7ca2e939bd83abde402c&quot;</span>,<br>        <span class="hljs-string">&quot;5:06e2b745f3124f7d670f78eabaa94809&quot;</span>,<br>        <span class="hljs-string">&quot;6:8e39a6e40900bb0824a8e150c0d0d59f&quot;</span>,<br>        <span class="hljs-string">&quot;7:d035e1a80bbb377ce1edce42728849f2&quot;</span>,<br>        <span class="hljs-string">&quot;8:0927d64a71a9d0078c274fc5f4f10821&quot;</span>,<br>        <span class="hljs-string">&quot;9:e2e23d64a642ee82c7a270c6c76df142&quot;</span>,<br>        <span class="hljs-string">&quot;10:70298593dd7ada576aff61b6750b9118&quot;</span><br>);<br><br><span class="hljs-variable">$valid_user</span> = <span class="hljs-literal">false</span>;<br><br><span class="hljs-variable">$input</span> = <span class="hljs-variable">$_COOKIE</span>[<span class="hljs-string">&#x27;user&#x27;</span>];<br><span class="hljs-variable">$input</span>[<span class="hljs-number">1</span>] = <span class="hljs-title function_ invoke__">md5</span>(<span class="hljs-variable">$input</span>[<span class="hljs-number">1</span>]);<br><br><span class="hljs-keyword">foreach</span> (<span class="hljs-variable">$users</span> <span class="hljs-keyword">as</span> <span class="hljs-variable">$user</span>)<br>&#123;<br>        <span class="hljs-variable">$user</span> = <span class="hljs-title function_ invoke__">explode</span>(<span class="hljs-string">&quot;:&quot;</span>, <span class="hljs-variable">$user</span>);<br>        <span class="hljs-keyword">if</span> (<span class="hljs-variable">$input</span> === <span class="hljs-variable">$user</span>) &#123;<br>                <span class="hljs-variable">$uid</span> = <span class="hljs-variable">$input</span>[<span class="hljs-number">0</span>] + <span class="hljs-number">0</span>;<br>                <span class="hljs-variable">$valid_user</span> = <span class="hljs-literal">true</span>;<br>        &#125;<br>&#125;<br><br><span class="hljs-keyword">if</span> (!<span class="hljs-variable">$valid_user</span>) &#123;<br>        <span class="hljs-keyword">die</span>(<span class="hljs-string">&quot;not a valid user\n&quot;</span>);<br>&#125;<br><br><span class="hljs-keyword">if</span> (<span class="hljs-variable">$uid</span> == <span class="hljs-number">0</span>) &#123;<br><br>        <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;Hello Admin How can I serve you today?\n&quot;</span>;<br>        <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;SECRETS ....\n&quot;</span>;<br><br>&#125; <span class="hljs-keyword">else</span> &#123;<br>        <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;Welcome back user\n&quot;</span>;<br>&#125;<br><span class="hljs-meta">?&gt;</span><br><br></code></pre></td></tr></table></figure> 首先来看看代码逻辑： &gt; *
 从<strong>cookie</strong>中获取<strong>user</strong> &gt; *
 遍历定义的<strong>users</strong>数组，判断传入的数据<strong>input</strong>是否等于它</p>
 <p>这里我们要绕过两个条件判断，经过md5解密网站的测试，发现只能解出这一条。
@@ -314,102 +270,8 @@ target="_blank" rel="noopener" href="https://bugs.php.net/bug.php?id=69892">http
 user[0]=5;user[1]=hund;</strong>
 这样传入数据，就可以成功绕过第一个判断，接下来只要让<strong>uid</strong>为0即可。
 根据前面给出的数组处理漏洞，分析一下PHP源码<strong>php-src/Zend/zend_hash.c</strong>
-<div class="hljs"><pre><code class="hljs C"><span class="hljs-comment">//php5.2.14</span>
-<span class="hljs-function">ZEND_API <span class="hljs-keyword">int</span> <span class="hljs-title">zend_hash_compare</span><span class="hljs-params">(HashTable *ht1, HashTable *ht2, <span class="hljs-keyword">compare_func_t</span> compar, zend_bool ordered TSRMLS_DC)</span></span>
-<span class="hljs-function"></span>&#123;
-	Bucket *p1, *p2 = <span class="hljs-literal">NULL</span>;
-	<span class="hljs-keyword">int</span> result;
-	<span class="hljs-keyword">void</span> *pData2;
-
-	IS_CONSISTENT(ht1);
-	IS_CONSISTENT(ht2);
-
-	HASH_PROTECT_RECURSION(ht1); 
-	HASH_PROTECT_RECURSION(ht2); 
-
-	result = ht1-&gt;nNumOfElements - ht2-&gt;nNumOfElements;
-	<span class="hljs-keyword">if</span> (result!=<span class="hljs-number">0</span>) &#123;
-		HASH_UNPROTECT_RECURSION(ht1); 
-		HASH_UNPROTECT_RECURSION(ht2); 
-		<span class="hljs-keyword">return</span> result;
-	&#125;
-
-	p1 = ht1-&gt;pListHead;
-	<span class="hljs-keyword">if</span> (ordered) &#123;
-		p2 = ht2-&gt;pListHead;
-	&#125;
-
-	<span class="hljs-keyword">while</span> (p1) &#123;
-		<span class="hljs-keyword">if</span> (ordered &amp;&amp; !p2) &#123;
-			HASH_UNPROTECT_RECURSION(ht1); 
-			HASH_UNPROTECT_RECURSION(ht2); 
-			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; <span class="hljs-comment">/* That&#x27;s not supposed to happen */</span>
-		&#125;
-		<span class="hljs-keyword">if</span> (ordered) &#123;
-			<span class="hljs-keyword">if</span> (p1-&gt;nKeyLength==<span class="hljs-number">0</span> &amp;&amp; p2-&gt;nKeyLength==<span class="hljs-number">0</span>) &#123; <span class="hljs-comment">/* numeric indices */</span>
-				result = p1-&gt;h - p2-&gt;h;
-				<span class="hljs-keyword">if</span> (result!=<span class="hljs-number">0</span>) &#123;
-					HASH_UNPROTECT_RECURSION(ht1); 
-					HASH_UNPROTECT_RECURSION(ht2); 
-					<span class="hljs-keyword">return</span> result;
-				&#125;
-			&#125; <span class="hljs-keyword">else</span> &#123; <span class="hljs-comment">/* string indices */</span>
-				result = p1-&gt;nKeyLength - p2-&gt;nKeyLength;
-				<span class="hljs-keyword">if</span> (result!=<span class="hljs-number">0</span>) &#123;
-					HASH_UNPROTECT_RECURSION(ht1); 
-					HASH_UNPROTECT_RECURSION(ht2); 
-					<span class="hljs-keyword">return</span> result;
-				&#125;
-				result = <span class="hljs-built_in">memcmp</span>(p1-&gt;arKey, p2-&gt;arKey, p1-&gt;nKeyLength);
-				<span class="hljs-keyword">if</span> (result!=<span class="hljs-number">0</span>) &#123;
-					HASH_UNPROTECT_RECURSION(ht1); 
-					HASH_UNPROTECT_RECURSION(ht2); 
-					<span class="hljs-keyword">return</span> result;
-				&#125;
-			&#125;
-			pData2 = p2-&gt;pData;
-		&#125; <span class="hljs-keyword">else</span> &#123;
-			<span class="hljs-keyword">if</span> (p1-&gt;nKeyLength==<span class="hljs-number">0</span>) &#123; <span class="hljs-comment">/* numeric index */</span>
-				<span class="hljs-keyword">if</span> (zend_hash_index_find(ht2, p1-&gt;h, &amp;pData2)==FAILURE) &#123;
-					HASH_UNPROTECT_RECURSION(ht1); 
-					HASH_UNPROTECT_RECURSION(ht2); 
-					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
-				&#125;
-			&#125; <span class="hljs-keyword">else</span> &#123; <span class="hljs-comment">/* string index */</span>
-				<span class="hljs-keyword">if</span> (zend_hash_quick_find(ht2, p1-&gt;arKey, p1-&gt;nKeyLength, p1-&gt;h, &amp;pData2)==FAILURE) &#123;
-					HASH_UNPROTECT_RECURSION(ht1); 
-					HASH_UNPROTECT_RECURSION(ht2); 
-					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
-				&#125;
-			&#125;
-		&#125;
-		result = compar(p1-&gt;pData, pData2 TSRMLS_CC);
-		<span class="hljs-keyword">if</span> (result!=<span class="hljs-number">0</span>) &#123;
-			HASH_UNPROTECT_RECURSION(ht1); 
-			HASH_UNPROTECT_RECURSION(ht2); 
-			<span class="hljs-keyword">return</span> result;
-		&#125;
-		p1 = p1-&gt;pListNext;
-		<span class="hljs-keyword">if</span> (ordered) &#123;
-			p2 = p2-&gt;pListNext;
-		&#125;
-	&#125;
-	
-	HASH_UNPROTECT_RECURSION(ht1); 
-	HASH_UNPROTECT_RECURSION(ht2); 
-	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
-&#125;</code></pre></div></p>
-<p>bucket结构体： <div class="hljs"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bucket</span> &#123;</span>
-	ulong h;						<span class="hljs-comment">/* Used for numeric indexing */</span>
-	uint nKeyLength;
-	<span class="hljs-keyword">void</span> *pData;
-	<span class="hljs-keyword">void</span> *pDataPtr;
-	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bucket</span> *<span class="hljs-title">pListNext</span>;</span>
-	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bucket</span> *<span class="hljs-title">pListLast</span>;</span>
-	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bucket</span> *<span class="hljs-title">pNext</span>;</span>
-	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bucket</span> *<span class="hljs-title">pLast</span>;</span>
-	<span class="hljs-keyword">char</span> arKey[<span class="hljs-number">1</span>]; <span class="hljs-comment">/* Must be last element */</span>
-&#125; Bucket;</code></pre></div> 关键点就在<strong>result = p1-&gt;h -
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-comment">//php5.2.14</span><br>ZEND_API <span class="hljs-type">int</span> <span class="hljs-title function_">zend_hash_compare</span><span class="hljs-params">(HashTable *ht1, HashTable *ht2, <span class="hljs-type">compare_func_t</span> compar, zend_bool ordered TSRMLS_DC)</span><br>&#123;<br>	Bucket *p1, *p2 = <span class="hljs-literal">NULL</span>;<br>	<span class="hljs-type">int</span> result;<br>	<span class="hljs-type">void</span> *pData2;<br><br>	IS_CONSISTENT(ht1);<br>	IS_CONSISTENT(ht2);<br><br>	HASH_PROTECT_RECURSION(ht1); <br>	HASH_PROTECT_RECURSION(ht2); <br><br>	result = ht1-&gt;nNumOfElements - ht2-&gt;nNumOfElements;<br>	<span class="hljs-keyword">if</span> (result!=<span class="hljs-number">0</span>) &#123;<br>		HASH_UNPROTECT_RECURSION(ht1); <br>		HASH_UNPROTECT_RECURSION(ht2); <br>		<span class="hljs-keyword">return</span> result;<br>	&#125;<br><br>	p1 = ht1-&gt;pListHead;<br>	<span class="hljs-keyword">if</span> (ordered) &#123;<br>		p2 = ht2-&gt;pListHead;<br>	&#125;<br><br>	<span class="hljs-keyword">while</span> (p1) &#123;<br>		<span class="hljs-keyword">if</span> (ordered &amp;&amp; !p2) &#123;<br>			HASH_UNPROTECT_RECURSION(ht1); <br>			HASH_UNPROTECT_RECURSION(ht2); <br>			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; <span class="hljs-comment">/* That&#x27;s not supposed to happen */</span><br>		&#125;<br>		<span class="hljs-keyword">if</span> (ordered) &#123;<br>			<span class="hljs-keyword">if</span> (p1-&gt;nKeyLength==<span class="hljs-number">0</span> &amp;&amp; p2-&gt;nKeyLength==<span class="hljs-number">0</span>) &#123; <span class="hljs-comment">/* numeric indices */</span><br>				result = p1-&gt;h - p2-&gt;h;<br>				<span class="hljs-keyword">if</span> (result!=<span class="hljs-number">0</span>) &#123;<br>					HASH_UNPROTECT_RECURSION(ht1); <br>					HASH_UNPROTECT_RECURSION(ht2); <br>					<span class="hljs-keyword">return</span> result;<br>				&#125;<br>			&#125; <span class="hljs-keyword">else</span> &#123; <span class="hljs-comment">/* string indices */</span><br>				result = p1-&gt;nKeyLength - p2-&gt;nKeyLength;<br>				<span class="hljs-keyword">if</span> (result!=<span class="hljs-number">0</span>) &#123;<br>					HASH_UNPROTECT_RECURSION(ht1); <br>					HASH_UNPROTECT_RECURSION(ht2); <br>					<span class="hljs-keyword">return</span> result;<br>				&#125;<br>				result = <span class="hljs-built_in">memcmp</span>(p1-&gt;arKey, p2-&gt;arKey, p1-&gt;nKeyLength);<br>				<span class="hljs-keyword">if</span> (result!=<span class="hljs-number">0</span>) &#123;<br>					HASH_UNPROTECT_RECURSION(ht1); <br>					HASH_UNPROTECT_RECURSION(ht2); <br>					<span class="hljs-keyword">return</span> result;<br>				&#125;<br>			&#125;<br>			pData2 = p2-&gt;pData;<br>		&#125; <span class="hljs-keyword">else</span> &#123;<br>			<span class="hljs-keyword">if</span> (p1-&gt;nKeyLength==<span class="hljs-number">0</span>) &#123; <span class="hljs-comment">/* numeric index */</span><br>				<span class="hljs-keyword">if</span> (zend_hash_index_find(ht2, p1-&gt;h, &amp;pData2)==FAILURE) &#123;<br>					HASH_UNPROTECT_RECURSION(ht1); <br>					HASH_UNPROTECT_RECURSION(ht2); <br>					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;<br>				&#125;<br>			&#125; <span class="hljs-keyword">else</span> &#123; <span class="hljs-comment">/* string index */</span><br>				<span class="hljs-keyword">if</span> (zend_hash_quick_find(ht2, p1-&gt;arKey, p1-&gt;nKeyLength, p1-&gt;h, &amp;pData2)==FAILURE) &#123;<br>					HASH_UNPROTECT_RECURSION(ht1); <br>					HASH_UNPROTECT_RECURSION(ht2); <br>					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;<br>				&#125;<br>			&#125;<br>		&#125;<br>		result = compar(p1-&gt;pData, pData2 TSRMLS_CC);<br>		<span class="hljs-keyword">if</span> (result!=<span class="hljs-number">0</span>) &#123;<br>			HASH_UNPROTECT_RECURSION(ht1); <br>			HASH_UNPROTECT_RECURSION(ht2); <br>			<span class="hljs-keyword">return</span> result;<br>		&#125;<br>		p1 = p1-&gt;pListNext;<br>		<span class="hljs-keyword">if</span> (ordered) &#123;<br>			p2 = p2-&gt;pListNext;<br>		&#125;<br>	&#125;<br>	<br>	HASH_UNPROTECT_RECURSION(ht1); <br>	HASH_UNPROTECT_RECURSION(ht2); <br>	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;<br>&#125;<br></code></pre></td></tr></table></figure></p>
+<p>bucket结构体： <figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bucket</span> &#123;</span><br>	ulong h;						<span class="hljs-comment">/* Used for numeric indexing */</span><br>	uint nKeyLength;<br>	<span class="hljs-type">void</span> *pData;<br>	<span class="hljs-type">void</span> *pDataPtr;<br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bucket</span> *<span class="hljs-title">pListNext</span>;</span><br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bucket</span> *<span class="hljs-title">pListLast</span>;</span><br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bucket</span> *<span class="hljs-title">pNext</span>;</span><br>	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bucket</span> *<span class="hljs-title">pLast</span>;</span><br>	<span class="hljs-type">char</span> arKey[<span class="hljs-number">1</span>]; <span class="hljs-comment">/* Must be last element */</span><br>&#125; Bucket;<br></code></pre></td></tr></table></figure> 关键点就在<strong>result = p1-&gt;h -
 p2-&gt;h</strong>，在<strong>unsigned
 long</strong>转为<strong>int</strong>时会少掉4个字节。
 4294967296转为int就为0。 最终payload： &gt; <strong>Cookie:
@@ -417,7 +279,7 @@ user[4294967296]=5;user[1]=hund;</strong></p>
 <h1 id="总结">总结</h1>
 <p>不断的前进</p>
 
-            </article>
+            </div>
             <hr>
             <div>
               <div class="post-metas mb-3">
@@ -445,11 +307,15 @@ user[4294967296]=5;user[1]=hund;</strong></p>
                 
               </div>
               
-                <p class="note note-warning">本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！</p>
+                <p class="note note-warning">
+                  
+                    本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！
+                  
+                </p>
               
               
-                <div class="post-prevnext row">
-                  <div class="post-prev col-6">
+                <div class="post-prevnext">
+                  <article class="post-prev col-6">
                     
                     
                       <a href="/2018/12/PHP-Challenge-1/">
@@ -458,8 +324,8 @@ user[4294967296]=5;user[1]=hund;</strong></p>
                         <span class="visible-mobile">上一篇</span>
                       </a>
                     
-                  </div>
-                  <div class="post-next col-6">
+                  </article>
+                  <article class="post-next col-6">
                     
                     
                       <a href="/2018/11/php-weak-type/">
@@ -468,13 +334,13 @@ user[4294967296]=5;user[1]=hund;</strong></p>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
                     
-                  </div>
+                  </article>
                 </div>
               
             </div>
 
             
-          </div>
+          </article>
         </div>
       </div>
     </div>
@@ -482,7 +348,7 @@ user[4294967296]=5;user[1]=hund;</strong></p>
       <div class="d-none d-lg-block col-lg-2 toc-container" id="toc-ctn">
         <div id="toc">
   <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
-  <div id="tocbot"></div>
+  <div class="toc-body" id="toc-body"></div>
 </div>
 
       </div>
@@ -494,16 +360,15 @@ user[4294967296]=5;user[1]=hund;</strong></p>
 
 
     
-  </main>
 
-  
-    <a id="scroll-top-button" href="#" role="button">
-      <i class="iconfont icon-arrowup" aria-hidden="true"></i>
-    </a>
-  
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
 
-  
-    <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
      aria-hidden="true">
   <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
     <div class="modal-content">
@@ -524,202 +389,133 @@ user[4294967296]=5;user[1]=hund;</strong></p>
     </div>
   </div>
 </div>
-  
-
-  
-
-  
-
-  <footer class="mt-5">
-  <div class="text-center py-3">
     
 
     
-  <!-- 备案信息 -->
-  <div class="beian">
-    <a href="http://beian.miit.gov.cn/" target="_blank"
-       rel="nofollow noopener">苏ICP备20022682号</a>
-    
+  </main>
+
+  <footer class="text-center mt-5 py-3">
+  <div class="footer-content">
+     <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
   </div>
+  
 
+  
 
-    
-  </div>
+  
 </footer>
 
-<!-- SCRIPTS -->
-<script  src="https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js" ></script>
-<script  src="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/js/bootstrap.min.js" ></script>
-<script  src="/js/debouncer.js" ></script>
-<script  src="/js/main.js" ></script>
+
+  <!-- SCRIPTS -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
 
 <!-- Plugins -->
 
 
-  
-    <script  src="/js/lazyload.js" ></script>
-  
-
-
-
-  <script defer src="https://cdn.staticfile.org/clipboard.js/2.0.6/clipboard.min.js" ></script>
-  <script  src="/js/clipboard-use.js" ></script>
-
-
-
-
-
-
-
-  <script  src="https://cdn.staticfile.org/tocbot/4.11.1/tocbot.min.js" ></script>
-  <script>
-    $(document).ready(function () {
-      var boardCtn = $('#board-ctn');
-      var boardTop = boardCtn.offset().top;
-
-      tocbot.init({
-        tocSelector: '#tocbot',
-        contentSelector: 'article.markdown-body',
-        headingSelector: 'h1,h2,h3,h4,h5,h6',
-        linkClass: 'tocbot-link',
-        activeLinkClass: 'tocbot-active-link',
-        listClass: 'tocbot-list',
-        isCollapsedClass: 'tocbot-is-collapsed',
-        collapsibleClass: 'tocbot-is-collapsible',
-        collapseDepth: 0,
-        scrollSmooth: true,
-        headingsOffset: -boardTop
-      });
-      if ($('.toc-list-item').length > 0) {
-        $('#toc').css('visibility', 'visible');
-      }
-    });
-  </script>
-
-
-
-  <script  src="https://cdn.staticfile.org/typed.js/2.0.11/typed.min.js" ></script>
-  <script>
-    var typed = new Typed('#subtitle', {
-      strings: [
-        '  ',
-        "PHP数组整数键名截断问题&nbsp;",
-      ],
-      cursorChar: "_",
-      typeSpeed: 70,
-      loop: false,
-    });
-    typed.stop();
-    $(document).ready(function () {
-      $(".typed-cursor").addClass("h2");
-      typed.start();
-    });
-  </script>
-
-
-
-  <script  src="https://cdn.staticfile.org/anchor-js/4.2.2/anchor.min.js" ></script>
-  <script>
-    anchors.options = {
-      placement: "right",
-      visible: "hover",
-      
-    };
-    var el = "h1,h2,h3,h4,h5,h6".split(",");
-    var res = [];
-    for (item of el) {
-      res.push(".markdown-body > " + item)
-    }
-    anchors.add(res.join(", "))
-  </script>
-
-
-
   <script  src="/js/local-search.js" ></script>
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+  
+
+
+
+  
+    <script  src="https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js" ></script>
+  
+  
+    <script defer src="https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js" ></script>
+  
+
+
+
+
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
   <script>
-    var path = "/local-search.xml";
-    var inputArea = document.querySelector("#local-search-input");
-    inputArea.onclick = function () {
-      searchFunc(path, 'local-search-input', 'local-search-result');
-      this.onclick = null
-    }
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var title = document.getElementById('subtitle').title;
+      
+        typing(title);
+      
+    })(window, document);
   </script>
-
-
-
-  <script  src="https://cdn.staticfile.org/fancybox/3.5.7/jquery.fancybox.min.js" ></script>
-  <link  rel="stylesheet" href="https://cdn.staticfile.org/fancybox/3.5.7/jquery.fancybox.min.css" />
-
-  <script>
-    $('#post img:not(.no-zoom img, img[no-zoom]), img[zoom]').each(
-      function () {
-        var element = document.createElement('a');
-        $(element).attr('data-fancybox', 'images');
-        $(element).attr('href', $(this).attr('src'));
-        $(this).wrap(element);
-      }
-    );
-  </script>
-
-
 
 
 
 
 
   
+
   
+    <!-- MathJax -->
     <script>
-      !function (e, t, a) {
-        function r() {
-          for (var e = 0; e < s.length; e++) s[e].alpha <= 0 ? (t.body.removeChild(s[e].el), s.splice(e, 1)) : (s[e].y--, s[e].scale += .004, s[e].alpha -= .013, s[e].el.style.cssText = "left:" + s[e].x + "px;top:" + s[e].y + "px;opacity:" + s[e].alpha + ";transform:scale(" + s[e].scale + "," + s[e].scale + ") rotate(45deg);background:" + s[e].color + ";z-index:99999");
-          requestAnimationFrame(r)
-        }
-
-        function n() {
-          var t = "function" == typeof e.onclick && e.onclick;
-          e.onclick = function (e) {
-            t && t(), o(e)
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        },
+        loader: {
+          load: ['ui/lazy']
+        },
+        options: {
+          renderActions: {
+            findScript: [10, doc => {
+              document.querySelectorAll('script[type^="math/tex"]').forEach(node => {
+                const display = !!node.type.match(/; *mode=display/);
+                const math = new doc.options.MathItem(node.textContent, doc.inputJax[0], display);
+                const text = document.createTextNode('');
+                node.parentNode.replaceChild(text, node);
+                math.start = { node: text, delim: '', n: 0 };
+                math.end = { node: text, delim: '', n: 0 };
+                doc.math.push(math);
+              });
+            }, '', false],
+            insertedScript: [200, () => {
+              document.querySelectorAll('mjx-container').forEach(node => {
+                let target = node.parentNode;
+                if (target.nodeName.toLowerCase() === 'li') {
+                  target.parentNode.classList.add('has-jax');
+                }
+              });
+            }, '', false]
           }
         }
-
-        function o(e) {
-          var a = t.createElement("div");
-          a.className = "heart", s.push({
-            el: a,
-            x: e.clientX - 5,
-            y: e.clientY - 5,
-            scale: 1,
-            alpha: 1,
-            color: c()
-          }), t.body.appendChild(a)
-        }
-
-        function i(e) {
-          var a = t.createElement("style");
-          a.type = "text/css";
-          try {
-            a.appendChild(t.createTextNode(e))
-          } catch (t) {
-            a.styleSheet.cssText = e
-          }
-          t.getElementsByTagName("head")[0].appendChild(a)
-        }
-
-        function c() {
-          return "rgb(" + ~~(255 * Math.random()) + "," + ~~(255 * Math.random()) + "," + ~~(255 * Math.random()) + ")"
-        }
-
-        var s = [];
-        e.requestAnimationFrame = e.requestAnimationFrame || e.webkitRequestAnimationFrame || e.mozRequestAnimationFrame || e.oRequestAnimationFrame || e.msRequestAnimationFrame || function (e) {
-          setTimeout(e, 1e3 / 60)
-        }, i(".heart{width: 10px;height: 10px;position: fixed;background: #f00;transform: rotate(45deg);-webkit-transform: rotate(45deg);-moz-transform: rotate(45deg);}.heart:after,.heart:before{content: '';width: inherit;height: inherit;background: inherit;border-radius: 50%;-webkit-border-radius: 50%;-moz-border-radius: 50%;position: fixed;}.heart:after{top: -5px;}.heart:before{left: -5px;}"), n(), r()
-      }(window, document);
+      };
     </script>
+
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" ></script>
+
   
-
-
-
 
 
 
@@ -753,6 +549,10 @@ user[4294967296]=5;user[1]=hund;</strong></p>
 
 
 
+
+
+<!-- 主题的启动项 保持在最底部 -->
+<script  src="/js/boot.js" ></script>
 
 
 </body>

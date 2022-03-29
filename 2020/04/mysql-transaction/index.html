@@ -1,48 +1,65 @@
+
+
 <!DOCTYPE html>
-<html lang="zh-CN">
-
-
+<html lang="zh-CN" >
 
 
 
 <head>
   <meta charset="UTF-8">
   <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
-  <link rel="icon" type="image/png" href="/favicon.ico">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
+  <link rel="icon" href="/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
   <meta http-equiv="x-ua-compatible" content="ie=edge">
   
     <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
   
   <meta name="theme-color" content="#2f4154">
-  <meta name="description" content="没有退路，唯有一往无前">
   <meta name="author" content="L1nker4">
   <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="事务 简单来说，事务就是要保证一组数据库操作，要么全部成功，要么全部失败。MySQL中事务支持是在引擎层实现的。事务拥有四个重要的特性：原子性、一致性、隔离性、持久性，简称为ACID特性，下文将逐一解释。 ACID特性  原子性（Atomicity）  事务开始后所有操作，要么全部完成，要么全部不做，不存在只执行一部分的情况。  一致性（Consistency）  事务开始之前">
+<meta property="og:type" content="article">
+<meta property="og:title" content="探索MySQL的事务与锁机制">
+<meta property="og:url" content="https://l1n.wang/2020/04/mysql-transaction/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="事务 简单来说，事务就是要保证一组数据库操作，要么全部成功，要么全部失败。MySQL中事务支持是在引擎层实现的。事务拥有四个重要的特性：原子性、一致性、隔离性、持久性，简称为ACID特性，下文将逐一解释。 ACID特性  原子性（Atomicity）  事务开始后所有操作，要么全部完成，要么全部不做，不存在只执行一部分的情况。  一致性（Consistency）  事务开始之前">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-04-29T01:47:16.000Z">
+<meta property="article:modified_time" content="2022-03-08T06:05:03.251Z">
+<meta property="article:author" content="L1nker4">
+<meta property="article:tag" content="MySQL">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
   <title>探索MySQL的事务与锁机制 - l1nker4&#39;s Blog</title>
 
-  <link  rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/css/bootstrap.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
 
 
-  <link  rel="stylesheet" href="https://cdn.staticfile.org/github-markdown-css/4.0.0/github-markdown.min.css" />
-  <link  rel="stylesheet" href="/lib/hint/hint.min.css" />
-
-  
-    <link  rel="stylesheet" href="https://cdn.staticfile.org/highlight.js/10.0.0/styles/atom-one-dark-reasonable.min.css" />
-  
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
 
   
-    <link  rel="stylesheet" href="https://cdn.staticfile.org/gitalk/1.6.2/gitalk.css" />
+    
+    
+      
+      <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@10/styles/github-gist.min.css" />
+    
+  
+
+  
+    <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
   
 
 
 <!-- 主题依赖的图标库，不要自行修改 -->
 
-<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_yg9cfy8wd6.css">
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_ba1fz6golrf.css">
 
 
 
-<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_pjno9b9zyxs.css">
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
 
 
 <link  rel="stylesheet" href="/css/main.css" />
@@ -50,8 +67,13 @@
 <!-- 自定义样式保持在最底部 -->
 
 
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.8.14","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"copy_btn":true,"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"baidu":"14b7dca7880e79dfe4d7db3cfc3b7e98","google":null,"gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+  </script>
   <script  src="/js/utils.js" ></script>
-<meta name="generator" content="Hexo 5.2.0"><link rel="alternate" href="/atom.xml" title="l1nker4's Blog" type="application/atom+xml">
+  <script  src="/js/color-schema.js" ></script>
+<meta name="generator" content="Hexo 5.4.1"><link rel="alternate" href="/atom.xml" title="l1nker4's Blog" type="application/atom+xml">
 </head>
 
 
@@ -59,8 +81,9 @@
   <header style="height: 70vh;">
     <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
   <div class="container">
-    <a class="navbar-brand"
-       href="/">&nbsp;<strong>l1nker4 's Blog'</strong>&nbsp;</a>
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4 &#39;s Blog</strong>
+    </a>
 
     <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
             data-target="#navbarSupportedContent"
@@ -146,52 +169,54 @@
         
         
           <li class="nav-item" id="search-btn">
-            <a class="nav-link" data-toggle="modal" data-target="#modalSearch">&nbsp;&nbsp;<i
-                class="iconfont icon-search"></i>&nbsp;&nbsp;</a>
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              &nbsp;<i class="iconfont icon-search"></i>&nbsp;
+            </a>
           </li>
+        
         
       </ul>
     </div>
   </div>
 </nav>
 
-    <div class="view intro-2" id="background" parallax=true
-         style="background: url('/images/bg.jpg') no-repeat center center;
+    <div class="banner" id="banner" parallax=true
+         style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center;
            background-size: cover;">
       <div class="full-bg-img">
         <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
-          <div class="container text-center white-text fadeInUp">
-            <span class="h2" id="subtitle">
+          <div class="page-header text-center fade-in-up">
+            <span class="h2" id="subtitle" title="探索MySQL的事务与锁机制">
               
             </span>
 
             
-              
-  <div class="mt-3 post-meta">
-    <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-    <time datetime="2020-04-29 09:47">
-      2020年4月29日 上午
-    </time>
-  </div>
-
+              <div class="mt-3">
+  
+  
+    <span class="post-meta">
+      <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+      <time datetime="2020-04-29 09:47" pubdate>
+        2020年4月29日 上午
+      </time>
+    </span>
+  
+</div>
 
 <div class="mt-1">
   
-    
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      3.5k 字
+      5.3k 字
     </span>
   
 
   
-    
     <span class="post-meta mr-2">
       <i class="iconfont icon-clock-fill"></i>
       
       
-      77
-       分钟
+      45 分钟
     </span>
   
 
@@ -212,15 +237,17 @@
     
       
 
-<div class="container-fluid">
-  <div class="row">
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
     <div class="d-none d-lg-block col-lg-2"></div>
-    <div class="col-lg-8 nopadding-md">
-      <div class="container nopadding-md" id="board-ctn">
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
         <div class="py-5" id="board">
-          <div class="post-content mx-auto" id="post">
+          <article class="post-content mx-auto">
+            <!-- SEO header -->
+            <h1 style="display: none">探索MySQL的事务与锁机制</h1>
             
-            <article class="markdown-body">
+            <div class="markdown-body">
               <h1 id="事务">事务</h1>
 <p>简单来说，事务就是要保证一组数据库操作，要么全部成功，要么全部失败。MySQL中事务支持是在引擎层实现的。事务拥有四个重要的特性：原子性、一致性、隔离性、持久性，简称为ACID特性，下文将逐一解释。</p>
 <h2 id="acid特性">ACID特性</h2>
@@ -245,7 +272,7 @@
 </ul></li>
 </ul>
 <p>ACID关系如下图所示： <img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/structure/%E4%BA%8B%E5%8A%A1%E7%89%B9%E6%80%A7.png" srcset="/img/loading.gif"
+src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/structure/%E4%BA%8B%E5%8A%A1%E7%89%B9%E6%80%A7.png" srcset="/img/loading.gif" lazyload
 alt="ACID关系" /></p>
 <ul>
 <li>一致性分为约束一致性和数据一致性：
@@ -275,13 +302,7 @@ alt="ACID关系" /></p>
 Read）和当前读（Current Read）。 -
 快照读：读取的是记录的可见版本，不用加锁 -
 当前读：读取的是记录的最新版本，并且当前读返回的记录，都会加锁，保证其它事务不会并发修改这条记录。</p>
-<div class="hljs"><pre><code class="hljs SQL">
-<span class="hljs-comment"># 不加锁的SELECT都是快照读</span>
-<span class="hljs-keyword">SELECT</span> * <span class="hljs-keyword">FROM</span> player <span class="hljs-keyword">WHERE</span> ...
-
-<span class="hljs-comment"># 加锁的SELECT和增删改都是用当前读</span>
-<span class="hljs-keyword">SELECT</span> * <span class="hljs-keyword">FROM</span> player <span class="hljs-keyword">LOCK</span> <span class="hljs-keyword">IN</span> <span class="hljs-keyword">SHARE</span> <span class="hljs-keyword">MODE</span>;
-<span class="hljs-keyword">INSERT</span> <span class="hljs-keyword">INTO</span> player <span class="hljs-keyword">values</span> ...</code></pre></div>
+<figure class="highlight sql"><table><tr><td class="gutter"><div class="code-wrapper"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></div></td><td class="code"><pre><code class="hljs SQL"><br># 不加锁的<span class="hljs-keyword">SELECT</span>都是快照读<br><span class="hljs-keyword">SELECT</span> <span class="hljs-operator">*</span> <span class="hljs-keyword">FROM</span> player <span class="hljs-keyword">WHERE</span> ...<br><br># 加锁的<span class="hljs-keyword">SELECT</span>和增删改都是用当前读<br><span class="hljs-keyword">SELECT</span> <span class="hljs-operator">*</span> <span class="hljs-keyword">FROM</span> player LOCK <span class="hljs-keyword">IN</span> SHARE MODE;<br><span class="hljs-keyword">INSERT</span> <span class="hljs-keyword">INTO</span> player <span class="hljs-keyword">values</span> ...<br></code></pre></td></tr></table></figure>
 <p>MVCC只在<code>Read Commited</code>和<code>Repeatable Read</code>两种级别下工作。核心是Undo
 Log + Read View。</p>
 <h3 id="read-view">Read VIew</h3>
@@ -513,14 +534,7 @@ Read)：一个事务执行过程中看到的数据，总是跟这个事务开始
 <li>可串行化(Serializable)：对于同一行记录，写会加写锁，读会加读锁，当出现读写冲突的时候，后面的事务必须等待前一个事务执行完成才能继续执行。</li>
 </ul>
 <p>查询与修改隔离级别的SQL语句：</p>
-<div class="hljs"><pre><code class="hljs sql"><span class="hljs-comment">-- 查看系统隔离级别：</span>
-<span class="hljs-keyword">select</span> @@global.tx_isolation;
-<span class="hljs-comment">-- 查看当前会话隔离级别</span>
-<span class="hljs-keyword">select</span> @@tx_isolation;
-<span class="hljs-comment">-- 设置当前会话隔离级别</span>
-<span class="hljs-keyword">SET</span> <span class="hljs-keyword">session</span> <span class="hljs-keyword">TRANSACTION</span> <span class="hljs-keyword">ISOLATION</span> <span class="hljs-keyword">LEVEL</span> <span class="hljs-keyword">serializable</span>;
-<span class="hljs-comment">-- 设置全局系统隔离级别</span>
-<span class="hljs-keyword">SET</span> <span class="hljs-keyword">GLOBAL</span> <span class="hljs-keyword">TRANSACTION</span> <span class="hljs-keyword">ISOLATION</span> <span class="hljs-keyword">LEVEL</span> <span class="hljs-keyword">READ</span> UNCOMMITTED;</code></pre></div>
+<figure class="highlight pgsql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><code class="hljs pgsql"><span class="hljs-comment">-- 查看系统隔离级别：</span><br><span class="hljs-keyword">select</span> @@<span class="hljs-keyword">global</span>.tx_isolation;<br><span class="hljs-comment">-- 查看当前会话隔离级别</span><br><span class="hljs-keyword">select</span> @@tx_isolation;<br><span class="hljs-comment">-- 设置当前会话隔离级别</span><br><span class="hljs-keyword">SET</span> <span class="hljs-keyword">session</span> <span class="hljs-keyword">TRANSACTION</span> <span class="hljs-keyword">ISOLATION</span> <span class="hljs-keyword">LEVEL</span> <span class="hljs-keyword">serializable</span>;<br><span class="hljs-comment">-- 设置全局系统隔离级别</span><br><span class="hljs-keyword">SET</span> <span class="hljs-keyword">GLOBAL</span> <span class="hljs-keyword">TRANSACTION</span> <span class="hljs-keyword">ISOLATION</span> <span class="hljs-keyword">LEVEL</span> <span class="hljs-keyword">READ</span> <span class="hljs-keyword">UNCOMMITTED</span>;<br></code></pre></td></tr></table></figure>
 <h2 id="acid的实现">ACID的实现</h2>
 <h3 id="原子性的实现">原子性的实现</h3>
 <p>每一个写事务，都会修改Buffer
@@ -535,7 +549,7 @@ View，每次更新都会获取最新事务的提交状态，即每条语句执�
 <p><strong>在MySQL中，实际上每条记录在更新的时候都会同时记录一条回滚操作。记录上的最新值，通过回滚操作，可以得到之前一个状态的值</strong>。假设一个值从1被按照顺序改成了2，3，4，在回滚日志中会有类似下面的记录。</p>
 <figure>
 <img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/transaction/1.jpg" srcset="/img/loading.gif"
+src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/transaction/1.jpg" srcset="/img/loading.gif" lazyload
 alt="记录" />
 <figcaption aria-hidden="true">记录</figcaption>
 </figure>
@@ -558,23 +572,7 @@ alt="记录" />
 共享锁（S）：共享锁锁定的资源可以被其它用户读取，但不能修改，在进行SELECT的时候，会将对象进行共享锁锁定，数据读取完毕，释放共享锁，保证在读取的过程中不被修改。
 -
 排他锁（X）：锁定的数据只允许进行锁定操作的事务使用，其它事务无法对已锁定的数据进行查询和修改</p>
-<div class="hljs"><pre><code class="hljs SQL"><span class="hljs-comment"># 给product_comment加上共享锁</span>
-<span class="hljs-keyword">LOCK</span> <span class="hljs-keyword">TABLE</span> product_comment <span class="hljs-keyword">READ</span>;
-
-<span class="hljs-comment"># 解锁</span>
-<span class="hljs-keyword">UNLOCK</span> <span class="hljs-keyword">TABLE</span>;
-
-<span class="hljs-comment"># 对 user_id=912178 的数据行加上共享锁</span>
-<span class="hljs-keyword">SELECT</span> comment_id, product_id, comment_text, user_id <span class="hljs-keyword">FROM</span> product_comment <span class="hljs-keyword">WHERE</span> user_id = <span class="hljs-number">912178</span> <span class="hljs-keyword">LOCK</span> <span class="hljs-keyword">IN</span> <span class="hljs-keyword">SHARE</span> <span class="hljs-keyword">MODE</span>
-
-<span class="hljs-comment"># 给 product_comment 数据表添加排它锁</span>
-<span class="hljs-keyword">LOCK</span> <span class="hljs-keyword">TABLE</span> product_comment WRITE;
-
-<span class="hljs-comment"># 解锁</span>
-<span class="hljs-keyword">UNLOCK</span> <span class="hljs-keyword">TABLE</span>;
-
-<span class="hljs-comment"># 对 user_id=912178 的数据行加上排他锁</span>
-<span class="hljs-keyword">SELECT</span> comment_id, product_id, comment_text, user_id <span class="hljs-keyword">FROM</span> product_comment <span class="hljs-keyword">WHERE</span> user_id = <span class="hljs-number">912178</span> <span class="hljs-keyword">FOR</span> <span class="hljs-keyword">UPDATE</span>;</code></pre></div>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><code class="hljs SQL"># 给product_comment加上共享锁<br>LOCK <span class="hljs-keyword">TABLE</span> product_comment READ;<br><br># 解锁<br>UNLOCK <span class="hljs-keyword">TABLE</span>;<br><br># 对 user_id<span class="hljs-operator">=</span><span class="hljs-number">912178</span> 的数据行加上共享锁<br><span class="hljs-keyword">SELECT</span> comment_id, product_id, comment_text, user_id <span class="hljs-keyword">FROM</span> product_comment <span class="hljs-keyword">WHERE</span> user_id <span class="hljs-operator">=</span> <span class="hljs-number">912178</span> LOCK <span class="hljs-keyword">IN</span> SHARE MODE<br><br># 给 product_comment 数据表添加排它锁<br>LOCK <span class="hljs-keyword">TABLE</span> product_comment WRITE;<br><br># 解锁<br>UNLOCK <span class="hljs-keyword">TABLE</span>;<br><br># 对 user_id<span class="hljs-operator">=</span><span class="hljs-number">912178</span> 的数据行加上排他锁<br><span class="hljs-keyword">SELECT</span> comment_id, product_id, comment_text, user_id <span class="hljs-keyword">FROM</span> product_comment <span class="hljs-keyword">WHERE</span> user_id <span class="hljs-operator">=</span> <span class="hljs-number">912178</span> <span class="hljs-keyword">FOR</span> <span class="hljs-keyword">UPDATE</span>;<br></code></pre></td></tr></table></figure>
 <p>InnoDB为了允许行锁和表锁共存，实现多粒度锁机制，InnoDB还有两种内部使用的意向锁，也都是表锁，表锁分为三种：
 -
 意向共享锁（IS）：事务计划给数据行加行共享锁，事务在给一个数据行加共享锁前必须先取得该表的IS锁。
@@ -589,7 +587,7 @@ Locks）：特殊表锁，自增长计数器通过该“锁”来获得子增长
 <p>锁关系矩阵如下图所示：</p>
 <figure>
 <img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/transaction/%E9%94%81%E5%85%BC%E5%AE%B9%E7%9F%A9%E9%98%B5.png" srcset="/img/loading.gif"
+src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/transaction/%E9%94%81%E5%85%BC%E5%AE%B9%E7%9F%A9%E9%98%B5.png" srcset="/img/loading.gif" lazyload
 alt="InnoDB锁关系矩阵" />
 <figcaption aria-hidden="true">InnoDB锁关系矩阵</figcaption>
 </figure>
@@ -615,7 +613,7 @@ Gap锁：间隙锁，锁定一个范围，不包括记录本身（不锁数据�
 <p>在可重复读的情况下，InnoDB可以通过<code>Next-key Lock</code>和<code>MVCC</code>解决幻读问题。</p>
 <p>在读已提交的情况下，即使使用MVCC方式也会出现幻读。</p>
 
-            </article>
+            </div>
             <hr>
             <div>
               <div class="post-metas mb-3">
@@ -637,11 +635,15 @@ Gap锁：间隙锁，锁定一个范围，不包括记录本身（不锁数据�
                 
               </div>
               
-                <p class="note note-warning">本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！</p>
+                <p class="note note-warning">
+                  
+                    本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！
+                  
+                </p>
               
               
-                <div class="post-prevnext row">
-                  <div class="post-prev col-6">
+                <div class="post-prevnext">
+                  <article class="post-prev col-6">
                     
                     
                       <a href="/2020/05/mysql-index/">
@@ -650,8 +652,8 @@ Gap锁：间隙锁，锁定一个范围，不包括记录本身（不锁数据�
                         <span class="visible-mobile">上一篇</span>
                       </a>
                     
-                  </div>
-                  <div class="post-next col-6">
+                  </article>
+                  <article class="post-next col-6">
                     
                     
                       <a href="/2020/04/threadlocal-rondom/">
@@ -660,13 +662,13 @@ Gap锁：间隙锁，锁定一个范围，不包括记录本身（不锁数据�
                         <i class="iconfont icon-arrowright"></i>
                       </a>
                     
-                  </div>
+                  </article>
                 </div>
               
             </div>
 
             
-          </div>
+          </article>
         </div>
       </div>
     </div>
@@ -674,7 +676,7 @@ Gap锁：间隙锁，锁定一个范围，不包括记录本身（不锁数据�
       <div class="d-none d-lg-block col-lg-2 toc-container" id="toc-ctn">
         <div id="toc">
   <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
-  <div id="tocbot"></div>
+  <div class="toc-body" id="toc-body"></div>
 </div>
 
       </div>
@@ -686,16 +688,15 @@ Gap锁：间隙锁，锁定一个范围，不包括记录本身（不锁数据�
 
 
     
-  </main>
 
-  
-    <a id="scroll-top-button" href="#" role="button">
-      <i class="iconfont icon-arrowup" aria-hidden="true"></i>
-    </a>
-  
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
 
-  
-    <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
      aria-hidden="true">
   <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
     <div class="modal-content">
@@ -716,202 +717,133 @@ Gap锁：间隙锁，锁定一个范围，不包括记录本身（不锁数据�
     </div>
   </div>
 </div>
-  
-
-  
-
-  
-
-  <footer class="mt-5">
-  <div class="text-center py-3">
     
 
     
-  <!-- 备案信息 -->
-  <div class="beian">
-    <a href="http://beian.miit.gov.cn/" target="_blank"
-       rel="nofollow noopener">苏ICP备20022682号</a>
-    
+  </main>
+
+  <footer class="text-center mt-5 py-3">
+  <div class="footer-content">
+     <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
   </div>
+  
 
+  
 
-    
-  </div>
+  
 </footer>
 
-<!-- SCRIPTS -->
-<script  src="https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js" ></script>
-<script  src="https://cdn.staticfile.org/twitter-bootstrap/4.4.1/js/bootstrap.min.js" ></script>
-<script  src="/js/debouncer.js" ></script>
-<script  src="/js/main.js" ></script>
+
+  <!-- SCRIPTS -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
 
 <!-- Plugins -->
 
 
-  
-    <script  src="/js/lazyload.js" ></script>
-  
-
-
-
-  <script defer src="https://cdn.staticfile.org/clipboard.js/2.0.6/clipboard.min.js" ></script>
-  <script  src="/js/clipboard-use.js" ></script>
-
-
-
-
-
-
-
-  <script  src="https://cdn.staticfile.org/tocbot/4.11.1/tocbot.min.js" ></script>
-  <script>
-    $(document).ready(function () {
-      var boardCtn = $('#board-ctn');
-      var boardTop = boardCtn.offset().top;
-
-      tocbot.init({
-        tocSelector: '#tocbot',
-        contentSelector: 'article.markdown-body',
-        headingSelector: 'h1,h2,h3,h4,h5,h6',
-        linkClass: 'tocbot-link',
-        activeLinkClass: 'tocbot-active-link',
-        listClass: 'tocbot-list',
-        isCollapsedClass: 'tocbot-is-collapsed',
-        collapsibleClass: 'tocbot-is-collapsible',
-        collapseDepth: 0,
-        scrollSmooth: true,
-        headingsOffset: -boardTop
-      });
-      if ($('.toc-list-item').length > 0) {
-        $('#toc').css('visibility', 'visible');
-      }
-    });
-  </script>
-
-
-
-  <script  src="https://cdn.staticfile.org/typed.js/2.0.11/typed.min.js" ></script>
-  <script>
-    var typed = new Typed('#subtitle', {
-      strings: [
-        '  ',
-        "探索MySQL的事务与锁机制&nbsp;",
-      ],
-      cursorChar: "_",
-      typeSpeed: 70,
-      loop: false,
-    });
-    typed.stop();
-    $(document).ready(function () {
-      $(".typed-cursor").addClass("h2");
-      typed.start();
-    });
-  </script>
-
-
-
-  <script  src="https://cdn.staticfile.org/anchor-js/4.2.2/anchor.min.js" ></script>
-  <script>
-    anchors.options = {
-      placement: "right",
-      visible: "hover",
-      
-    };
-    var el = "h1,h2,h3,h4,h5,h6".split(",");
-    var res = [];
-    for (item of el) {
-      res.push(".markdown-body > " + item)
-    }
-    anchors.add(res.join(", "))
-  </script>
-
-
-
   <script  src="/js/local-search.js" ></script>
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+  
+
+
+
+  
+    <script  src="https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js" ></script>
+  
+  
+    <script defer src="https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js" ></script>
+  
+
+
+
+
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
   <script>
-    var path = "/local-search.xml";
-    var inputArea = document.querySelector("#local-search-input");
-    inputArea.onclick = function () {
-      searchFunc(path, 'local-search-input', 'local-search-result');
-      this.onclick = null
-    }
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var title = document.getElementById('subtitle').title;
+      
+        typing(title);
+      
+    })(window, document);
   </script>
-
-
-
-  <script  src="https://cdn.staticfile.org/fancybox/3.5.7/jquery.fancybox.min.js" ></script>
-  <link  rel="stylesheet" href="https://cdn.staticfile.org/fancybox/3.5.7/jquery.fancybox.min.css" />
-
-  <script>
-    $('#post img:not(.no-zoom img, img[no-zoom]), img[zoom]').each(
-      function () {
-        var element = document.createElement('a');
-        $(element).attr('data-fancybox', 'images');
-        $(element).attr('href', $(this).attr('src'));
-        $(this).wrap(element);
-      }
-    );
-  </script>
-
-
 
 
 
 
 
   
+
   
+    <!-- MathJax -->
     <script>
-      !function (e, t, a) {
-        function r() {
-          for (var e = 0; e < s.length; e++) s[e].alpha <= 0 ? (t.body.removeChild(s[e].el), s.splice(e, 1)) : (s[e].y--, s[e].scale += .004, s[e].alpha -= .013, s[e].el.style.cssText = "left:" + s[e].x + "px;top:" + s[e].y + "px;opacity:" + s[e].alpha + ";transform:scale(" + s[e].scale + "," + s[e].scale + ") rotate(45deg);background:" + s[e].color + ";z-index:99999");
-          requestAnimationFrame(r)
-        }
-
-        function n() {
-          var t = "function" == typeof e.onclick && e.onclick;
-          e.onclick = function (e) {
-            t && t(), o(e)
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        },
+        loader: {
+          load: ['ui/lazy']
+        },
+        options: {
+          renderActions: {
+            findScript: [10, doc => {
+              document.querySelectorAll('script[type^="math/tex"]').forEach(node => {
+                const display = !!node.type.match(/; *mode=display/);
+                const math = new doc.options.MathItem(node.textContent, doc.inputJax[0], display);
+                const text = document.createTextNode('');
+                node.parentNode.replaceChild(text, node);
+                math.start = { node: text, delim: '', n: 0 };
+                math.end = { node: text, delim: '', n: 0 };
+                doc.math.push(math);
+              });
+            }, '', false],
+            insertedScript: [200, () => {
+              document.querySelectorAll('mjx-container').forEach(node => {
+                let target = node.parentNode;
+                if (target.nodeName.toLowerCase() === 'li') {
+                  target.parentNode.classList.add('has-jax');
+                }
+              });
+            }, '', false]
           }
         }
-
-        function o(e) {
-          var a = t.createElement("div");
-          a.className = "heart", s.push({
-            el: a,
-            x: e.clientX - 5,
-            y: e.clientY - 5,
-            scale: 1,
-            alpha: 1,
-            color: c()
-          }), t.body.appendChild(a)
-        }
-
-        function i(e) {
-          var a = t.createElement("style");
-          a.type = "text/css";
-          try {
-            a.appendChild(t.createTextNode(e))
-          } catch (t) {
-            a.styleSheet.cssText = e
-          }
-          t.getElementsByTagName("head")[0].appendChild(a)
-        }
-
-        function c() {
-          return "rgb(" + ~~(255 * Math.random()) + "," + ~~(255 * Math.random()) + "," + ~~(255 * Math.random()) + ")"
-        }
-
-        var s = [];
-        e.requestAnimationFrame = e.requestAnimationFrame || e.webkitRequestAnimationFrame || e.mozRequestAnimationFrame || e.oRequestAnimationFrame || e.msRequestAnimationFrame || function (e) {
-          setTimeout(e, 1e3 / 60)
-        }, i(".heart{width: 10px;height: 10px;position: fixed;background: #f00;transform: rotate(45deg);-webkit-transform: rotate(45deg);-moz-transform: rotate(45deg);}.heart:after,.heart:before{content: '';width: inherit;height: inherit;background: inherit;border-radius: 50%;-webkit-border-radius: 50%;-moz-border-radius: 50%;position: fixed;}.heart:after{top: -5px;}.heart:before{left: -5px;}"), n(), r()
-      }(window, document);
+      };
     </script>
+
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" ></script>
+
   
-
-
-
 
 
 
@@ -945,6 +877,10 @@ Gap锁：间隙锁，锁定一个范围，不包括记录本身（不锁数据�
 
 
 
+
+
+<!-- 主题的启动项 保持在最底部 -->
+<script  src="/js/boot.js" ></script>
 
 
 </body>
