@@ -26,7 +26,7 @@
 <meta property="og:description" content="事务概念 简单来说，事务就是要保证一组数据库操作，要么全部成功，要么全部失败。MySQL中事务支持是在存储引擎层实现的。事务拥有四个重要的特性：原子性、一致性、隔离性、持久性，简称为ACID特性，下文将逐一解释。 ACID特性  原子性（Atomicity）  事务开始后所有操作步骤，要么全部完成，要么全部不做，不存在只执行一部分的情况。  一致性（Consistency）">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2020-04-29T01:47:16.000Z">
-<meta property="article:modified_time" content="2022-04-28T12:20:10.556Z">
+<meta property="article:modified_time" content="2022-04-29T04:28:40.056Z">
 <meta property="article:author" content="L1nker4">
 <meta property="article:tag" content="MySQL">
 <meta name="twitter:card" content="summary_large_image">
@@ -195,7 +195,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      6k 字
+      8.1k 字
     </span>
   
 
@@ -204,7 +204,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      51 分钟
+      68 分钟
     </span>
   
 
@@ -561,6 +561,110 @@ Read)：<strong>默认的隔离级别</strong>，事务A读取到一个数据后
 <p><strong>隔离级别越高，数据库的并发性能越差。</strong></p>
 <p>查询与修改隔离级别的SQL语句：</p>
 <figure class="highlight pgsql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><code class="hljs pgsql"><span class="hljs-comment">-- 查看系统隔离级别：</span><br><span class="hljs-keyword">select</span> @@<span class="hljs-keyword">global</span>.tx_isolation;<br><span class="hljs-comment">-- 查看当前会话隔离级别</span><br><span class="hljs-keyword">select</span> @@tx_isolation;<br><span class="hljs-comment">-- 设置当前会话隔离级别</span><br><span class="hljs-keyword">SET</span> <span class="hljs-keyword">session</span> <span class="hljs-keyword">TRANSACTION</span> <span class="hljs-keyword">ISOLATION</span> <span class="hljs-keyword">LEVEL</span> <span class="hljs-keyword">serializable</span>;<br><span class="hljs-comment">-- 设置全局系统隔离级别</span><br><span class="hljs-keyword">SET</span> <span class="hljs-keyword">GLOBAL</span> <span class="hljs-keyword">TRANSACTION</span> <span class="hljs-keyword">ISOLATION</span> <span class="hljs-keyword">LEVEL</span> <span class="hljs-keyword">READ</span> <span class="hljs-keyword">UNCOMMITTED</span>;<br></code></pre></td></tr></table></figure>
+<h1 id="事务日志">事务日志</h1>
+<p>事务日志有两种：</p>
+<ul>
+<li>REDO
+LOG：重做日志，提供再写入操作、恢复提交事务修改的页操作，用来保证事务的持久性。是存储引擎层生成的日志，记录<strong>物理页</strong>的修改操作（包括页号、偏移量等），主要保证数据的可靠性。</li>
+<li>UNDO
+LOG：回滚日志，回滚行记录到某个特定版本，用来保证事务的原子性、一致性。是存储引擎层生成的日志，记录<strong>逻辑操作</strong>日志，用于<strong>事务回滚</strong>和<strong>一致性非锁定读</strong>。</li>
+</ul>
+<h2 id="redo-log">redo log</h2>
+<p>InnoDB以页为单位管理存储空间，读取页首先要将<strong>磁盘</strong>中的页读取到内存中的Buffer
+Pool再访问，所有的更新都先更新缓冲池数据，缓冲池中的<strong>脏页</strong>会以一定的频率被刷入磁盘（<strong>checkpoint</strong>机制），以此来抵消CPU和磁盘的差距。</p>
+<h3 id="为什么需要redo-log">为什么需要redo log</h3>
+<p>由于checkpoint机制是定时触发，当出现事务提交后，刚写完缓冲池，数据库宕机，那么会发生数据丢失，不符合<strong>持久性</strong>的要求。</p>
+<p>解决思路：</p>
+<ul>
+<li>每次提交的数据都进行刷盘操作，存在以下问题：
+<ul>
+<li>修改量和刷盘工作量不成比例：修改1KB内容，刷盘16KB。</li>
+<li>随机IO刷新较慢：一个事务内修改的物理页不一定连续。</li>
+</ul></li>
+<li>使用redo log进行记录，包括物理页、偏移量、修改值等数据。
+<ul>
+<li>降低了频繁刷盘的效率。</li>
+</ul></li>
+</ul>
+<p>InnoDB采取的是WAL（<strong>Write-Ahead
+Logging</strong>），先写日志，后写磁盘，发生宕机后通过redo
+log进行恢复，<strong>保证持久性，这就是redo log的作用。</strong></p>
+<h3 id="特点">特点</h3>
+<ul>
+<li>redo日志<strong>顺序写入磁盘</strong>。</li>
+<li>事务执行过程中，redo日志不断记录。
+<ul>
+<li>bin log直到事务提交，才会一次性写入到bin log中。</li>
+</ul></li>
+<li>占用空间比较小。</li>
+</ul>
+<h3 id="组成">组成</h3>
+<p>主要分为两部分：</p>
+<ul>
+<li>redo log buffer：保存在内存中
+<ul>
+<li>innodb_log_buffer_size：默认16M</li>
+</ul></li>
+<li>redo log file：保存在磁盘中</li>
+</ul>
+<h3 id="整体流程">整体流程</h3>
+<p>以更新事务为例，基本流程如下：</p>
+<ol type="1">
+<li>先将原始数据从磁盘读取到内存中，并进行更新。</li>
+<li>生成一条redo log entry并写入redo log buffer。</li>
+<li>当事务commit后，将redo log buffer中的内容刷新到redo log
+file，采用append方式。</li>
+<li>定期将内存中修改的数据刷新到磁盘中。</li>
+</ol>
+<h3 id="redo-log-buffer的刷盘策略">redo log buffer的刷盘策略</h3>
+<p>该流程是保证数据持久化的核心环节，这里的刷盘并不直接刷到磁盘，而实刷入<strong>Page
+Cache（内存）</strong>中，真正的刷盘工作交给OS去做。如果此时系统宕机，那么数据会丢失。因此InnoDB提供了<code>innodb_flush_log_at_trx_commit</code>参数来控制何时将redo
+log buffer中的日志刷入redo log file。默认值为1。</p>
+<ul>
+<li>0：redo log buffer每隔一秒将其数据刷入page
+cache，该模式下事务提交不会触发刷盘操作。
+<ul>
+<li>mysql进程崩溃会导致数据丢失。</li>
+</ul></li>
+<li>1：每次事务提交都会将将redo log buffer中数据刷入page
+cache，并立刻刷入磁盘。效率较低也为安全。</li>
+<li>2：每次事务提交都会将redo log buffer中数据刷入page
+cache，由OS同步到磁盘。（每秒一次）
+<ul>
+<li>mysql进程崩溃不会有数据丢失，当时OS宕机会有数据丢失。</li>
+</ul></li>
+</ul>
+<h3 id="redo-log-buffer的写入过程">redo log buffer的写入过程</h3>
+<p>Mini-Transaction：MySQL将对底层页面中的一次原子访问的过程称为Mini-Transaction（mtr）。例如：向默认索引对应的B+
+Tree中插入一条记录就是一次mtr。每个mtr会包含一组redo log
+entry，在进行恢复数据时，一组redo日志作为不可分割的整体。</p>
+<p>写入是顺序写入，先往前面的block中写，当写满后，往后续的block写入，提供了<code>buf_free</code>的全局变量用来指明写到了哪个block。</p>
+<p>一个block共512字节（磁盘扇区为512，避免非原子性写入），block由以下几个部分组成：</p>
+<ul>
+<li>log block header：12字节，保存一些block元数据。</li>
+<li>log block body：492字节，存储redo log信息。</li>
+<li>log block trailer：8字节，保存校验值。</li>
+</ul>
+<h3 id="redo-log-file">redo log file</h3>
+<p>相关配置参数：</p>
+<ul>
+<li>innodb_log_group_home_dir：指定redo
+log文件存储路径，默认为<code>./</code>，表示在数据库的数据目录中（默认为<code>var/lib/mysql</code>）</li>
+<li>innodb_log_files_in_group：指定redo log
+file的个数，命名方式如：ib_logfile0，默认为2，最大100</li>
+<li>innodb_log_file_size：单个redo log file的大小，默认为48M</li>
+</ul>
+<p>采用循环使用的方式进行写入，整个日志组有两个重要的属性：</p>
+<ul>
+<li>write pos：当前记录的位置，一边写一边后移。</li>
+<li>checkpoint：当前要擦除的位置，也是往后推移。</li>
+</ul>
+<p>每次刷盘redo log，write
+pos就往后更新，每次MySQL加载日志文件恢复数据，会清空加载过的日志，并将checkpoint后移更新，两个变量之间的部分用做空闲空间来写入新数据，类似于一个<strong>环形队列</strong>。</p>
+<p>当两者相遇，表示文件组已满。</p>
+<h2 id="undo-log">undo log</h2>
+<p>undo log保证了事务的原子性，主要用来实现事务回滚操作。</p>
+<h3 id="为什么需要undo-log">为什么需要undo log</h3>
 <h2 id="acid的实现">ACID的实现</h2>
 <h3 id="原子性的实现">原子性的实现</h3>
 <p>每一个写事务，都会修改Buffer
