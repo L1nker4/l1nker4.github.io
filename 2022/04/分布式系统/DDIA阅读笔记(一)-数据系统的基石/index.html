@@ -26,7 +26,7 @@
 <meta property="og:description" content="第一章：可靠性、可伸缩性、可维护性 应用的两个分类：  data-intensive：问题通常来自数据量、数据复杂性、以及数据的变更速度。 compute-intensive：瓶颈在于CPU。  可靠性 可以把可靠性粗略理解为 “即使出现问题，也能继续正确工作”。 造成错误的原因叫做 故障（fault），能预料并应对故障的系统特性可称为 容错（fault-tolerant） 或">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2022-04-03T10:59:06.000Z">
-<meta property="article:modified_time" content="2022-04-23T06:46:33.421Z">
+<meta property="article:modified_time" content="2022-06-30T12:15:34.697Z">
 <meta property="article:author" content="Lin Wang">
 <meta property="article:tag" content="分布式系统">
 <meta name="twitter:card" content="summary_large_image">
@@ -195,7 +195,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      872 字
+      5.7k 字
     </span>
   
 
@@ -204,7 +204,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      8 分钟
+      48 分钟
     </span>
   
 
@@ -313,6 +313,377 @@ time）</strong>：客户端发送请求到接收响应之间的时间。
 <h4 id="可演化性">可演化性</h4>
 <p>系统的需求是变化的，使用敏捷工作模式来应对，例如TDD和重构。</p>
 <h2 id="第二章数据模型与查询语言">第二章：数据模型与查询语言</h2>
+<p>问题：需要将数据模型抽象成对应的概念。</p>
+<p>每个层都通过提供一个明确的数据模型来隐藏更低层次中的复杂性。</p>
+<h3 id="关系模型和文档模型">关系模型和文档模型</h3>
+<h4 id="关系模型">关系模型</h4>
+<p>常见分类： - TP（事务性）：银行交易 - AP（分析型）：数据报表 -
+HTAP（混合型）</p>
+<p>问题：关系模型很难直观表达<strong>一对多的关系</strong>．</p>
+<p>文档模型的优势：</p>
+<ul>
+<li>模式灵活：动态增删字段</li>
+<li>更好的局部性：一个人的所有属性被集中访问</li>
+<li>结构表达语义：JSON的树状结构能够表达语义</li>
+</ul>
+<h4 id="层次模型">层次模型</h4>
+<p>几个要点：</p>
+<ul>
+<li>树状结构，每个节点只允许一个父节点</li>
+<li>节点存储数据，节点分类型</li>
+<li>节点间使用指针连接</li>
+</ul>
+<h4 id="网状模型">网状模型</h4>
+<p>多对一和多对多都由路径来表示，访问记录的唯一方式是顺着元素路径访问。</p>
+<h4 id="文档模型">文档模型</h4>
+<p>文档型数据库的使用场景：</p>
+<ul>
+<li>多种类型数据，放一张表不合适</li>
+<li>数据类型和结构由外部决定，没办法控制数据的变化</li>
+</ul>
+<p>MySQL和PgSQL支持JSON。</p>
+<h3 id="数据查询语言">数据查询语言</h3>
+<p>分为声明式语言（SQL）和命令式语言（通用编程语言）。</p>
+<p>命令式语言的优点：</p>
+<ul>
+<li>描述目标复杂时，声明式表达能力不够。</li>
+<li>可以通过抽象、编程范式等，让代码兼顾表达力和清晰性。</li>
+</ul>
+<h4 id="mapreduce">MapReduce</h4>
+<p>MapReduce模型：</p>
+<ul>
+<li>借鉴自函数式编程</li>
+<li>简单的编程模型</li>
+</ul>
+<p>特点：</p>
+<ul>
+<li>要求Map和Reduce是纯函数</li>
+<li>非常底层，但是表达力强大，可基于其实现高级查询语言，例如Hive。</li>
+</ul>
+<p>注意点：</p>
+<ul>
+<li>不是所有的分布式SQL都基于MapReduce</li>
+<li>不是只有MapReduce才能嵌入通用语言</li>
+<li>MapReduce有一定的理解成本</li>
+</ul>
+<h3 id="图模型">图模型</h3>
+<p>典型案例：</p>
+<ul>
+<li>社交图谱</li>
+<li>网络图谱</li>
+<li>公路或铁路网络</li>
+</ul>
+<p>应用场景：</p>
+<ul>
+<li>文档数据库：数据都是自我包含的，文档之间的关系非常稀少</li>
+<li>图数据库：任意事物都能其他事务相关联</li>
+</ul>
+<h2 id="第三章存储与检索">第三章：存储与检索</h2>
+<h3 id="存储使用的数据结构">存储使用的数据结构</h3>
+<p>世界上最简单的数据库案例：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><div class="code-wrapper"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></div></td><td class="code"><pre><code class="hljs bash"><span class="hljs-meta">#!/bin/bash</span><br><span class="hljs-function"><span class="hljs-title">db_set</span></span> () &#123;<br>  <span class="hljs-built_in">echo</span> <span class="hljs-string">&quot;<span class="hljs-variable">$1</span>,<span class="hljs-variable">$2</span>&quot;</span> &gt;&gt; database<br>&#125;<br><br><span class="hljs-function"><span class="hljs-title">db_get</span></span> () &#123;<br>  grep <span class="hljs-string">&quot;^<span class="hljs-variable">$1</span>,&quot;</span> database | sed -e <span class="hljs-string">&quot;s/^<span class="hljs-variable">$1</span>,//&quot;</span> | <span class="hljs-built_in">tail</span> -n 1<br>&#125;<br></code></pre></td></tr></table></figure>
+<p>两个bash函数实现了键值存储的功能，该模式下更新旧版本时不会覆盖，而是向文件末尾追加记录，查找最新值时，找到文件中key出现的最后一次位置。</p>
+<p>当数据量激增，需要使用<code>索引</code>对查询进行优化。</p>
+<p>大致思想：通过保存一些额外的元数据作为index帮我们找到想要的数据。</p>
+<p>需要权衡的点：索引加快了读查询的速度，拖慢了写入的速度。</p>
+<h4 id="散列索引">散列索引</h4>
+<p>将每个键都进行一次哈希映射，并存储到相应的偏移量位置，当查询指定键时，使用哈希函数计算出相应的值，并读取指定偏移位置的数据。<code>Bitcask</code>存储模型使用的该种方式，该结构适合多次更新键对应的值的情况。</p>
+<p>优化的点：每当日志增长到对应阈值时，开始写入一个新的日志文件，并对之前的日志进行compaction。（Bitcask的Merge策略是类似方案）</p>
+<p>实现过程中要考虑的问题：</p>
+<ul>
+<li>文件格式：使用二进制最快，字节为单位进行编码</li>
+<li>删除操作：删除操作向日志尾追加一个删除记录，当进行compaction时将被删除的数据都丢弃掉。</li>
+<li>奔溃恢复：当数据库重新启动，需要从磁盘中的日志文件进行数据恢复。</li>
+<li>部分写入记录：考虑写入校验和等信息</li>
+<li>并发控制：保证线程安全</li>
+</ul>
+<p>Q：为什么删除操作设计成追加方式，而不是直接在日志中进行修改？</p>
+<ul>
+<li>追加操作是<strong>磁盘顺序写</strong>，比随机写入快</li>
+<li>日志文件仅追加的话，并发和崩溃恢复更简单。’</li>
+<li>merge操作可以避免文件碎片化。</li>
+</ul>
+<p>散列结构的局限性：</p>
+<ul>
+<li>所有key必须放内存，存在大量的随机IO</li>
+<li>范围查询效率不高，需要逐个遍历</li>
+</ul>
+<h4 id="sstables和lsm-tree">SSTables和LSM Tree</h4>
+<p>将上述的键值对按照键排序，这个结构被称为<code>Sorted String Table</code>，要求每个键只出现一次（merge保证），该结构有如下优势：</p>
+<ol type="1">
+<li>文件大于可用内存，合并操作仍然有效。</li>
+<li>可以通过类似二分查找的方式去查找（顺序列表特性）</li>
+<li>可以将table分组为block，并将其写入磁盘。</li>
+</ol>
+<p><strong>如何构建和维护SSTables</strong>？</p>
+<ul>
+<li>构建：在内存中维护一个有序结构（MemTable），使用RB Tree、AVL Tree等
+<ul>
+<li>达到指定阈值后全量dump到外存</li>
+<li>查询逻辑：
+<ol type="1">
+<li>先去MemTable中查找，如果命中则返回。</li>
+<li>否则再去SSTable按时间顺序由新到旧逐个查找。</li>
+</ol></li>
+</ul></li>
+</ul>
+<p>存在的问题：出现宕机，内存中数据结构会丢失，使用<strong>WAL</strong>解决该问题</p>
+<p>将上述内容继续优化，就会得到<code>LevelDB</code>和<code>RocksDB</code>所有的存储引擎<code>LSM-Tree(Log-Structured Merge-Tree)</code>，<code>ElasticSearch</code>使用的<code>Lucene</code>也是使用类似结构。</p>
+<p>优化：</p>
+<ul>
+<li><p>优化SSTable的查找：使用<code>Bloom Filter</code>做数据初筛。</p></li>
+<li><p>层次化组织SSTable：控制Compaction的顺序和时间，常用的有：<code>size-tiered</code>
+和 <code>leveled compaction</code></p>
+<ul>
+<li>size-tiered：较新、较小的SSTables合并到较大、较旧的SSTables中。</li>
+<li>leveled
+compaction：key被按照范围拆分到较小的SSTables，较旧的数据被移动到单独的level。</li>
+</ul></li>
+</ul>
+<p>LSM-Tree的<strong>核心思想</strong>：保存一组合理组织、后台合并的SSTables。</p>
+<h4 id="b-tree">B Tree</h4>
+<p>B
+Tree目前用于几乎所有的关系型数据库中，支持高效的定值查询和范围查询。</p>
+<p>B Tree的优化：</p>
+<ul>
+<li>不使用WAL，在写入时利用<code>Copy On Write</code>技术。</li>
+<li>对中间节点的key做压缩，增大了分支。</li>
+<li>为了优化范围查询，有的B
+Tree将叶子节点存储时物理连续，但是数据插入时，维护有序性的代价很大。</li>
+<li>为叶子节点增加兄弟指针（B+Tree），避免顺序查找时的回溯。</li>
+</ul>
+<h4 id="b-tree-对比-lsm-tree">B Tree 对比 LSM Tree</h4>
+<table>
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 53%" />
+<col style="width: 36%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: center;">存储引擎</th>
+<th style="text-align: center;">B-Tree</th>
+<th style="text-align: center;">LSM-Tree</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: center;">优势</td>
+<td style="text-align: center;">读取快</td>
+<td style="text-align: center;">写入快</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">写放大</td>
+<td
+style="text-align: center;">数据和WAL；更改数据时多次覆盖整个Page</td>
+<td style="text-align: center;">数据和WAL；Compaction</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;">写吞吐</td>
+<td style="text-align: center;">低，存在大量随机写</td>
+<td style="text-align: center;">顺序写入，写吞吐较高</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">压缩率</td>
+<td style="text-align: center;">存在较多内部碎片</td>
+<td style="text-align: center;">更紧凑，没有内部碎片</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;">存储放大</td>
+<td style="text-align: center;">有些Page没有用满</td>
+<td style="text-align: center;">同一个key存储多遍</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">并发控制</td>
+<td
+style="text-align: center;">同一个key只存在一个地方；树结构容易被范围锁</td>
+<td style="text-align: center;">同一个key存多变，使用MVCC控制</td>
+</tr>
+</tbody>
+</table>
+<h3 id="其他结构">其他结构</h3>
+<p>聚集索引和非聚集索引：</p>
+<ul>
+<li>数据本身按照某个字段有序存储，基于该字段的索引被称为<strong>聚集索引</strong>。</li>
+<li>索引中只存数据的引用的被称为非聚集索引。</li>
+<li>一部分列嵌到索引中存储，剩余列额外存储，称为<strong>覆盖索引</strong>。</li>
+</ul>
+<h3 id="多列索引">多列索引</h3>
+<p>多个字段联合查询的场景十分常见：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><code class="hljs sql"><span class="hljs-keyword">SELECT</span> <span class="hljs-operator">*</span> <span class="hljs-keyword">FROM</span> restaurants <span class="hljs-keyword">WHERE</span> latitude <span class="hljs-operator">&gt;</span> <span class="hljs-number">51.4946</span> <span class="hljs-keyword">AND</span> latitude <span class="hljs-operator">&lt;</span> <span class="hljs-number">51.5079</span><br>                            <span class="hljs-keyword">AND</span> longitude <span class="hljs-operator">&gt;</span> <span class="hljs-number">-0.1162</span> <span class="hljs-keyword">AND</span> longitude <span class="hljs-operator">&lt;</span> <span class="hljs-number">-0.1004</span>;<br></code></pre></td></tr></table></figure>
+<p>方案：</p>
+<ul>
+<li>将latitude和longitude合并存储，转为一维</li>
+<li>使用类似R Tree的地理空间索引存储</li>
+<li>使用类似MySQL的联合索引解决</li>
+</ul>
+<h3 id="全文索引和模糊索引">全文索引和模糊索引</h3>
+<p><code>Lucene</code>
+中索引是字符的有限自动机，类似于<code>Trie</code>，支持在给定编辑距离内搜索单词。</p>
+<h3 id="全内存数据结构">全内存数据结构</h3>
+<p>内存数据库的优点：</p>
+<ul>
+<li>提供丰富的数据抽象</li>
+<li>实现简单</li>
+</ul>
+<p>基于<strong>非易失性存储器（non-volatile
+memory，NVM）</strong>的存储引擎是最近的研究热点。</p>
+<h2 id="事务性-or-分析性">事务性 or 分析性</h2>
+<p>两者对比：</p>
+<table>
+<colgroup>
+<col style="width: 17%" />
+<col style="width: 41%" />
+<col style="width: 41%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>属性</th>
+<th>事务处理系统 OLTP</th>
+<th>分析系统 OLAP</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>主要读取模式</td>
+<td>查询少量记录，按键读取</td>
+<td>在大批量记录上聚合</td>
+</tr>
+<tr class="even">
+<td>主要写入模式</td>
+<td>随机访问，写入要求低延时</td>
+<td>批量导入（ETL）或者事件流</td>
+</tr>
+<tr class="odd">
+<td>主要用户</td>
+<td>终端用户，通过 Web 应用</td>
+<td>内部数据分析师，用于决策支持</td>
+</tr>
+<tr class="even">
+<td>处理的数据</td>
+<td>数据的最新状态（当前时间点）</td>
+<td>随时间推移的历史事件</td>
+</tr>
+<tr class="odd">
+<td>数据集尺寸</td>
+<td>GB ~ TB</td>
+<td>TB ~ PB</td>
+</tr>
+</tbody>
+</table>
+<p>一开始OLAP仍然使用传统数据库，但是传统数据库在AP负载表现较差，因此转向专门做AP查询的<strong>数据仓库</strong>。</p>
+<h3 id="数据仓库">数据仓库</h3>
+<p>数仓是一个独立的数据库，从OLTP数据库提取数据，转换成适合分析的结构，清理并加载到数仓中，这个过程称为：<strong>抽取-转换-加载</strong>（ETL）。</p>
+<h4 id="分歧">分歧</h4>
+<p>数仓的数据模型通常是关系型的，但是查询引擎和存储格式优化方面，与OLTP数据库差别十分大。</p>
+<h3 id="星状型-雪花型">星状型 雪花型</h3>
+<ul>
+<li>星状型：包含一张事件表和多张维度表，数据表以事件流方式将数据组织起来，然后用外键指向不同的维度。</li>
+<li>雪花型：会在上述的维度表中进行二次细分。</li>
+</ul>
+<h2 id="列式存储">列式存储</h2>
+<p>传统数据库按行存储，如果只查询一个字段，也必须从磁盘中取出剩余字段，浪费了IO带宽，增大了读放大。</p>
+<p>如果将每一列的所有值存储在一起，查询效率大大增加。</p>
+<h3 id="列压缩">列压缩</h3>
+<p>当列中存在大量重复的数据，可以考虑对其进行压缩存储，数仓中特别有效的技术是位图编码。</p>
+<h4 id="列族">列族</h4>
+<p>这是HBase和Cassandra中的概念，从BigTable继承，每个列族中，将一行中所有列与行键一起存储，并且不使用列压缩。</p>
+<p>因此BigTable在使用时主要面向行，可以理解为每个列族是一张子表。</p>
+<h4 id="内存带宽和向量化处理">内存带宽和向量化处理</h4>
+<p>数仓的超大规模数据量带来的瓶颈：</p>
+<ul>
+<li>内存处理带宽</li>
+<li>CPU分支预测错误</li>
+</ul>
+<p>解决：</p>
+<ul>
+<li>列式存储和压缩可以让数据缓存在L1中，结合位图快速处理</li>
+<li>使用SIMD、在更少的时钟周期处理更多的数据。</li>
+</ul>
+<h3 id="排序">排序</h3>
+<p>可以像LSM-Tree那样，对所有行按某一列排序后存储。</p>
+<h4 id="不同副本不同排序">不同副本，不同排序</h4>
+<p>对数据的不同部分按照不同列进行有序存储，这样可以提供给不同查询需求，已有商用数仓Vertica
+采用。</p>
+<h3 id="列式存储的写入">列式存储的写入</h3>
+<p>类似于LSM-Tree的追加操作：</p>
+<ul>
+<li>新写入的数据在内存中Batch好，按行按列，具体结构看需求</li>
+<li>达到指定阈值，批量刷到外存，并于老数据合并。</li>
+</ul>
+<h3 id="聚合">聚合</h3>
+<p>数仓查询通常涉及聚合函数，每次即时计算都会存在巨大浪费，可以考虑将其缓存下来。</p>
+<p>与关系型数据库的View差别较大，视图是逻辑存在的，当物理存储发生改变，视图需要重新生成，写多读少的情况，维护代价很大。</p>
+<p>数仓中的<strong>物化视图</strong>将其持久化存储，维护代价较低。</p>
+<h2 id="第四章编码和演进">第四章：编码和演进</h2>
+<h3 id="编码格式">编码格式</h3>
+<p>涉及到跨进程通信，都需要对数据进行编码（序列化），因为通信都是面向字节流的，编码涉及两方面问题：</p>
+<ul>
+<li>如何编码能够节省空间、提高性能。</li>
+<li>如何编码以适应数据的演化和兼容。</li>
+</ul>
+<p>当应用程序更新后，系统要顺利运行，要保证<strong>双向兼容性</strong>：</p>
+<ul>
+<li>向后兼容：新代码读取旧数据</li>
+<li>向前兼容：旧代码读取新数据</li>
+</ul>
+<p>程序使用两种形式的数据：</p>
+<ul>
+<li>内存中的数据结构</li>
+<li>网络通信时，编码成的字节序列</li>
+</ul>
+<h3 id="语言特定格式">语言特定格式</h3>
+<p>编程语言内置了将内存对象编码为字节序列的组件：</p>
+<ul>
+<li>java.io.Serializable</li>
+<li>Marshal</li>
+<li>pickle</li>
+<li>第三方库</li>
+</ul>
+<p>这类存在的问题：</p>
+<ul>
+<li>与编程语言深度绑定，其他语言很难读取这类数据</li>
+<li>解码过程需要<strong>实例化任意类</strong>，存在安全问题：RCE</li>
+<li>不存在数据版本控制</li>
+<li>编解码效率低</li>
+</ul>
+<h3 id="jsonxml等">JSON、XML等</h3>
+<p>存在的问题：</p>
+<ul>
+<li>数值的编码存在歧义：不能区分整数和浮点数</li>
+<li>不支持二进制数据的字节序列</li>
+<li>XML和JSON支持额外的模式，但是增加了复杂度</li>
+</ul>
+<h3 id="二进制编码">二进制编码</h3>
+<p>如果数据只被单一程序读取，而不进行交换，不需要易读性等问题，可以使用二进制编码，其空间、速度方面都很可观。</p>
+<h3 id="thrift与protocol-buffers">Thrift与Protocol Buffers</h3>
+<p>上述两个是基于相同原理开发的二进制编码库</p>
+<p>Protocol Buffers的接口定义语言（IDL）如下所示：</p>
+<figure class="highlight protobuf"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><code class="hljs protobuf"><span class="hljs-keyword">message </span><span class="hljs-title class_">Person</span> &#123;<br>    <span class="hljs-keyword">required</span> <span class="hljs-type">string</span> user_name       = <span class="hljs-number">1</span>;<br>    <span class="hljs-keyword">optional</span> <span class="hljs-type">int64</span>  favorite_number = <span class="hljs-number">2</span>;<br>    <span class="hljs-keyword">repeated</span> <span class="hljs-type">string</span> interests       = <span class="hljs-number">3</span>;<br>&#125;<br></code></pre></td></tr></table></figure>
+<p>IDL与编程语言无关，可以利用代码生成工具，将上述IDL翻译为指定语言的代码。</p>
+<p>Thrift还支持不同的编码格式：BinaryProtocol、CompactProtocol、JSON等</p>
+<p>优势：</p>
+<ul>
+<li>省去字段名，更加紧凑</li>
+<li>模式是数据的注释或文档，总是最新</li>
+<li>数据模式允许不读取数据</li>
+<li>对于静态类型来说 ，可以利用代码生成做编译时的类型检查</li>
+</ul>
+<h3 id="数据流模型">数据流模型</h3>
+<ul>
+<li>经过数据库的数据流</li>
+<li>经过服务的数据流：REST和RPC
+<ul>
+<li>REST是一种设计哲学</li>
+<li>RPC问题：
+<ul>
+<li>请求出现请求丢失、相应丢失等情况，需要重试</li>
+<li>重试需要考虑<strong>幂等性</strong></li>
+<li>两端编程语言不同可能会有影响</li>
+</ul></li>
+</ul></li>
+<li>经过消息传递的数据流</li>
+</ul>
 
             </div>
             <hr>
