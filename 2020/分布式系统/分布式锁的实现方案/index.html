@@ -1,0 +1,677 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介  分布式锁是控制分布式系统或不同系统之间共同访问共享资源的一种锁实现，如果不同的系统或同一个系统的不同主机之间共享了某个资源时，往往需要互斥来防止彼此干扰来保证一致性。  分布式锁需要具备的条件：  互斥性：在任意一个时刻，只有一个客户端持有锁。 无死锁：即使持有锁的客户端崩溃或者其他意外事件，锁仍然可以被获取。 容错：只要大部分Redis节点都活着，客户端可以获取和释放锁。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="分布式锁的实现方案">
+<meta property="og:url" content="https://l1n.wang/2020/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E7%9A%84%E5%AE%9E%E7%8E%B0%E6%96%B9%E6%A1%88/index.html">
+<meta property="og:site_name" content="Lin&#39;s Blog">
+<meta property="og:description" content="简介  分布式锁是控制分布式系统或不同系统之间共同访问共享资源的一种锁实现，如果不同的系统或同一个系统的不同主机之间共享了某个资源时，往往需要互斥来防止彼此干扰来保证一致性。  分布式锁需要具备的条件：  互斥性：在任意一个时刻，只有一个客户端持有锁。 无死锁：即使持有锁的客户端崩溃或者其他意外事件，锁仍然可以被获取。 容错：只要大部分Redis节点都活着，客户端可以获取和释放锁。">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-01-02T12:24:24.000Z">
+<meta property="article:modified_time" content="2022-04-28T12:26:25.341Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="分布式系统">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  <title>分布式锁的实现方案 - Lin&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  
+    
+    
+      
+      
+        
+          
+          
+          
+        
+        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-coy.min.css" />
+      
+      
+        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/line-numbers/prism-line-numbers.min.css" />
+      
+    
+  
+
+  
+    <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+  
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_ba1fz6golrf.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+<!-- 自定义样式保持在最底部 -->
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.8.14","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"copy_btn":true,"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"baidu":"14b7dca7880e79dfe4d7db3cfc3b7e98","google":null,"gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+<meta name="generator" content="Hexo 5.4.2"><link rel="alternate" href="/atom.xml" title="Lin's Blog" type="application/atom+xml">
+</head>
+
+
+<body>
+  <header style="height: 70vh;">
+    <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>Lin&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/">
+                <i class="iconfont icon-home-fill"></i>
+                首页
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/">
+                <i class="iconfont icon-archive-fill"></i>
+                归档
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/categories/">
+                <i class="iconfont icon-category-fill"></i>
+                分类
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/">
+                <i class="iconfont icon-user-fill"></i>
+                关于
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/">
+                <i class="iconfont icon-link-fill"></i>
+                友链
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              &nbsp;<i class="iconfont icon-search"></i>&nbsp;
+            </a>
+          </li>
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="banner" id="banner" parallax=true
+         style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center;
+           background-size: cover;">
+      <div class="full-bg-img">
+        <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+          <div class="page-header text-center fade-in-up">
+            <span class="h2" id="subtitle" title="分布式锁的实现方案">
+              
+            </span>
+
+            
+              <div class="mt-3">
+  
+  
+    <span class="post-meta">
+      <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+      <time datetime="2020-01-02 20:24" pubdate>
+        2020年1月2日 晚上
+      </time>
+    </span>
+  
+</div>
+
+<div class="mt-1">
+  
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-chart"></i>
+      2.1k 字
+    </span>
+  
+
+  
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-clock-fill"></i>
+      
+      
+      18 分钟
+    </span>
+  
+
+  
+  
+</div>
+
+            
+          </div>
+
+          
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="d-none d-lg-block col-lg-2"></div>
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div class="py-5" id="board">
+          <article class="post-content mx-auto">
+            <!-- SEO header -->
+            <h1 style="display: none">分布式锁的实现方案</h1>
+            
+            <div class="markdown-body">
+              <h2 id="简介">简介</h2>
+<blockquote>
+<p>分布式锁是控制分布式系统或不同系统之间共同访问共享资源的一种锁实现，如果不同的系统或同一个系统的不同主机之间共享了某个资源时，往往需要互斥来防止彼此干扰来保证一致性。</p>
+</blockquote>
+<p>分布式锁需要具备的条件：</p>
+<ul>
+<li>互斥性：在任意一个时刻，只有一个客户端持有锁。</li>
+<li>无死锁：即使持有锁的客户端崩溃或者其他意外事件，锁仍然可以被获取。</li>
+<li>容错：只要大部分Redis节点都活着，客户端可以获取和释放锁。</li>
+</ul>
+<p>分布式锁的主要实现方式：</p>
+<ul>
+<li>数据库</li>
+<li>Redis等缓存数据库，<code>redis</code>的<code>setnx</code></li>
+<li>Zookeeper 临时节点</li>
+</ul>
+<h3 id="redis-实现分布式锁">Redis 实现分布式锁</h3>
+<h3 id="第一阶段">第一阶段</h3>
+<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello() &#123;
+    Integer lock &#x3D; get(&quot;lock&quot;);
+    if(lock &#x3D;&#x3D; null)&#123;
+        set(&quot;lock&quot;,1);
+        &#x2F;&#x2F;todo
+        del(&quot;lock&quot;);
+        return;
+    &#125;else &#123;
+        &#x2F;&#x2F;自旋
+        hello();
+    &#125;
+&#125;
+
+
+<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>存在的问题：</p>
+<ul>
+<li>请求同时打进来，所有请求都获取不到锁</li>
+</ul>
+<h3 id="第二阶段">第二阶段</h3>
+<p>使用<code>setnx</code>设置锁</p>
+<p><code>setnx</code>在key不存在时可以设置，存在当前key则不操作</p>
+<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello()&#123;
+   String lock &#x3D; setnx(&quot;lock&quot;); &#x2F;&#x2F;0代表没有保存数据，说明有人占坑了，1代表占坑成功
+    if(lock !&#x3D; 0)&#123;
+        &#x2F;&#x2F;todo
+        del(&quot;lock&quot;);
+    &#125;else &#123;
+        &#x2F;&#x2F;自旋
+        hello();
+    &#125; 
+&#125;
+
+<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>存在的问题：</p>
+<ul>
+<li>由于各种问题（未捕获的异常，断电）等导致锁未释放，其他人永远获取不到锁</li>
+</ul>
+<h3 id="第三阶段">第三阶段</h3>
+<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello()&#123;
+    String lock &#x3D; setnx(&quot;lock&quot;);
+    if(lock !&#x3D; 0)&#123;
+        expire(&quot;lock&quot;,10s);
+        &#x2F;&#x2F;todo
+        del(&quot;lock&quot;);
+    &#125;else &#123;
+        hello();
+    &#125;
+&#125;
+<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>存在的问题：</p>
+<ul>
+<li>刚拿到锁，服务器出现问题，没来得及设置过期时间</li>
+</ul>
+<h3 id="第四阶段">第四阶段</h3>
+<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello() &#123;
+    String result &#x3D; setnxex(&quot;lock&quot;,10s);
+    if(result &#x3D;&#x3D; &quot;ok&quot;)&#123;
+        &#x2F;&#x2F;加锁成功
+        &#x2F;&#x2F;执行业务逻辑
+        &#x2F;&#x2F;释放锁
+    &#125;else &#123;
+        hello();
+    &#125;
+&#125;
+<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>存在的问题：</p>
+<ul>
+<li>如果业务逻辑超时，导致锁自动删除，业务执行完又删除了一遍，至少多个人都获取到了锁。</li>
+</ul>
+<h3 id="第五阶段">第五阶段</h3>
+<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello() &#123;
+    String token &#x3D; UUID;
+    String result &#x3D; setnxex(&quot;lock&quot;,token,10s);
+    if(result &#x3D;&#x3D; &quot;ok&quot;)&#123;
+        &#x2F;&#x2F;执行业务
+        &#x2F;&#x2F;释放锁,保证删除自己的锁
+        get(&quot;lock&quot;) &#x3D;&#x3D; token ? del(&quot;lock&quot;) : return;
+    &#125;
+&#125;
+<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>存在的问题：</p>
+<ul>
+<li>获取锁的时候，锁的值正在返回的过程中，锁过期，redis删除了锁，但是我们拿到了值，对比成功（此时另一个请求创建了锁），但是该线程又删除了一次锁。</li>
+</ul>
+<p>原因：</p>
+<ul>
+<li>删锁不是原子性的</li>
+<li>解决：<code>Lua</code>脚本</li>
+</ul>
+<h3 id="第六阶段">第六阶段</h3>
+<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello() &#123;
+    String token &#x3D; UUID;
+    String lock &#x3D; redis.setnxex(&quot;lock&quot;,token,10s);
+    if(lock &#x3D;&#x3D; &quot;ok&quot;)&#123;
+        &#x2F;&#x2F;执行业务
+        &#x2F;&#x2F;脚本删除锁
+    &#125;else &#123;
+        hello();
+    &#125;
+&#125;
+<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<h2 id="redisson实现分布式锁">Redisson实现分布式锁</h2>
+<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello() &#123;
+    Rlock lock &#x3D; redisson.getLock(&quot;lock&quot;);
+    lock.lock();
+    &#x2F;&#x2F;todo
+    lock.unlock();
+&#125;
+<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<h2 id="其他方向考虑">其他方向考虑</h2>
+<ul>
+<li>自旋
+<ul>
+<li>自旋次数</li>
+<li>自旋超时</li>
+</ul></li>
+<li>原子的加锁释放没问题</li>
+<li>锁设置
+<ul>
+<li>锁粒度：细，记录级别
+<ul>
+<li>查询商品详情：进缓存-&gt;击穿，穿透，雪崩，不同ID的商品不同的锁</li>
+<li>分析好粒度，不要锁住无关数据，一种数据一种锁，一条数据一个锁</li>
+</ul></li>
+</ul></li>
+<li>锁类型
+<ul>
+<li>读写锁</li>
+<li>可重入锁</li>
+</ul></li>
+</ul>
+
+            </div>
+            <hr>
+            <div>
+              <div class="post-metas mb-3">
+                
+                  <div class="post-meta mr-3">
+                    <i class="iconfont icon-category"></i>
+                    
+                      <a class="hover-with-bg" href="/categories/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/">分布式系统</a>
+                    
+                  </div>
+                
+                
+                  <div class="post-meta">
+                    <i class="iconfont icon-tags"></i>
+                    
+                      <a class="hover-with-bg" href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/">分布式系统</a>
+                    
+                  </div>
+                
+              </div>
+              
+                <p class="note note-warning">
+                  
+                    本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！
+                  
+                </p>
+              
+              
+                <div class="post-prevnext">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/%E7%AE%97%E6%B3%95/sort-algorithm/">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">排序算法总结</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2019/%E9%9A%8F%E7%AC%94/2019-summary/">
+                        <span class="hidden-mobile">2019和2020</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+          </article>
+        </div>
+      </div>
+    </div>
+    
+      <div class="d-none d-lg-block col-lg-2 toc-container" id="toc-ctn">
+        <div id="toc">
+  <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+      </div>
+    
+  </div>
+</div>
+
+<!-- Custom -->
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v"
+                 for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+
+    
+  </main>
+
+  <footer class="text-center mt-5 py-3">
+  <div class="footer-content">
+     <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
+  </div>
+  
+
+  
+
+  
+</footer>
+
+
+  <!-- SCRIPTS -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+<!-- Plugins -->
+
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+  
+    
+  
+
+
+
+  
+    <script  src="https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js" ></script>
+  
+  
+    <script defer src="https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js" ></script>
+  
+
+
+
+
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var title = document.getElementById('subtitle').title;
+      
+        typing(title);
+      
+    })(window, document);
+  </script>
+
+
+
+
+
+  
+
+  
+    <!-- MathJax -->
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        },
+        loader: {
+          load: ['ui/lazy']
+        },
+        options: {
+          renderActions: {
+            findScript: [10, doc => {
+              document.querySelectorAll('script[type^="math/tex"]').forEach(node => {
+                const display = !!node.type.match(/; *mode=display/);
+                const math = new doc.options.MathItem(node.textContent, doc.inputJax[0], display);
+                const text = document.createTextNode('');
+                node.parentNode.replaceChild(text, node);
+                math.start = { node: text, delim: '', n: 0 };
+                math.end = { node: text, delim: '', n: 0 };
+                doc.math.push(math);
+              });
+            }, '', false],
+            insertedScript: [200, () => {
+              document.querySelectorAll('mjx-container').forEach(node => {
+                let target = node.parentNode;
+                if (target.nodeName.toLowerCase() === 'li') {
+                  target.parentNode.classList.add('has-jax');
+                }
+              });
+            }, '', false]
+          }
+        }
+      };
+    </script>
+
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" ></script>
+
+  
+
+
+
+
+
+
+
+
+  
+    <!-- Baidu Analytics -->
+    <script defer>
+      var _hmt = _hmt || [];
+      (function () {
+        var hm = document.createElement("script");
+        hm.src = "https://hm.baidu.com/hm.js?14b7dca7880e79dfe4d7db3cfc3b7e98";
+        var s = document.getElementsByTagName("script")[0];
+        s.parentNode.insertBefore(hm, s);
+      })();
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项 保持在最底部 -->
+<script  src="/js/boot.js" ></script>
+
+
+</body>
+</html>

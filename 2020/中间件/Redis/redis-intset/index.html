@@ -1,0 +1,695 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介 整数集合是一个有序的，存储Integer类型数据的结构，当元素为64位有符号整数范围之内时，它是Redis数据结构中有序集合ZSET的底层实现，但是当元素个数超过一定数量时（默认为512），会转为hashtable进行存储，由配置项set-max-intset-entries 512决定。如果向有序集合中添加非整型变量，底层实现也会装欢为hashtable。 数据结构  encodi">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Redis底层数据结构-Intset源码分析">
+<meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-intset/index.html">
+<meta property="og:site_name" content="Lin&#39;s Blog">
+<meta property="og:description" content="简介 整数集合是一个有序的，存储Integer类型数据的结构，当元素为64位有符号整数范围之内时，它是Redis数据结构中有序集合ZSET的底层实现，但是当元素个数超过一定数量时（默认为512），会转为hashtable进行存储，由配置项set-max-intset-entries 512决定。如果向有序集合中添加非整型变量，底层实现也会装欢为hashtable。 数据结构  encodi">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-06-20T07:28:27.000Z">
+<meta property="article:modified_time" content="2020-06-20T07:29:07.238Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="数据结构">
+<meta property="article:tag" content="源码分析">
+<meta property="article:tag" content="Redis">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  <title>Redis底层数据结构-Intset源码分析 - Lin&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  
+    
+    
+      
+      
+        
+          
+          
+          
+        
+        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-coy.min.css" />
+      
+      
+        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/line-numbers/prism-line-numbers.min.css" />
+      
+    
+  
+
+  
+    <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+  
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_ba1fz6golrf.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+<!-- 自定义样式保持在最底部 -->
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.8.14","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"copy_btn":true,"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"baidu":"14b7dca7880e79dfe4d7db3cfc3b7e98","google":null,"gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+<meta name="generator" content="Hexo 5.4.2"><link rel="alternate" href="/atom.xml" title="Lin's Blog" type="application/atom+xml">
+</head>
+
+
+<body>
+  <header style="height: 70vh;">
+    <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>Lin&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/">
+                <i class="iconfont icon-home-fill"></i>
+                首页
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/">
+                <i class="iconfont icon-archive-fill"></i>
+                归档
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/categories/">
+                <i class="iconfont icon-category-fill"></i>
+                分类
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/">
+                <i class="iconfont icon-user-fill"></i>
+                关于
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/">
+                <i class="iconfont icon-link-fill"></i>
+                友链
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              &nbsp;<i class="iconfont icon-search"></i>&nbsp;
+            </a>
+          </li>
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="banner" id="banner" parallax=true
+         style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center;
+           background-size: cover;">
+      <div class="full-bg-img">
+        <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+          <div class="page-header text-center fade-in-up">
+            <span class="h2" id="subtitle" title="Redis底层数据结构-Intset源码分析">
+              
+            </span>
+
+            
+              <div class="mt-3">
+  
+  
+    <span class="post-meta">
+      <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+      <time datetime="2020-06-20 15:28" pubdate>
+        2020年6月20日 下午
+      </time>
+    </span>
+  
+</div>
+
+<div class="mt-1">
+  
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-chart"></i>
+      4.5k 字
+    </span>
+  
+
+  
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-clock-fill"></i>
+      
+      
+      38 分钟
+    </span>
+  
+
+  
+  
+</div>
+
+            
+          </div>
+
+          
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="d-none d-lg-block col-lg-2"></div>
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div class="py-5" id="board">
+          <article class="post-content mx-auto">
+            <!-- SEO header -->
+            <h1 style="display: none">Redis底层数据结构-Intset源码分析</h1>
+            
+            <div class="markdown-body">
+              <h1 id="简介">简介</h1>
+<p>整数集合是一个有序的，存储Integer类型数据的结构，当元素为64位有符号整数范围之内时，它是Redis数据结构中有序集合ZSET的底层实现，但是当元素个数超过一定数量时（默认为512），会转为hashtable进行存储，由配置项<code>set-max-intset-entries 512</code>决定。如果向有序集合中添加非整型变量，底层实现也会装欢为hashtable。</p>
+<h1 id="数据结构">数据结构</h1>
+<ul>
+<li>encoding：编码类型，决定每个元素占用几个字节
+<ul>
+<li>INTSET_ENC_INT16：当元素大小位于<code>INT16_MIN</code>和<code>INT16_MAX</code>之间使用，每个元素占用两个字节。</li>
+<li>INTSET_ENC_INT32：元素大小位于<code>INT16_MAX</code>和<code>INT32_MAX</code>之间或<code>INT32_MIN</code>到<code>INT16_MIN</code>之间，该编码方式占用四个字节。</li>
+<li>INTSET_ENC_INT64：元素大小位于<code>INT32_MAX</code>到<code>INT64_MAX</code>或<code>INT64_MIN</code>到<code>INT32_MIN</code>之间，该编码方式每个元素占用八个字节。</li>
+</ul></li>
+<li>length：元素个数</li>
+<li>contents：存储具体元素的数组 <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">
+#define INTSET_ENC_INT16 (sizeof(int16_t))
+#define INTSET_ENC_INT32： (sizeof(int32_t))
+#define INTSET_ENC_INT64 (sizeof(int64_t))
+
+typedef struct intset &#123;
+    uint32_t encoding;
+    uint32_t length;
+    int8_t contents[];
+&#125; intset;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></li>
+</ul>
+<h1 id="接口">接口</h1>
+<h2 id="intsetfind">intsetFind</h2>
+<p>查找算法主要通过二分查找实现。 <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">&#x2F;* Determine whether a value belongs to this set *&#x2F;
+uint8_t intsetFind(intset *is, int64_t value) &#123;
+    &#x2F;&#x2F;判断编码方式
+    uint8_t valenc &#x3D; _intsetValueEncoding(value);
+    &#x2F;&#x2F;编码方式如果当前intset的编码方式，直接返回0
+    &#x2F;&#x2F;否则调用intsetSearch函数进行查找
+    return valenc &lt;&#x3D; intrev32ifbe(is-&gt;encoding) &amp;&amp; intsetSearch(is,value,NULL);
+&#125;
+
+
+static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) &#123;
+    int min &#x3D; 0, max &#x3D; intrev32ifbe(is-&gt;length)-1, mid &#x3D; -1;
+    int64_t cur &#x3D; -1;
+
+    &#x2F;* The value can never be found when the set is empty *&#x2F;
+    &#x2F;&#x2F;intset如果为空，直接返回0
+    if (intrev32ifbe(is-&gt;length) &#x3D;&#x3D; 0) &#123;
+        if (pos) *pos &#x3D; 0;
+        return 0;
+    &#125; else &#123;
+        当前元素如果大于当前有序集合最大值或者小于最小值，直接返回0
+        if (value &gt; _intsetGet(is,max)) &#123;
+            if (pos) *pos &#x3D; intrev32ifbe(is-&gt;length);
+            return 0;
+        &#125; else if (value &lt; _intsetGet(is,0)) &#123;
+            if (pos) *pos &#x3D; 0;
+            return 0;
+        &#125;
+    &#125;
+    &#x2F;&#x2F;由于集合有序，采用二分查找
+    while(max &gt;&#x3D; min) &#123;
+        mid &#x3D; ((unsigned int)min + (unsigned int)max) &gt;&gt; 1;
+        cur &#x3D; _intsetGet(is,mid);
+        if (value &gt; cur) &#123;
+            min &#x3D; mid+1;
+        &#125; else if (value &lt; cur) &#123;
+            max &#x3D; mid-1;
+        &#125; else &#123;
+            break;
+        &#125;
+    &#125;
+
+    if (value &#x3D;&#x3D; cur) &#123;
+        if (pos) *pos &#x3D; mid;
+        return 1;
+    &#125; else &#123;
+        if (pos) *pos &#x3D; min;
+        return 0;
+    &#125;
+&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<h2 id="intsetadd">intsetAdd</h2>
+<p>主要逻辑如下： -
+判断插入的值的编码格式，小于当前intset编码格式直接插入，大于则调用<code>intsetUpgradeAndAdd</code>函数进行升级
+-
+上述条件小于时，调用<code>intsetSearch</code>进行查找，如果插入的值已经存在，直接返回。
+- 不存在则进行扩容操作，<code>intsetResize</code>将intset的长度加一。 -
+如果插入的位置位于原来元素之间，使用<code>intsetMoveTail</code>进行元素移动，空出一个位置进行插入。
+- 调用<code>_intsetSet</code>保存元素</p>
+<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">intset *intsetAdd(intset *is, int64_t value, uint8_t *success) &#123;
+    &#x2F;&#x2F;获取添加元素的编码值
+    uint8_t valenc &#x3D; _intsetValueEncoding(value);
+    uint32_t pos;
+    if (success) *success &#x3D; 1;
+
+    
+    if (valenc &gt; intrev32ifbe(is-&gt;encoding)) &#123;
+        &#x2F;&#x2F;如果该元素编码大于当前intset编码。进行升级
+        return intsetUpgradeAndAdd(is,value);
+    &#125; else &#123;
+        &#x2F;&#x2F;否则先进行查重，如果已经存在该元素，直接返回（保证有序集合的唯一性）
+        if (intsetSearch(is,value,&amp;pos)) &#123;
+            if (success) *success &#x3D; 0;
+            return is;
+        &#125;
+        &#x2F;&#x2F;扩容
+        is &#x3D; intsetResize(is,intrev32ifbe(is-&gt;length)+1);
+        &#x2F;&#x2F;如果插入元素位置合法，将该位置往后挪
+        if (pos &lt; intrev32ifbe(is-&gt;length)) intsetMoveTail(is,pos,pos+1);
+    &#125;
+    &#x2F;&#x2F;保存元素
+    _intsetSet(is,pos,value);
+    &#x2F;&#x2F;修改inset的长度，将其加1
+    is-&gt;length &#x3D; intrev32ifbe(intrev32ifbe(is-&gt;length)+1);
+    return is;
+&#125;
+
+static intset *intsetUpgradeAndAdd(intset *is, int64_t value) &#123;
+    uint8_t curenc &#x3D; intrev32ifbe(is-&gt;encoding);
+    uint8_t newenc &#x3D; _intsetValueEncoding(value);
+    int length &#x3D; intrev32ifbe(is-&gt;length);
+    int prepend &#x3D; value &lt; 0 ? 1 : 0;
+
+    &#x2F;* First set new encoding and resize *&#x2F;
+    is-&gt;encoding &#x3D; intrev32ifbe(newenc);
+    is &#x3D; intsetResize(is,intrev32ifbe(is-&gt;length)+1);
+
+    &#x2F;* Upgrade back-to-front so we don&#39;t overwrite values.
+     * Note that the &quot;prepend&quot; variable is used to make sure we have an empty
+     * space at either the beginning or the end of the intset. *&#x2F;
+    while(length--)
+        _intsetSet(is,length+prepend,_intsetGetEncoded(is,length,curenc));
+
+    &#x2F;* Set the value at the beginning or the end. *&#x2F;
+    if (prepend)
+        _intsetSet(is,0,value);
+    else
+        _intsetSet(is,intrev32ifbe(is-&gt;length),value);
+    is-&gt;length &#x3D; intrev32ifbe(intrev32ifbe(is-&gt;length)+1);
+    return is;
+&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<h2 id="intsetremove">intsetRemove</h2>
+<p>主要逻辑如下： - 判断新插入值的编码是否小于等于当前intset编码。 -
+该值是否在intset中存在，如果存在，将intset的值从pos +
+1的位置移动到pos位置。 - 更新长度字段。</p>
+<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">intset *intsetRemove(intset *is, int64_t value, int *success) &#123;
+    &#x2F;&#x2F;获取待删除元素的编码
+    uint8_t valenc &#x3D; _intsetValueEncoding(value);
+    uint32_t pos;
+    if (success) *success &#x3D; 0;
+    &#x2F;&#x2F;如果编码小于等于当前intset编码并且查找到该元素，则进行删除操作
+    if (valenc &lt;&#x3D; intrev32ifbe(is-&gt;encoding) &amp;&amp; intsetSearch(is,value,&amp;pos)) &#123;
+        &#x2F;&#x2F;获取intset长度
+        uint32_t len &#x3D; intrev32ifbe(is-&gt;length);
+
+        &#x2F;* We know we can delete *&#x2F;
+        if (success) *success &#x3D; 1;
+
+        &#x2F;&#x2F;调用intsetMoveTail对待删除元素进行覆盖
+        if (pos &lt; (len-1)) intsetMoveTail(is,pos+1,pos);
+        is &#x3D; intsetResize(is,len-1);
+        is-&gt;length &#x3D; intrev32ifbe(len-1);
+    &#125;
+    return is;
+&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<h1 id="总结">总结</h1>
+<p>本文主要对Redis中集合的底层数据结构intset结构及其基本操作函数做了简要分析，该结构主要使用场景为集合元素全为整型且元素数量不多（默认小于512）。</p>
+
+            </div>
+            <hr>
+            <div>
+              <div class="post-metas mb-3">
+                
+                  <div class="post-meta mr-3">
+                    <i class="iconfont icon-category"></i>
+                    
+                      <a class="hover-with-bg" href="/categories/Redis/">Redis</a>
+                    
+                      <a class="hover-with-bg" href="/categories/Redis/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">源码分析</a>
+                    
+                  </div>
+                
+                
+                  <div class="post-meta">
+                    <i class="iconfont icon-tags"></i>
+                    
+                      <a class="hover-with-bg" href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/">数据结构</a>
+                    
+                      <a class="hover-with-bg" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">源码分析</a>
+                    
+                      <a class="hover-with-bg" href="/tags/Redis/">Redis</a>
+                    
+                  </div>
+                
+              </div>
+              
+                <p class="note note-warning">
+                  
+                    本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！
+                  
+                </p>
+              
+              
+                <div class="post-prevnext">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-quicklist/">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">Redis底层数据结构-Quicklist源码分析</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-dict/">
+                        <span class="hidden-mobile">Redis底层数据结构-Dict源码分析</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+          </article>
+        </div>
+      </div>
+    </div>
+    
+      <div class="d-none d-lg-block col-lg-2 toc-container" id="toc-ctn">
+        <div id="toc">
+  <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+      </div>
+    
+  </div>
+</div>
+
+<!-- Custom -->
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v"
+                 for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+
+    
+  </main>
+
+  <footer class="text-center mt-5 py-3">
+  <div class="footer-content">
+     <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
+  </div>
+  
+
+  
+
+  
+</footer>
+
+
+  <!-- SCRIPTS -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+<!-- Plugins -->
+
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+  
+    
+  
+
+
+
+  
+    <script  src="https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js" ></script>
+  
+  
+    <script defer src="https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js" ></script>
+  
+
+
+
+
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var title = document.getElementById('subtitle').title;
+      
+        typing(title);
+      
+    })(window, document);
+  </script>
+
+
+
+
+
+  
+
+  
+    <!-- MathJax -->
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        },
+        loader: {
+          load: ['ui/lazy']
+        },
+        options: {
+          renderActions: {
+            findScript: [10, doc => {
+              document.querySelectorAll('script[type^="math/tex"]').forEach(node => {
+                const display = !!node.type.match(/; *mode=display/);
+                const math = new doc.options.MathItem(node.textContent, doc.inputJax[0], display);
+                const text = document.createTextNode('');
+                node.parentNode.replaceChild(text, node);
+                math.start = { node: text, delim: '', n: 0 };
+                math.end = { node: text, delim: '', n: 0 };
+                doc.math.push(math);
+              });
+            }, '', false],
+            insertedScript: [200, () => {
+              document.querySelectorAll('mjx-container').forEach(node => {
+                let target = node.parentNode;
+                if (target.nodeName.toLowerCase() === 'li') {
+                  target.parentNode.classList.add('has-jax');
+                }
+              });
+            }, '', false]
+          }
+        }
+      };
+    </script>
+
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" ></script>
+
+  
+
+
+
+
+
+
+
+
+  
+    <!-- Baidu Analytics -->
+    <script defer>
+      var _hmt = _hmt || [];
+      (function () {
+        var hm = document.createElement("script");
+        hm.src = "https://hm.baidu.com/hm.js?14b7dca7880e79dfe4d7db3cfc3b7e98";
+        var s = document.getElementsByTagName("script")[0];
+        s.parentNode.insertBefore(hm, s);
+      })();
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项 保持在最底部 -->
+<script  src="/js/boot.js" ></script>
+
+
+</body>
+</html>

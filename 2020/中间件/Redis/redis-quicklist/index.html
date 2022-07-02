@@ -1,0 +1,713 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介 quicklist是Redis 3.2中引入的数据结构，其本质是一个双向链表，链表的节点类型是ziplist，当ziplist节点过多，quicklist会退化成双向链表，以提高效率。 数据结构 quicklistNode 该结构为节点类型。 - prev：指向前驱节点 - next：指向后继节点 - zl：指向对应的压缩列表 - sz：压缩列表的大小 - encoding：采">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Redis底层数据结构-Quicklist源码分析">
+<meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-quicklist/index.html">
+<meta property="og:site_name" content="Lin&#39;s Blog">
+<meta property="og:description" content="简介 quicklist是Redis 3.2中引入的数据结构，其本质是一个双向链表，链表的节点类型是ziplist，当ziplist节点过多，quicklist会退化成双向链表，以提高效率。 数据结构 quicklistNode 该结构为节点类型。 - prev：指向前驱节点 - next：指向后继节点 - zl：指向对应的压缩列表 - sz：压缩列表的大小 - encoding：采">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-06-25T02:34:21.000Z">
+<meta property="article:modified_time" content="2020-06-25T02:38:46.063Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="数据结构">
+<meta property="article:tag" content="源码分析">
+<meta property="article:tag" content="Redis">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  <title>Redis底层数据结构-Quicklist源码分析 - Lin&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  
+    
+    
+      
+      
+        
+          
+          
+          
+        
+        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-coy.min.css" />
+      
+      
+        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/line-numbers/prism-line-numbers.min.css" />
+      
+    
+  
+
+  
+    <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+  
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_ba1fz6golrf.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+<!-- 自定义样式保持在最底部 -->
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.8.14","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"copy_btn":true,"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"baidu":"14b7dca7880e79dfe4d7db3cfc3b7e98","google":null,"gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+<meta name="generator" content="Hexo 5.4.2"><link rel="alternate" href="/atom.xml" title="Lin's Blog" type="application/atom+xml">
+</head>
+
+
+<body>
+  <header style="height: 70vh;">
+    <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>Lin&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/">
+                <i class="iconfont icon-home-fill"></i>
+                首页
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/">
+                <i class="iconfont icon-archive-fill"></i>
+                归档
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/categories/">
+                <i class="iconfont icon-category-fill"></i>
+                分类
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/">
+                <i class="iconfont icon-user-fill"></i>
+                关于
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/">
+                <i class="iconfont icon-link-fill"></i>
+                友链
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              &nbsp;<i class="iconfont icon-search"></i>&nbsp;
+            </a>
+          </li>
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="banner" id="banner" parallax=true
+         style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center;
+           background-size: cover;">
+      <div class="full-bg-img">
+        <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+          <div class="page-header text-center fade-in-up">
+            <span class="h2" id="subtitle" title="Redis底层数据结构-Quicklist源码分析">
+              
+            </span>
+
+            
+              <div class="mt-3">
+  
+  
+    <span class="post-meta">
+      <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+      <time datetime="2020-06-25 10:34" pubdate>
+        2020年6月25日 上午
+      </time>
+    </span>
+  
+</div>
+
+<div class="mt-1">
+  
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-chart"></i>
+      5.5k 字
+    </span>
+  
+
+  
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-clock-fill"></i>
+      
+      
+      46 分钟
+    </span>
+  
+
+  
+  
+</div>
+
+            
+          </div>
+
+          
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="d-none d-lg-block col-lg-2"></div>
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div class="py-5" id="board">
+          <article class="post-content mx-auto">
+            <!-- SEO header -->
+            <h1 style="display: none">Redis底层数据结构-Quicklist源码分析</h1>
+            
+            <div class="markdown-body">
+              <h1 id="简介">简介</h1>
+<p>quicklist是Redis
+3.2中引入的数据结构，其本质是一个双向链表，链表的节点类型是ziplist，当ziplist节点过多，quicklist会退化成双向链表，以提高效率。</p>
+<h1 id="数据结构">数据结构</h1>
+<h2 id="quicklistnode">quicklistNode</h2>
+<p>该结构为节点类型。 - prev：指向前驱节点 - next：指向后继节点 -
+zl：指向对应的压缩列表 - sz：压缩列表的大小 -
+encoding：采用的编码方式，1为原生，2代表使用LZF进行压缩 -
+container：为节点指向的容器类型，1代表none，2代表ziplist存储数据 -
+recompress：代表这个节点是否是压缩节点，如果是，则使用压缩节点前先进行解压缩，使用后重新压缩
+- attempted_compress：测试时使用 <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct quicklistNode &#123;
+    struct quicklistNode *prev;
+    struct quicklistNode *next;
+    unsigned char *zl;
+    unsigned int sz;             &#x2F;* ziplist size in bytes *&#x2F;
+    unsigned int count : 16;     &#x2F;* count of items in ziplist *&#x2F;
+    unsigned int encoding : 2;   &#x2F;* RAW&#x3D;&#x3D;1 or LZF&#x3D;&#x3D;2 *&#x2F;
+    unsigned int container : 2;  &#x2F;* NONE&#x3D;&#x3D;1 or ZIPLIST&#x3D;&#x3D;2 *&#x2F;
+    unsigned int recompress : 1; &#x2F;* was this node previous compressed? *&#x2F;
+    unsigned int attempted_compress : 1; &#x2F;* node can&#39;t compress; too small *&#x2F;
+    unsigned int extra : 10; &#x2F;* more bits to steal for future usage *&#x2F;
+&#125; quicklistNode;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<h2 id="quicklistlzf">quicklistLZF</h2>
+<p>如果使用LZF算法进行压缩，节点指向的结构为quicklistLZF，其中sz表示compressed数组所占用字节大小。
+<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct quicklistLZF &#123;
+    unsigned int sz; &#x2F;* LZF size in bytes*&#x2F;
+    char compressed[];
+&#125; quicklistLZF;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span></span></code></pre></div> ## quicklist - head：指向头节点 - tail：指向尾节点 -
+count：quicklist中压缩列表的entry总数 - len：节点个数 -
+fill：每个节点的ziplist长度，可以通过参数<code>list-max-ziplist-size</code>配置节点所占内存大小
+- compress：该值表示两端各有compress个节点不压缩 <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct quicklist &#123;
+    quicklistNode *head;
+    quicklistNode *tail;
+    unsigned long count;        &#x2F;* total count of all entries in all ziplists *&#x2F;
+    unsigned long len;          &#x2F;* number of quicklistNodes *&#x2F;
+    int fill : 16;              &#x2F;* fill factor for individual nodes *&#x2F;
+    unsigned int compress : 16; &#x2F;* depth of end nodes not to compress;0&#x3D;off *&#x2F;
+&#125; quicklist;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<h2 id="quicklistentry">quicklistEntry</h2>
+<ul>
+<li>quicklist：指向当前元素所在的quicklist</li>
+<li>node：指向当前元素所在的节点</li>
+<li>zi：当前元素所在的ziplist</li>
+<li>value：当前节点的字符串内容</li>
+<li>longval：当前节点的整型值</li>
+<li>sz：节点的大小</li>
+<li>offset：该节点相对于整个ziplist的偏移量，即相当于第几个entry
+<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct quicklistEntry &#123;
+    const quicklist *quicklist;
+    quicklistNode *node;
+    unsigned char *zi;
+    unsigned char *value;
+    long long longval;
+    unsigned int sz;
+    int offset;
+&#125; quicklistEntry;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></li>
+</ul>
+<h2 id="quicklistiter">quicklistIter</h2>
+<p>用于quicklist遍历的迭代器。 - quicklist：指向对应的quicklist -
+current：指向元素所在的节点 - zi：指向元素所在的ziplist -
+offset：表示节点在ziplist中的偏移量 - direction：表示迭代器的方向
+<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct quicklistIter &#123;
+    const quicklist *quicklist;
+    quicklistNode *current;
+    unsigned char *zi;
+    long offset; &#x2F;* offset in current ziplist *&#x2F;
+    int direction;
+&#125; quicklistIter;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<h1 id="接口">接口</h1>
+<h2 id="quicklistpushhead">quicklistPushHead</h2>
+<p>该接口在头部插入元素。传入参数分别是待插入的quicklist，插入的数据value，大小sz。返回指为0代表没有新建head节点，1代表新建了head节点
+基本逻辑如下： -
+查看quicklist的head节点是否允许插入，可以就利用ziplist的接口进行插入。 -
+否则新建head节点进行插入。 <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) &#123;
+    quicklistNode *orig_head &#x3D; quicklist-&gt;head;
+    &#x2F;&#x2F;检查头节点是否允许插入
+    if (likely(
+            _quicklistNodeAllowInsert(quicklist-&gt;head, quicklist-&gt;fill, sz))) &#123;
+            &#x2F;&#x2F;使用头节点中的ziplist接口进行插入
+        quicklist-&gt;head-&gt;zl &#x3D;
+            ziplistPush(quicklist-&gt;head-&gt;zl, value, sz, ZIPLIST_HEAD);
+        quicklistNodeUpdateSz(quicklist-&gt;head);
+    &#125; else &#123;
+        &#x2F;&#x2F;创建新节点进行插入
+        quicklistNode *node &#x3D; quicklistCreateNode();
+        node-&gt;zl &#x3D; ziplistPush(ziplistNew(), value, sz, ZIPLIST_HEAD);
+
+        quicklistNodeUpdateSz(node);
+        _quicklistInsertNodeBefore(quicklist, quicklist-&gt;head, node);
+    &#125;
+    &#x2F;&#x2F;更新对应数据
+    quicklist-&gt;count++;
+    quicklist-&gt;head-&gt;count++;
+    return (orig_head !&#x3D; quicklist-&gt;head);
+&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<h2 id="quicklistreplaceatindex">quicklistReplaceAtIndex</h2>
+<p>更改元素需要传入index，基本逻辑是： - 删除原有元素 - 插入新元素
+<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
+                            int sz) &#123;
+    quicklistEntry entry;
+    &#x2F;&#x2F;检查index位置的元素是否存在
+    if (likely(quicklistIndex(quicklist, index, &amp;entry))) &#123;
+        &#x2F;&#x2F;删除
+        entry.node-&gt;zl &#x3D; ziplistDelete(entry.node-&gt;zl, &amp;entry.zi);
+        &#x2F;&#x2F;添加
+        entry.node-&gt;zl &#x3D; ziplistInsert(entry.node-&gt;zl, entry.zi, data, sz);
+        &#x2F;&#x2F;更新sz字段
+        quicklistNodeUpdateSz(entry.node);
+        quicklistCompress(quicklist, entry.node);
+        return 1;
+    &#125; else &#123;
+        return 0;
+    &#125;
+&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<h2 id="quicklistindex">quicklistIndex</h2>
+<p>该方法主要通过元素的下标查找对应元素，找到index对应数据所在的节点，再调用ziplist的<code>ziplistGet</code>得到Index对应的数据。
+<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">
+&#x2F;&#x2F;idx为需要查找的下标, 结果写入entry，返回0代表没找到，1代表找到
+int quicklistIndex(const quicklist *quicklist, const long long idx,
+                   quicklistEntry *entry) &#123;
+    quicklistNode *n;
+    unsigned long long accum &#x3D; 0;
+    unsigned long long index;
+    &#x2F;&#x2F;idx为负值，表示从尾部向头部的偏移量
+    int forward &#x3D; idx &lt; 0 ? 0 : 1; &#x2F;* &lt; 0 -&gt; reverse, 0+ -&gt; forward *&#x2F;
+    &#x2F;&#x2F;初始化entry
+    initEntry(entry);
+    entry-&gt;quicklist &#x3D; quicklist;
+
+    if (!forward) &#123;
+        &#x2F;&#x2F;idx小于0，将idx设置为(-idx) - 1，从尾部查找
+        index &#x3D; (-idx) - 1;
+        n &#x3D; quicklist-&gt;tail;
+    &#125; else &#123;
+        index &#x3D; idx;
+        n &#x3D; quicklist-&gt;head;
+    &#125;
+
+    if (index &gt;&#x3D; quicklist-&gt;count)
+        return 0;
+    &#x2F;&#x2F;遍历Node节点，找到对应的index元素
+    while (likely(n)) &#123;
+        if ((accum + n-&gt;count) &gt; index) &#123;
+            break;
+        &#125; else &#123;
+            D(&quot;Skipping over (%p) %u at accum %lld&quot;, (void *)n, n-&gt;count,
+              accum);
+            accum +&#x3D; n-&gt;count;
+            n &#x3D; forward ? n-&gt;next : n-&gt;prev;
+        &#125;
+    &#125;
+
+    if (!n)
+        return 0;
+
+    D(&quot;Found node: %p at accum %llu, idx %llu, sub+ %llu, sub- %llu&quot;, (void *)n,
+      accum, index, index - accum, (-index) - 1 + accum);
+    &#x2F;&#x2F;计算index所在的ziplist的偏移量
+    entry-&gt;node &#x3D; n;
+    if (forward) &#123;
+        &#x2F;* forward &#x3D; normal head-to-tail offset. *&#x2F;
+        entry-&gt;offset &#x3D; index - accum;
+    &#125; else &#123;
+        &#x2F;* reverse &#x3D; need negative offset for tail-to-head, so undo
+         * the result of the original if (index &lt; 0) above. *&#x2F;
+        entry-&gt;offset &#x3D; (-index) - 1 + accum;
+    &#125;
+
+    quicklistDecompressNodeForUse(entry-&gt;node);
+    entry-&gt;zi &#x3D; ziplistIndex(entry-&gt;node-&gt;zl, entry-&gt;offset);
+    &#x2F;&#x2F;利用ziplistGet获取元素
+    ziplistGet(entry-&gt;zi, &amp;entry-&gt;value, &amp;entry-&gt;sz, &amp;entry-&gt;longval);
+    &#x2F;* The caller will use our result, so we don&#39;t re-compress here.
+     * The caller can recompress or delete the node as needed. *&#x2F;
+    return 1;
+&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<h1 id="总结">总结</h1>
+<p>本文主要介绍了Quicklist的基本数据结构，并对该结构的基本增删改查接口做了简要分析。</p>
+
+            </div>
+            <hr>
+            <div>
+              <div class="post-metas mb-3">
+                
+                  <div class="post-meta mr-3">
+                    <i class="iconfont icon-category"></i>
+                    
+                      <a class="hover-with-bg" href="/categories/Redis/">Redis</a>
+                    
+                      <a class="hover-with-bg" href="/categories/Redis/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">源码分析</a>
+                    
+                  </div>
+                
+                
+                  <div class="post-meta">
+                    <i class="iconfont icon-tags"></i>
+                    
+                      <a class="hover-with-bg" href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/">数据结构</a>
+                    
+                      <a class="hover-with-bg" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">源码分析</a>
+                    
+                      <a class="hover-with-bg" href="/tags/Redis/">Redis</a>
+                    
+                  </div>
+                
+              </div>
+              
+                <p class="note note-warning">
+                  
+                    本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！
+                  
+                </p>
+              
+              
+                <div class="post-prevnext">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-stream/">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">Redis底层数据结构-Stream源码分析</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-intset/">
+                        <span class="hidden-mobile">Redis底层数据结构-Intset源码分析</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+          </article>
+        </div>
+      </div>
+    </div>
+    
+      <div class="d-none d-lg-block col-lg-2 toc-container" id="toc-ctn">
+        <div id="toc">
+  <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+      </div>
+    
+  </div>
+</div>
+
+<!-- Custom -->
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v"
+                 for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+
+    
+  </main>
+
+  <footer class="text-center mt-5 py-3">
+  <div class="footer-content">
+     <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
+  </div>
+  
+
+  
+
+  
+</footer>
+
+
+  <!-- SCRIPTS -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+<!-- Plugins -->
+
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+  
+    
+  
+
+
+
+  
+    <script  src="https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js" ></script>
+  
+  
+    <script defer src="https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js" ></script>
+  
+
+
+
+
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var title = document.getElementById('subtitle').title;
+      
+        typing(title);
+      
+    })(window, document);
+  </script>
+
+
+
+
+
+  
+
+  
+    <!-- MathJax -->
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        },
+        loader: {
+          load: ['ui/lazy']
+        },
+        options: {
+          renderActions: {
+            findScript: [10, doc => {
+              document.querySelectorAll('script[type^="math/tex"]').forEach(node => {
+                const display = !!node.type.match(/; *mode=display/);
+                const math = new doc.options.MathItem(node.textContent, doc.inputJax[0], display);
+                const text = document.createTextNode('');
+                node.parentNode.replaceChild(text, node);
+                math.start = { node: text, delim: '', n: 0 };
+                math.end = { node: text, delim: '', n: 0 };
+                doc.math.push(math);
+              });
+            }, '', false],
+            insertedScript: [200, () => {
+              document.querySelectorAll('mjx-container').forEach(node => {
+                let target = node.parentNode;
+                if (target.nodeName.toLowerCase() === 'li') {
+                  target.parentNode.classList.add('has-jax');
+                }
+              });
+            }, '', false]
+          }
+        }
+      };
+    </script>
+
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" ></script>
+
+  
+
+
+
+
+
+
+
+
+  
+    <!-- Baidu Analytics -->
+    <script defer>
+      var _hmt = _hmt || [];
+      (function () {
+        var hm = document.createElement("script");
+        hm.src = "https://hm.baidu.com/hm.js?14b7dca7880e79dfe4d7db3cfc3b7e98";
+        var s = document.getElementsByTagName("script")[0];
+        s.parentNode.insertBefore(hm, s);
+      })();
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项 保持在最底部 -->
+<script  src="/js/boot.js" ></script>
+
+
+</body>
+</html>

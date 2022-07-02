@@ -1,0 +1,698 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介 PHP作为一种弱类型编程语言，在定义变量时无需像C++等强类型时定义数据类型。 &lt;?php $a &#x3D; 1; $a &#x3D; &quot;hello&quot;; $a &#x3D; []; ?&gt; 上述代码可以正常运行，在PHP中可以随时将变量改成其他数据类型。下面再来看一个例子： &lt;?php $a &#x3D; &#39;1&#39;;   &amp;#x">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PHP弱类型产生的安全问题">
+<meta property="og:url" content="https://l1n.wang/2018/Web%E5%AE%89%E5%85%A8/php-weak-type/index.html">
+<meta property="og:site_name" content="Lin&#39;s Blog">
+<meta property="og:description" content="简介 PHP作为一种弱类型编程语言，在定义变量时无需像C++等强类型时定义数据类型。 &lt;?php $a &#x3D; 1; $a &#x3D; &quot;hello&quot;; $a &#x3D; []; ?&gt; 上述代码可以正常运行，在PHP中可以随时将变量改成其他数据类型。下面再来看一个例子： &lt;?php $a &#x3D; &#39;1&#39;;   &amp;#x">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2018-11-09T03:00:15.000Z">
+<meta property="article:modified_time" content="2020-05-01T01:30:24.922Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="CTF">
+<meta property="article:tag" content="PHP代码审计">
+<meta property="article:tag" content="安全">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  <title>PHP弱类型产生的安全问题 - Lin&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  
+    
+    
+      
+      
+        
+          
+          
+          
+        
+        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-coy.min.css" />
+      
+      
+        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/line-numbers/prism-line-numbers.min.css" />
+      
+    
+  
+
+  
+    <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+  
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_ba1fz6golrf.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+<!-- 自定义样式保持在最底部 -->
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.8.14","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"copy_btn":true,"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"baidu":"14b7dca7880e79dfe4d7db3cfc3b7e98","google":null,"gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+<meta name="generator" content="Hexo 5.4.2"><link rel="alternate" href="/atom.xml" title="Lin's Blog" type="application/atom+xml">
+</head>
+
+
+<body>
+  <header style="height: 70vh;">
+    <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>Lin&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/">
+                <i class="iconfont icon-home-fill"></i>
+                首页
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/">
+                <i class="iconfont icon-archive-fill"></i>
+                归档
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/categories/">
+                <i class="iconfont icon-category-fill"></i>
+                分类
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/">
+                <i class="iconfont icon-user-fill"></i>
+                关于
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/">
+                <i class="iconfont icon-link-fill"></i>
+                友链
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              &nbsp;<i class="iconfont icon-search"></i>&nbsp;
+            </a>
+          </li>
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="banner" id="banner" parallax=true
+         style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center;
+           background-size: cover;">
+      <div class="full-bg-img">
+        <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+          <div class="page-header text-center fade-in-up">
+            <span class="h2" id="subtitle" title="PHP弱类型产生的安全问题">
+              
+            </span>
+
+            
+              <div class="mt-3">
+  
+  
+    <span class="post-meta">
+      <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+      <time datetime="2018-11-09 11:00" pubdate>
+        2018年11月9日 上午
+      </time>
+    </span>
+  
+</div>
+
+<div class="mt-1">
+  
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-chart"></i>
+      4.9k 字
+    </span>
+  
+
+  
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-clock-fill"></i>
+      
+      
+      41 分钟
+    </span>
+  
+
+  
+  
+</div>
+
+            
+          </div>
+
+          
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="d-none d-lg-block col-lg-2"></div>
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div class="py-5" id="board">
+          <article class="post-content mx-auto">
+            <!-- SEO header -->
+            <h1 style="display: none">PHP弱类型产生的安全问题</h1>
+            
+            <div class="markdown-body">
+              <span id="more"></span>
+<h1 id="简介">简介</h1>
+<p>PHP作为一种弱类型编程语言，在定义变量时无需像C++等强类型时定义数据类型。
+<div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+$a &#x3D; 1;
+$a &#x3D; &quot;hello&quot;;
+$a &#x3D; [];
+?&gt;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+上述代码可以正常运行，在PHP中可以随时将变量改成其他数据类型。下面再来看一个例子：
+<div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+$a &#x3D; &#39;1&#39;;   &#x2F;&#x2F;a现在是字符串&#39;1&#39;
+$a *&#x3D; 2;    &#x2F;&#x2F;a现在是整数2
+?&gt;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span></span></code></pre></div> 下面就从具体的实例中总结一下弱类型产生的安全问题。 #
+比较运算符</p>
+<h2 id="简介-1">简介</h2>
+<p>PHP有这些比较运算符 <div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+$a &#x3D;&#x3D; $b;   &#x2F;&#x2F;相等
+$a &#x3D;&#x3D;&#x3D; $b;  &#x2F;&#x2F;全等
+$a !&#x3D; $b;   &#x2F;&#x2F;不等
+$a &lt;&gt; $b;   &#x2F;&#x2F;不等
+$a !&#x3D;&#x3D; $b;   &#x2F;&#x2F;不全等
+$a &lt; $b;   &#x2F;&#x2F;小于
+$a &gt; $b;   &#x2F;&#x2F;大于
+$a &lt;&#x3D; $b;   &#x2F;&#x2F;小于等于
+$a &gt;&#x3D; $b;   &#x2F;&#x2F;大于等于
+$a &lt;&#x3D;&#x3D;&gt; $b;   &#x2F;&#x2F;太空船运算符：当$a小于、等于、大于$b时分别返回一个小于、等于、大于0的integer 值。 PHP7开始提供.  
+$a ?? $b ?? $c;   &#x2F;&#x2F;NULL 合并操作符 从左往右第一个存在且不为 NULL 的操作数。如果都没有定义且不为 NULL，则返回 NULL。PHP7开始提供。 
+?&gt;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+存在安全问题的一般都是运算符在类型转换时产生的。给出PHP手册中比较的表格。
+&gt; http://php.net/manual/zh/types.comparisons.php</p>
+<p>下面看一段从PHP手册中摘的一段： &gt;如果该字符串没有包含 '.'，'e' 或
+'E' 并且其数字值在整型的范围之内（由 PHP_INT_MAX
+所定义），该字符串将被当成 integer 来取值。其它所有情况下都被作为 float
+来取值。</p>
+<div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+$foo &#x3D; 1 + &quot;10.5&quot;;                &#x2F;&#x2F; $foo is float (11.5)
+$foo &#x3D; 1 + &quot;-1.3e3&quot;;              &#x2F;&#x2F; $foo is float (-1299)
+$foo &#x3D; 1 + &quot;bob-1.3e3&quot;;           &#x2F;&#x2F; $foo is integer (1)
+$foo &#x3D; 1 + &quot;bob3&quot;;                &#x2F;&#x2F; $foo is integer (1)
+$foo &#x3D; 1 + &quot;10 Small Pigs&quot;;       &#x2F;&#x2F; $foo is integer (11)
+$foo &#x3D; 4 + &quot;10.2 Little Piggies&quot;; &#x2F;&#x2F; $foo is float (14.2)
+$foo &#x3D; &quot;10.0 pigs &quot; + 1;          &#x2F;&#x2F; $foo is float (11)
+$foo &#x3D; &quot;10.0 pigs &quot; + 1.0;        &#x2F;&#x2F; $foo is float (11)     
+?&gt; <span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>可以看到字符串中如果有'.'或者e(E)，字符串将会被解析为整数或者浮点数。这些特性在处理Hash字符串时会产生一些安全问题。</p>
+<div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+&quot;0e132456789&quot;&#x3D;&#x3D;&quot;0e7124511451155&quot; &#x2F;&#x2F;true
+&quot;0e123456abc&quot;&#x3D;&#x3D;&quot;0e1dddada&quot;	&#x2F;&#x2F;false
+&quot;0e1abc&quot;&#x3D;&#x3D;&quot;0&quot;     &#x2F;&#x2F;true
+&quot;0admin&quot; &#x3D;&#x3D; &quot;0&quot;     &#x2F;&#x2F;ture
+
+&quot;0x1e240&quot;&#x3D;&#x3D;&quot;123456&quot;		&#x2F;&#x2F;true
+&quot;0x1e240&quot;&#x3D;&#x3D;123456		&#x2F;&#x2F;true
+&quot;0x1e240&quot;&#x3D;&#x3D;&quot;1e240&quot;		&#x2F;&#x2F;false
+?&gt;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>若Hash字符串以0e开头，在进行!=或者==运算时将会被解析为科学记数法，即0的次方。
+或字符串为0x开头，将会被当作十六进制的数。</p>
+<p>下面给出几个以0e开头的MD5加密之后的密文。 <div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">QNKCDZO
+0e830400451993494058024219903391
+  
+s1885207154a
+0e509367213418206700842008763514
+  
+s1836677006a
+0e481036490867661113260034900752
+  
+s155964671a
+0e342768416822451524974117254469
+  
+s1184209335a
+0e072485820392773389523109082030<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+下面从具体函数理解弱类型带来的问题。</p>
+<h1 id="具体函数">具体函数</h1>
+<h2 id="md5">md5()</h2>
+<div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+if (isset($_GET[&#39;Username&#39;]) &amp;&amp; isset($_GET[&#39;password&#39;])) &#123;
+    $logined &#x3D; true;
+    $Username &#x3D; $_GET[&#39;Username&#39;];
+    $password &#x3D; $_GET[&#39;password&#39;];
+
+     if (!ctype_alpha($Username)) &#123;$logined &#x3D; false;&#125;
+     if (!is_numeric($password) ) &#123;$logined &#x3D; false;&#125;
+     if (md5($Username) !&#x3D; md5($password)) &#123;$logined &#x3D; false;&#125;
+     if ($logined)&#123;
+    echo &quot;successful&quot;;
+      &#125;else&#123;
+           echo &quot;login failed!&quot;;
+        &#125;
+    &#125;
+?&gt;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>要求输入的username为字母，password为数字，并且两个变量的MD5必须一样，这时就可以考虑以0e开头的MD5密文。<strong>md5('240610708')
+== md5('QNKCDZO')</strong> 可以成功得到flag。</p>
+<h2 id="sha1">sha1()</h2>
+<div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+
+$flag &#x3D; &quot;flag&quot;;
+
+if (isset($_GET[&#39;name&#39;]) and isset($_GET[&#39;password&#39;])) 
+&#123;
+    if ($_GET[&#39;name&#39;] &#x3D;&#x3D; $_GET[&#39;password&#39;])
+        echo &#39;&lt;p&gt;Your password can not be your name!&lt;&#x2F;p&gt;&#39;;
+    else if (sha1($_GET[&#39;name&#39;]) &#x3D;&#x3D;&#x3D; sha1($_GET[&#39;password&#39;]))
+      die(&#39;Flag: &#39;.$flag);
+    else
+        echo &#39;&lt;p&gt;Invalid password.&lt;&#x2F;p&gt;&#39;;
+&#125;
+else
+    echo &#39;&lt;p&gt;Login first!&lt;&#x2F;p&gt;&#39;;
+?&gt;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>sha1函数需要传入的数据类型为字符串类型，如果传入数组类型则会返回NULL</p>
+<div class="code-wrapper"><pre class="line-numbers language-php" data-language="php"><code class="language-php"><span class="token function">var_dump</span><span class="token punctuation">(</span><span class="token function">sha1</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>	<span class="token comment">//NULL</span><span aria-hidden="true" class="line-numbers-rows"><span></span></span></code></pre></div>
+<p>因此传入<strong>name[]=1&amp;password[]=2</strong> 即可成功绕过</p>
+<h2 id="strcmp-php-version-5.3">strcmp() php version &lt; 5.3</h2>
+<div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+    $password&#x3D;&quot;***************&quot;
+     if(isset($_POST[&#39;password&#39;]))&#123;
+
+        if (strcmp($_POST[&#39;password&#39;], $password) &#x3D;&#x3D; 0) &#123;
+            echo &quot;Right!!!login success&quot;;n
+            exit();
+        &#125; else &#123;
+            echo &quot;Wrong password..&quot;;
+        &#125;
+?&gt;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>和sha1()函数一样，strcmp()是字符串处理函数，如果给strcmp()函数传入数组，无论数据是否相等都会返回0，当然这只存在与PHP版本小于5.3之中。</p>
+<h2 id="intval">intval()</h2>
+<div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+if($_GET[id]) &#123;
+   mysql_connect(SAE_MYSQL_HOST_M . &#39;:&#39; . SAE_MYSQL_PORT,SAE_MYSQL_USER,SAE_MYSQL_PASS);
+  mysql_select_db(SAE_MYSQL_DB);
+  $id &#x3D; intval($_GET[id]);
+  $query &#x3D; @mysql_fetch_array(mysql_query(&quot;select content from ctf2 where id&#x3D;&#39;$id&#39;&quot;));
+  if ($_GET[id]&#x3D;&#x3D;1024) &#123;
+      echo &quot;&lt;p&gt;no! try again&lt;&#x2F;p&gt;&quot;;
+  &#125;
+  else&#123;
+    echo($query[content]);
+  &#125;
+&#125;
+?&gt;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>intval()函数获取变量的整数值,程序要求从浏览器获得的id值不为1024，因此输入<strong>1024.1</strong>即可获得flag。</p>
+<h2 id="json_decode">json_decode()</h2>
+<div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+if (isset($_POST[&#39;message&#39;])) &#123;
+    $message &#x3D; json_decode($_POST[&#39;message&#39;]);
+    $key &#x3D;&quot;*********&quot;;
+    if ($message-&gt;key &#x3D;&#x3D; $key) &#123;
+        echo &quot;flag&quot;;
+    &#125; 
+    else &#123;
+        echo &quot;fail&quot;;
+    &#125;
+ &#125;
+ else&#123;
+     echo &quot;~~~~&quot;;
+ &#125;
+?&gt;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<p>需要POST的message中的key值等于程序中的key值，如果传入的key为整数0，那么在比较运算符==的运算下，将会判定字符串为整数0，那么只需要传入数据：<strong>message={"key":0}</strong></p>
+<h2 id="array_search-和-in_array">array_search() 和 in_array()</h2>
+<p>上面两个函数和前面d额是一样的问题，会存在下面的一些转换为题： &gt;
+"admin" == 0; //true &gt; "1admin" == 1; //true</p>
+<h1 id="总结">总结</h1>
+<p>熬夜写文章已经很晚了，就懒得再写总结了。以后每周总结一篇关于代码审计的小知识点。</p>
+
+            </div>
+            <hr>
+            <div>
+              <div class="post-metas mb-3">
+                
+                  <div class="post-meta mr-3">
+                    <i class="iconfont icon-category"></i>
+                    
+                      <a class="hover-with-bg" href="/categories/Web%E5%AE%89%E5%85%A8/">Web安全</a>
+                    
+                      <a class="hover-with-bg" href="/categories/Web%E5%AE%89%E5%85%A8/CTF/">CTF</a>
+                    
+                  </div>
+                
+                
+                  <div class="post-meta">
+                    <i class="iconfont icon-tags"></i>
+                    
+                      <a class="hover-with-bg" href="/tags/CTF/">CTF</a>
+                    
+                      <a class="hover-with-bg" href="/tags/PHP%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1/">PHP代码审计</a>
+                    
+                      <a class="hover-with-bg" href="/tags/%E5%AE%89%E5%85%A8/">安全</a>
+                    
+                  </div>
+                
+              </div>
+              
+                <p class="note note-warning">
+                  
+                    本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！
+                  
+                </p>
+              
+              
+                <div class="post-prevnext">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2018/Web%E5%AE%89%E5%85%A8/phpBug-69892/">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">PHP数组整数键名截断问题</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2018/%E9%9A%8F%E7%AC%94/2018-nanjing/">
+                        <span class="hidden-mobile">2018-南京之行</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+          </article>
+        </div>
+      </div>
+    </div>
+    
+      <div class="d-none d-lg-block col-lg-2 toc-container" id="toc-ctn">
+        <div id="toc">
+  <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+      </div>
+    
+  </div>
+</div>
+
+<!-- Custom -->
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v"
+                 for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+
+    
+  </main>
+
+  <footer class="text-center mt-5 py-3">
+  <div class="footer-content">
+     <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
+  </div>
+  
+
+  
+
+  
+</footer>
+
+
+  <!-- SCRIPTS -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+<!-- Plugins -->
+
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+  
+    
+  
+
+
+
+  
+    <script  src="https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js" ></script>
+  
+  
+    <script defer src="https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js" ></script>
+  
+
+
+
+
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var title = document.getElementById('subtitle').title;
+      
+        typing(title);
+      
+    })(window, document);
+  </script>
+
+
+
+
+
+  
+
+  
+    <!-- MathJax -->
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        },
+        loader: {
+          load: ['ui/lazy']
+        },
+        options: {
+          renderActions: {
+            findScript: [10, doc => {
+              document.querySelectorAll('script[type^="math/tex"]').forEach(node => {
+                const display = !!node.type.match(/; *mode=display/);
+                const math = new doc.options.MathItem(node.textContent, doc.inputJax[0], display);
+                const text = document.createTextNode('');
+                node.parentNode.replaceChild(text, node);
+                math.start = { node: text, delim: '', n: 0 };
+                math.end = { node: text, delim: '', n: 0 };
+                doc.math.push(math);
+              });
+            }, '', false],
+            insertedScript: [200, () => {
+              document.querySelectorAll('mjx-container').forEach(node => {
+                let target = node.parentNode;
+                if (target.nodeName.toLowerCase() === 'li') {
+                  target.parentNode.classList.add('has-jax');
+                }
+              });
+            }, '', false]
+          }
+        }
+      };
+    </script>
+
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" ></script>
+
+  
+
+
+
+
+
+
+
+
+  
+    <!-- Baidu Analytics -->
+    <script defer>
+      var _hmt = _hmt || [];
+      (function () {
+        var hm = document.createElement("script");
+        hm.src = "https://hm.baidu.com/hm.js?14b7dca7880e79dfe4d7db3cfc3b7e98";
+        var s = document.getElementsByTagName("script")[0];
+        s.parentNode.insertBefore(hm, s);
+      })();
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项 保持在最底部 -->
+<script  src="/js/boot.js" ></script>
+
+
+</body>
+</html>

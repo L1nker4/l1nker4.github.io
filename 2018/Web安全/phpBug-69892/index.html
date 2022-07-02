@@ -1,0 +1,730 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="前言 这段时间在做CHY师傅整理的CTF代码审计题目，遇到较难或者比较有意思的题目，都会记下笔记，这次分享一篇关于PHP处理数组时的一个漏洞，这里给出CHY师傅的题目地址： &gt; https:&#x2F;&#x2F;github.com&#x2F;CHYbeta&#x2F;Code-Audit-Challenges&#x2F; 分析 首先看看PHP官方对这个错误的介绍： &gt; https:&#x2F;&#x2F;bugs.php.net&#x2F;bug.">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PHP数组整数键名截断问题">
+<meta property="og:url" content="https://l1n.wang/2018/Web%E5%AE%89%E5%85%A8/phpBug-69892/index.html">
+<meta property="og:site_name" content="Lin&#39;s Blog">
+<meta property="og:description" content="前言 这段时间在做CHY师傅整理的CTF代码审计题目，遇到较难或者比较有意思的题目，都会记下笔记，这次分享一篇关于PHP处理数组时的一个漏洞，这里给出CHY师傅的题目地址： &gt; https:&#x2F;&#x2F;github.com&#x2F;CHYbeta&#x2F;Code-Audit-Challenges&#x2F; 分析 首先看看PHP官方对这个错误的介绍： &gt; https:&#x2F;&#x2F;bugs.php.net&#x2F;bug.">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2018-11-23T09:02:35.000Z">
+<meta property="article:modified_time" content="2020-05-01T01:31:05.686Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="CTF">
+<meta property="article:tag" content="PHP代码审计">
+<meta property="article:tag" content="安全">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  <title>PHP数组整数键名截断问题 - Lin&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  
+    
+    
+      
+      
+        
+          
+          
+          
+        
+        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-coy.min.css" />
+      
+      
+        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/line-numbers/prism-line-numbers.min.css" />
+      
+    
+  
+
+  
+    <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+  
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1749284_ba1fz6golrf.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+<!-- 自定义样式保持在最底部 -->
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.8.14","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"copy_btn":true,"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"baidu":"14b7dca7880e79dfe4d7db3cfc3b7e98","google":null,"gtag":null,"tencent":{"sid":null,"cid":null},"woyaola":null,"cnzz":null,"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false}},"search_path":"/local-search.xml"};
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+<meta name="generator" content="Hexo 5.4.2"><link rel="alternate" href="/atom.xml" title="Lin's Blog" type="application/atom+xml">
+</head>
+
+
+<body>
+  <header style="height: 70vh;">
+    <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>Lin&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/">
+                <i class="iconfont icon-home-fill"></i>
+                首页
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/">
+                <i class="iconfont icon-archive-fill"></i>
+                归档
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/categories/">
+                <i class="iconfont icon-category-fill"></i>
+                分类
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/">
+                <i class="iconfont icon-user-fill"></i>
+                关于
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/">
+                <i class="iconfont icon-link-fill"></i>
+                友链
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              &nbsp;<i class="iconfont icon-search"></i>&nbsp;
+            </a>
+          </li>
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="banner" id="banner" parallax=true
+         style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center;
+           background-size: cover;">
+      <div class="full-bg-img">
+        <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+          <div class="page-header text-center fade-in-up">
+            <span class="h2" id="subtitle" title="PHP数组整数键名截断问题">
+              
+            </span>
+
+            
+              <div class="mt-3">
+  
+  
+    <span class="post-meta">
+      <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+      <time datetime="2018-11-23 17:02" pubdate>
+        2018年11月23日 下午
+      </time>
+    </span>
+  
+</div>
+
+<div class="mt-1">
+  
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-chart"></i>
+      5k 字
+    </span>
+  
+
+  
+    <span class="post-meta mr-2">
+      <i class="iconfont icon-clock-fill"></i>
+      
+      
+      42 分钟
+    </span>
+  
+
+  
+  
+</div>
+
+            
+          </div>
+
+          
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="d-none d-lg-block col-lg-2"></div>
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div class="py-5" id="board">
+          <article class="post-content mx-auto">
+            <!-- SEO header -->
+            <h1 style="display: none">PHP数组整数键名截断问题</h1>
+            
+            <div class="markdown-body">
+              <span id="more"></span>
+<h1 id="前言">前言</h1>
+<p>这段时间在做CHY师傅整理的CTF代码审计题目，遇到较难或者比较有意思的题目，都会记下笔记，这次分享一篇关于PHP处理数组时的一个漏洞，这里给出CHY师傅的题目地址：
+&gt; <a
+target="_blank" rel="noopener" href="https://github.com/CHYbeta/Code-Audit-Challenges/">https://github.com/CHYbeta/Code-Audit-Challenges/</a></p>
+<h1 id="分析">分析</h1>
+<p>首先看看PHP官方对这个错误的介绍： &gt; <a
+target="_blank" rel="noopener" href="https://bugs.php.net/bug.php?id=69892">https://bugs.php.net/bug.php?id=69892</a></p>
+<blockquote>
+<p>var_dump([0 =&gt; 0] === [0x100000000 =&gt; 0]); // bool(true)</p>
+</blockquote>
+<p>下面来看代码： <div class="code-wrapper"><pre class="line-numbers language-PHP" data-language="PHP"><code class="language-PHP">&lt;?php
+
+&#x2F;*******************************************************************
+ * PHP Challenge 2015
+ *******************************************************************
+ * Why leave all the fun to the XSS crowd?
+ *
+ * Do you know PHP?
+ * And are you up to date with all its latest peculiarities?
+ *
+ * Are you sure?
+ *
+ * If you believe you do then solve this challenge and create an
+ * input that will make the following code believe you are the ADMIN.
+ * Becoming any other user is not good enough, but a first step.
+ *
+ * Attention this code is installed on a Mac OS X 10.9 system
+ * that is running PHP 5.4.30 !!!
+ *
+ * TIPS: OS X is mentioned because OS X never runs latest PHP
+ *       Challenge will not work with latest PHP
+ *       Also challenge will only work on 64bit systems
+ *       To solve challenge you need to combine what a normal
+ *       attacker would do when he sees this code with knowledge
+ *       about latest known PHP quirks
+ *       And you cannot bruteforce the admin password directly.
+ *       To give you an idea - first half is:
+ *          orewgfpeowöfgphewoöfeiuwgöpuerhjwfiuvuger
+ *
+ * If you know the answer please submit it to info@sektioneins.de
+ ********************************************************************&#x2F;
+
+$users &#x3D; array(
+        &quot;0:9b5c3d2b64b8f74e56edec71462bd97a&quot; ,
+        &quot;1:4eb5fb1501102508a86971773849d266&quot;,
+        &quot;2:facabd94d57fc9f1e655ef9ce891e86e&quot;,
+        &quot;3:ce3924f011fe323df3a6a95222b0c909&quot;,
+        &quot;4:7f6618422e6a7ca2e939bd83abde402c&quot;,
+        &quot;5:06e2b745f3124f7d670f78eabaa94809&quot;,
+        &quot;6:8e39a6e40900bb0824a8e150c0d0d59f&quot;,
+        &quot;7:d035e1a80bbb377ce1edce42728849f2&quot;,
+        &quot;8:0927d64a71a9d0078c274fc5f4f10821&quot;,
+        &quot;9:e2e23d64a642ee82c7a270c6c76df142&quot;,
+        &quot;10:70298593dd7ada576aff61b6750b9118&quot;
+);
+
+$valid_user &#x3D; false;
+
+$input &#x3D; $_COOKIE[&#39;user&#39;];
+$input[1] &#x3D; md5($input[1]);
+
+foreach ($users as $user)
+&#123;
+        $user &#x3D; explode(&quot;:&quot;, $user);
+        if ($input &#x3D;&#x3D;&#x3D; $user) &#123;
+                $uid &#x3D; $input[0] + 0;
+                $valid_user &#x3D; true;
+        &#125;
+&#125;
+
+if (!$valid_user) &#123;
+        die(&quot;not a valid user\n&quot;);
+&#125;
+
+if ($uid &#x3D;&#x3D; 0) &#123;
+
+        echo &quot;Hello Admin How can I serve you today?\n&quot;;
+        echo &quot;SECRETS ....\n&quot;;
+
+&#125; else &#123;
+        echo &quot;Welcome back user\n&quot;;
+&#125;
+?&gt;
+<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div> 首先来看看代码逻辑： &gt; *
+从<strong>cookie</strong>中获取<strong>user</strong> &gt; *
+遍历定义的<strong>users</strong>数组，判断传入的数据<strong>input</strong>是否等于它</p>
+<p>这里我们要绕过两个条件判断，经过md5解密网站的测试，发现只能解出这一条。
+&gt; 06e2b745f3124f7d670f78eabaa94809 //hund</p>
+<p>初步可以判断传入的数据为：<strong>Cookie:
+user[0]=5;user[1]=hund;</strong>
+这样传入数据，就可以成功绕过第一个判断，接下来只要让<strong>uid</strong>为0即可。
+根据前面给出的数组处理漏洞，分析一下PHP源码<strong>php-src/Zend/zend_hash.c</strong>
+<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">&#x2F;&#x2F;php5.2.14
+ZEND_API int zend_hash_compare(HashTable *ht1, HashTable *ht2, compare_func_t compar, zend_bool ordered TSRMLS_DC)
+&#123;
+	Bucket *p1, *p2 &#x3D; NULL;
+	int result;
+	void *pData2;
+
+	IS_CONSISTENT(ht1);
+	IS_CONSISTENT(ht2);
+
+	HASH_PROTECT_RECURSION(ht1); 
+	HASH_PROTECT_RECURSION(ht2); 
+
+	result &#x3D; ht1-&gt;nNumOfElements - ht2-&gt;nNumOfElements;
+	if (result!&#x3D;0) &#123;
+		HASH_UNPROTECT_RECURSION(ht1); 
+		HASH_UNPROTECT_RECURSION(ht2); 
+		return result;
+	&#125;
+
+	p1 &#x3D; ht1-&gt;pListHead;
+	if (ordered) &#123;
+		p2 &#x3D; ht2-&gt;pListHead;
+	&#125;
+
+	while (p1) &#123;
+		if (ordered &amp;&amp; !p2) &#123;
+			HASH_UNPROTECT_RECURSION(ht1); 
+			HASH_UNPROTECT_RECURSION(ht2); 
+			return 1; &#x2F;* That&#39;s not supposed to happen *&#x2F;
+		&#125;
+		if (ordered) &#123;
+			if (p1-&gt;nKeyLength&#x3D;&#x3D;0 &amp;&amp; p2-&gt;nKeyLength&#x3D;&#x3D;0) &#123; &#x2F;* numeric indices *&#x2F;
+				result &#x3D; p1-&gt;h - p2-&gt;h;
+				if (result!&#x3D;0) &#123;
+					HASH_UNPROTECT_RECURSION(ht1); 
+					HASH_UNPROTECT_RECURSION(ht2); 
+					return result;
+				&#125;
+			&#125; else &#123; &#x2F;* string indices *&#x2F;
+				result &#x3D; p1-&gt;nKeyLength - p2-&gt;nKeyLength;
+				if (result!&#x3D;0) &#123;
+					HASH_UNPROTECT_RECURSION(ht1); 
+					HASH_UNPROTECT_RECURSION(ht2); 
+					return result;
+				&#125;
+				result &#x3D; memcmp(p1-&gt;arKey, p2-&gt;arKey, p1-&gt;nKeyLength);
+				if (result!&#x3D;0) &#123;
+					HASH_UNPROTECT_RECURSION(ht1); 
+					HASH_UNPROTECT_RECURSION(ht2); 
+					return result;
+				&#125;
+			&#125;
+			pData2 &#x3D; p2-&gt;pData;
+		&#125; else &#123;
+			if (p1-&gt;nKeyLength&#x3D;&#x3D;0) &#123; &#x2F;* numeric index *&#x2F;
+				if (zend_hash_index_find(ht2, p1-&gt;h, &amp;pData2)&#x3D;&#x3D;FAILURE) &#123;
+					HASH_UNPROTECT_RECURSION(ht1); 
+					HASH_UNPROTECT_RECURSION(ht2); 
+					return 1;
+				&#125;
+			&#125; else &#123; &#x2F;* string index *&#x2F;
+				if (zend_hash_quick_find(ht2, p1-&gt;arKey, p1-&gt;nKeyLength, p1-&gt;h, &amp;pData2)&#x3D;&#x3D;FAILURE) &#123;
+					HASH_UNPROTECT_RECURSION(ht1); 
+					HASH_UNPROTECT_RECURSION(ht2); 
+					return 1;
+				&#125;
+			&#125;
+		&#125;
+		result &#x3D; compar(p1-&gt;pData, pData2 TSRMLS_CC);
+		if (result!&#x3D;0) &#123;
+			HASH_UNPROTECT_RECURSION(ht1); 
+			HASH_UNPROTECT_RECURSION(ht2); 
+			return result;
+		&#125;
+		p1 &#x3D; p1-&gt;pListNext;
+		if (ordered) &#123;
+			p2 &#x3D; p2-&gt;pListNext;
+		&#125;
+	&#125;
+	
+	HASH_UNPROTECT_RECURSION(ht1); 
+	HASH_UNPROTECT_RECURSION(ht2); 
+	return 0;
+&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<p>bucket结构体： <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct bucket &#123;
+	ulong h;						&#x2F;* Used for numeric indexing *&#x2F;
+	uint nKeyLength;
+	void *pData;
+	void *pDataPtr;
+	struct bucket *pListNext;
+	struct bucket *pListLast;
+	struct bucket *pNext;
+	struct bucket *pLast;
+	char arKey[1]; &#x2F;* Must be last element *&#x2F;
+&#125; Bucket;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div> 关键点就在<strong>result = p1-&gt;h -
+p2-&gt;h</strong>，在<strong>unsigned
+long</strong>转为<strong>int</strong>时会少掉4个字节。
+4294967296转为int就为0。 最终payload： &gt; <strong>Cookie:
+user[4294967296]=5;user[1]=hund;</strong></p>
+<h1 id="总结">总结</h1>
+<p>不断的前进</p>
+
+            </div>
+            <hr>
+            <div>
+              <div class="post-metas mb-3">
+                
+                  <div class="post-meta mr-3">
+                    <i class="iconfont icon-category"></i>
+                    
+                      <a class="hover-with-bg" href="/categories/Web%E5%AE%89%E5%85%A8/">Web安全</a>
+                    
+                      <a class="hover-with-bg" href="/categories/Web%E5%AE%89%E5%85%A8/CTF/">CTF</a>
+                    
+                  </div>
+                
+                
+                  <div class="post-meta">
+                    <i class="iconfont icon-tags"></i>
+                    
+                      <a class="hover-with-bg" href="/tags/CTF/">CTF</a>
+                    
+                      <a class="hover-with-bg" href="/tags/PHP%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1/">PHP代码审计</a>
+                    
+                      <a class="hover-with-bg" href="/tags/%E5%AE%89%E5%85%A8/">安全</a>
+                    
+                  </div>
+                
+              </div>
+              
+                <p class="note note-warning">
+                  
+                    本博客所有文章除特别声明外，均采用 <a target="_blank" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh" rel="nofollow noopener noopener">CC BY-SA 4.0 协议</a> ，转载请注明出处！
+                  
+                </p>
+              
+              
+                <div class="post-prevnext">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2018/Web%E5%AE%89%E5%85%A8/PHP-Challenge-1/">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">PHP-Challenge-1</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2018/Web%E5%AE%89%E5%85%A8/php-weak-type/">
+                        <span class="hidden-mobile">PHP弱类型产生的安全问题</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+          </article>
+        </div>
+      </div>
+    </div>
+    
+      <div class="d-none d-lg-block col-lg-2 toc-container" id="toc-ctn">
+        <div id="toc">
+  <p class="toc-header"><i class="iconfont icon-list"></i>&nbsp;目录</p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+      </div>
+    
+  </div>
+</div>
+
+<!-- Custom -->
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v"
+                 for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+
+    
+  </main>
+
+  <footer class="text-center mt-5 py-3">
+  <div class="footer-content">
+     <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
+  </div>
+  
+
+  
+
+  
+</footer>
+
+
+  <!-- SCRIPTS -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+<!-- Plugins -->
+
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+  
+    
+  
+
+
+
+  
+    <script  src="https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js" ></script>
+  
+  
+    <script  src="https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js" ></script>
+  
+  
+    <script defer src="https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js" ></script>
+  
+
+
+
+
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var title = document.getElementById('subtitle').title;
+      
+        typing(title);
+      
+    })(window, document);
+  </script>
+
+
+
+
+
+  
+
+  
+    <!-- MathJax -->
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        },
+        loader: {
+          load: ['ui/lazy']
+        },
+        options: {
+          renderActions: {
+            findScript: [10, doc => {
+              document.querySelectorAll('script[type^="math/tex"]').forEach(node => {
+                const display = !!node.type.match(/; *mode=display/);
+                const math = new doc.options.MathItem(node.textContent, doc.inputJax[0], display);
+                const text = document.createTextNode('');
+                node.parentNode.replaceChild(text, node);
+                math.start = { node: text, delim: '', n: 0 };
+                math.end = { node: text, delim: '', n: 0 };
+                doc.math.push(math);
+              });
+            }, '', false],
+            insertedScript: [200, () => {
+              document.querySelectorAll('mjx-container').forEach(node => {
+                let target = node.parentNode;
+                if (target.nodeName.toLowerCase() === 'li') {
+                  target.parentNode.classList.add('has-jax');
+                }
+              });
+            }, '', false]
+          }
+        }
+      };
+    </script>
+
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" ></script>
+
+  
+
+
+
+
+
+
+
+
+  
+    <!-- Baidu Analytics -->
+    <script defer>
+      var _hmt = _hmt || [];
+      (function () {
+        var hm = document.createElement("script");
+        hm.src = "https://hm.baidu.com/hm.js?14b7dca7880e79dfe4d7db3cfc3b7e98";
+        var s = document.getElementsByTagName("script")[0];
+        s.parentNode.insertBefore(hm, s);
+      })();
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项 保持在最底部 -->
+<script  src="/js/boot.js" ></script>
+
+
+</body>
+</html>
