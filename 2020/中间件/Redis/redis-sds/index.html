@@ -18,12 +18,12 @@
   <meta name="author" content="Lin Wang">
   <meta name="keywords" content="l1nker4">
   
-    <meta name="description" content="简介 简单动态字符串(Simple Dynamic Strings)是Redis的基本数据结构之一，主要用于存储字符串和整型数据。SDS兼容C语言标准字符串处理函数，同时保证了二进制安全。 数据结构 原始版本 在Redis 3.2之前，SDS基本结构如下： struct &amp;#123;     &#x2F;&#x2F;buf中已使用字节数     int len;     &#x2F;&amp;#">
+    <meta name="description" content="简介 简单动态字符串(Simple Dynamic Strings)是Redis的基本数据结构之一，主要用于存储字符串和整型数据。SDS兼容C语言标准字符串处理函数，同时保证了二进制安全。 数据结构 原始版本 在Redis 3.2之前，SDS基本结构如下： struct &amp;#123;     &#x2F;&#x2F;buf中已使用字节数     int len;     &#x2F;&#x2F;buf中剩余字节数     in">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Redis底层数据结构-SDS源码分析">
 <meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-sds/index.html">
 <meta property="og:site_name" content="Lin&#39;s Blog">
-<meta property="og:description" content="简介 简单动态字符串(Simple Dynamic Strings)是Redis的基本数据结构之一，主要用于存储字符串和整型数据。SDS兼容C语言标准字符串处理函数，同时保证了二进制安全。 数据结构 原始版本 在Redis 3.2之前，SDS基本结构如下： struct &amp;#123;     &#x2F;&#x2F;buf中已使用字节数     int len;     &#x2F;&amp;#">
+<meta property="og:description" content="简介 简单动态字符串(Simple Dynamic Strings)是Redis的基本数据结构之一，主要用于存储字符串和整型数据。SDS兼容C语言标准字符串处理函数，同时保证了二进制安全。 数据结构 原始版本 在Redis 3.2之前，SDS基本结构如下： struct &amp;#123;     &#x2F;&#x2F;buf中已使用字节数     int len;     &#x2F;&#x2F;buf中剩余字节数     in">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2020-05-24T10:59:27.000Z">
 <meta property="article:modified_time" content="2020-05-29T10:31:34.940Z">
@@ -46,17 +46,7 @@
     
     
       
-      
-        
-          
-          
-          
-        
-        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-coy.min.css" />
-      
-      
-        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/line-numbers/prism-line-numbers.min.css" />
-      
+      <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@10/styles/github-gist.min.css" />
     
   
 
@@ -207,7 +197,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      6.7k 字
+      5.7k 字
     </span>
   
 
@@ -216,7 +206,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      56 分钟
+      48 分钟
     </span>
   
 
@@ -253,264 +243,264 @@
 Strings)是Redis的基本数据结构之一，主要用于存储字符串和整型数据。SDS兼容C语言标准字符串处理函数，同时保证了二进制安全。</p>
 <h1 id="数据结构">数据结构</h1>
 <h2 id="原始版本">原始版本</h2>
-<p>在Redis 3.2之前，SDS基本结构如下： <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">struct &#123;
-    &#x2F;&#x2F;buf中已使用字节数
-    int len;
-    &#x2F;&#x2F;buf中剩余字节数
-    int free;
-    &#x2F;&#x2F;数据
-    char buf[];
-&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<p>在Redis 3.2之前，SDS基本结构如下： <div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-class"><span class="hljs-keyword">struct</span> &#123;</span>
+    <span class="hljs-comment">//buf中已使用字节数</span>
+    <span class="hljs-type">int</span> len;
+    <span class="hljs-comment">//buf中剩余字节数</span>
+    <span class="hljs-type">int</span> <span class="hljs-built_in">free</span>;
+    <span class="hljs-comment">//数据</span>
+    <span class="hljs-type">char</span> buf[];
+&#125;</code></pre></div></p>
 <p>该结构有如下几个优点： -
 有单独的变量存储字符串长度，由于有长度，不会依赖于<code>\0</code>终止符，保证二进制安全。
 - 字符串存储在buf数组中，兼容C处理字符串的函数。</p>
 <h2 id="改进">改进</h2>
 <p>Redis 3.2之后，采用如下结构进行存储。</p>
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">struct __attribute__ ((__packed__)) sdshdr5 &#123;
-    unsigned char flags; &#x2F;* 3 lsb of type, and 5 msb of string length *&#x2F;
-    char buf[];
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">attribute__</span> ((__<span class="hljs-title">packed__</span>)) <span class="hljs-title">sdshdr5</span> &#123;</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> flags; <span class="hljs-comment">/* 3 lsb of type, and 5 msb of string length */</span>
+    <span class="hljs-type">char</span> buf[];
 &#125;;
-struct __attribute__ ((__packed__)) sdshdr8 &#123;
-    uint8_t len; &#x2F;* used *&#x2F;
-    uint8_t alloc; &#x2F;* excluding the header and null terminator *&#x2F;
-    unsigned char flags; &#x2F;* 3 lsb of type, 5 unused bits *&#x2F;
-    char buf[];
+<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">attribute__</span> ((__<span class="hljs-title">packed__</span>)) <span class="hljs-title">sdshdr8</span> &#123;</span>
+    <span class="hljs-type">uint8_t</span> len; <span class="hljs-comment">/* used */</span>
+    <span class="hljs-type">uint8_t</span> alloc; <span class="hljs-comment">/* excluding the header and null terminator */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> flags; <span class="hljs-comment">/* 3 lsb of type, 5 unused bits */</span>
+    <span class="hljs-type">char</span> buf[];
 &#125;;
-struct __attribute__ ((__packed__)) sdshdr16 &#123;
-    uint16_t len; &#x2F;* used *&#x2F;
-    uint16_t alloc; &#x2F;* excluding the header and null terminator *&#x2F;
-    unsigned char flags; &#x2F;* 3 lsb of type, 5 unused bits *&#x2F;
-    char buf[];
+<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">attribute__</span> ((__<span class="hljs-title">packed__</span>)) <span class="hljs-title">sdshdr16</span> &#123;</span>
+    <span class="hljs-type">uint16_t</span> len; <span class="hljs-comment">/* used */</span>
+    <span class="hljs-type">uint16_t</span> alloc; <span class="hljs-comment">/* excluding the header and null terminator */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> flags; <span class="hljs-comment">/* 3 lsb of type, 5 unused bits */</span>
+    <span class="hljs-type">char</span> buf[];
 &#125;;
-struct __attribute__ ((__packed__)) sdshdr32 &#123;
-    uint32_t len; &#x2F;* used *&#x2F;
-    uint32_t alloc; &#x2F;* excluding the header and null terminator *&#x2F;
-    unsigned char flags; &#x2F;* 3 lsb of type, 5 unused bits *&#x2F;
-    char buf[];
+<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">attribute__</span> ((__<span class="hljs-title">packed__</span>)) <span class="hljs-title">sdshdr32</span> &#123;</span>
+    <span class="hljs-type">uint32_t</span> len; <span class="hljs-comment">/* used */</span>
+    <span class="hljs-type">uint32_t</span> alloc; <span class="hljs-comment">/* excluding the header and null terminator */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> flags; <span class="hljs-comment">/* 3 lsb of type, 5 unused bits */</span>
+    <span class="hljs-type">char</span> buf[];
 &#125;;
-struct __attribute__ ((__packed__)) sdshdr64 &#123;
-    uint64_t len; &#x2F;* used *&#x2F;
-    uint64_t alloc; &#x2F;* excluding the header and null terminator *&#x2F;
-    unsigned char flags; &#x2F;* 3 lsb of type, 5 unused bits *&#x2F;
-    char buf[];
+<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">attribute__</span> ((__<span class="hljs-title">packed__</span>)) <span class="hljs-title">sdshdr64</span> &#123;</span>
+    <span class="hljs-type">uint64_t</span> len; <span class="hljs-comment">/* used */</span>
+    <span class="hljs-type">uint64_t</span> alloc; <span class="hljs-comment">/* excluding the header and null terminator */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> flags; <span class="hljs-comment">/* 3 lsb of type, 5 unused bits */</span>
+    <span class="hljs-type">char</span> buf[];
 &#125;;
-<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+</code></pre></div>
 <p>sdshdr5中采用位来存储相关信息，其中flags占1字节，其中低3位用来表示type，高5位表示长度，所以长度区间为（0
 ~
 31），所以长度大于31的字符串需要采用sdshdr8及以上存储。sdshdr8中flags低3位存储类型，剩余5位闲置。以下是字符串类型的宏定义：
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">#define SDS_TYPE_5  0
-#define SDS_TYPE_8  1
-#define SDS_TYPE_16 2
-#define SDS_TYPE_32 3
-#define SDS_TYPE_64 4<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_TYPE_5  0</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_TYPE_8  1</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_TYPE_16 2</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_TYPE_32 3</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_TYPE_64 4</span></code></pre></div></p>
 <h3 id="对齐">对齐</h3>
 <p>GCC支持用<code>__attribute__</code>为变量、类型、函数、标签指定特殊属性。这些不是编程语言标准里的内容，而属于编译器对语言的扩展。在声明SDS结构时，采用了<code>__attribute__ ((__packed__))</code>，它告诉编译器结构体使用1字节对齐。使用<code>packed</code>属性可以节省内存，同时统一多个结构的指针访问。</p>
 <h1 id="接口">接口</h1>
 <h2 id="sdsnewlen">sdsnewlen</h2>
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">sds sdsnewlen(const void *init, size_t initlen) &#123;
-    void *sh;
+<div class="code-wrapper"><pre><code class="hljs C">sds <span class="hljs-title function_">sdsnewlen</span><span class="hljs-params">(<span class="hljs-type">const</span> <span class="hljs-type">void</span> *init, <span class="hljs-type">size_t</span> initlen)</span> &#123;
+    <span class="hljs-type">void</span> *sh;
     sds s;
-    &#x2F;&#x2F;根据字符串长度获取对应的类型
-    char type &#x3D; sdsReqType(initlen);
-    &#x2F;* Empty strings are usually created in order to append. Use type 8
-     * since type 5 is not good at this. *&#x2F;
-     &#x2F;&#x2F;将SDS_TYPE_5转成SDS_TYPE_5
-    if (type &#x3D;&#x3D; SDS_TYPE_5 &amp;&amp; initlen &#x3D;&#x3D; 0) type &#x3D; SDS_TYPE_8;
-    &#x2F;&#x2F;计算对应结构体头部所需字节数
-    int hdrlen &#x3D; sdsHdrSize(type);
-    &#x2F;&#x2F;指向flags的指针
-    unsigned char *fp; &#x2F;* flags pointer. *&#x2F;
-    &#x2F;&#x2F;分配内存空间
-    sh &#x3D; s_malloc(hdrlen+initlen+1);
-    &#x2F;&#x2F;判断是否为&quot;SDS_NOINIT&quot;
-    if (init&#x3D;&#x3D;SDS_NOINIT)
-        init &#x3D; NULL;
-    else if (!init)
-        &#x2F;&#x2F;初始化结构体空间数据
-        memset(sh, 0, hdrlen+initlen+1);
-    if (sh &#x3D;&#x3D; NULL) return NULL;
-    &#x2F;&#x2F;s是指向buf的指针
-    s &#x3D; (char*)sh+hdrlen;
-    &#x2F;&#x2F;指向flags
-    fp &#x3D; ((unsigned char*)s)-1;
-    &#x2F;&#x2F;针对不同结构体类型进行初始化操作
-    switch(type) &#123;
-        case SDS_TYPE_5: &#123;
-            *fp &#x3D; type | (initlen &lt;&lt; SDS_TYPE_BITS);
-            break;
+    <span class="hljs-comment">//根据字符串长度获取对应的类型</span>
+    <span class="hljs-type">char</span> type = sdsReqType(initlen);
+    <span class="hljs-comment">/* Empty strings are usually created in order to append. Use type 8</span>
+<span class="hljs-comment">     * since type 5 is not good at this. */</span>
+     <span class="hljs-comment">//将SDS_TYPE_5转成SDS_TYPE_5</span>
+    <span class="hljs-keyword">if</span> (type == SDS_TYPE_5 &amp;&amp; initlen == <span class="hljs-number">0</span>) type = SDS_TYPE_8;
+    <span class="hljs-comment">//计算对应结构体头部所需字节数</span>
+    <span class="hljs-type">int</span> hdrlen = sdsHdrSize(type);
+    <span class="hljs-comment">//指向flags的指针</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *fp; <span class="hljs-comment">/* flags pointer. */</span>
+    <span class="hljs-comment">//分配内存空间</span>
+    sh = s_malloc(hdrlen+initlen+<span class="hljs-number">1</span>);
+    <span class="hljs-comment">//判断是否为&quot;SDS_NOINIT&quot;</span>
+    <span class="hljs-keyword">if</span> (init==SDS_NOINIT)
+        init = <span class="hljs-literal">NULL</span>;
+    <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!init)
+        <span class="hljs-comment">//初始化结构体空间数据</span>
+        <span class="hljs-built_in">memset</span>(sh, <span class="hljs-number">0</span>, hdrlen+initlen+<span class="hljs-number">1</span>);
+    <span class="hljs-keyword">if</span> (sh == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+    <span class="hljs-comment">//s是指向buf的指针</span>
+    s = (<span class="hljs-type">char</span>*)sh+hdrlen;
+    <span class="hljs-comment">//指向flags</span>
+    fp = ((<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span>*)s)<span class="hljs-number">-1</span>;
+    <span class="hljs-comment">//针对不同结构体类型进行初始化操作</span>
+    <span class="hljs-keyword">switch</span>(type) &#123;
+        <span class="hljs-keyword">case</span> SDS_TYPE_5: &#123;
+            *fp = type | (initlen &lt;&lt; SDS_TYPE_BITS);
+            <span class="hljs-keyword">break</span>;
         &#125;
-        case SDS_TYPE_8: &#123;
-            SDS_HDR_VAR(8,s);
-            sh-&gt;len &#x3D; initlen;
-            sh-&gt;alloc &#x3D; initlen;
-            *fp &#x3D; type;
-            break;
+        <span class="hljs-keyword">case</span> SDS_TYPE_8: &#123;
+            SDS_HDR_VAR(<span class="hljs-number">8</span>,s);
+            sh-&gt;len = initlen;
+            sh-&gt;alloc = initlen;
+            *fp = type;
+            <span class="hljs-keyword">break</span>;
         &#125;
-        case SDS_TYPE_16: &#123;
-            SDS_HDR_VAR(16,s);
-            sh-&gt;len &#x3D; initlen;
-            sh-&gt;alloc &#x3D; initlen;
-            *fp &#x3D; type;
-            break;
+        <span class="hljs-keyword">case</span> SDS_TYPE_16: &#123;
+            SDS_HDR_VAR(<span class="hljs-number">16</span>,s);
+            sh-&gt;len = initlen;
+            sh-&gt;alloc = initlen;
+            *fp = type;
+            <span class="hljs-keyword">break</span>;
         &#125;
-        case SDS_TYPE_32: &#123;
-            SDS_HDR_VAR(32,s);
-            sh-&gt;len &#x3D; initlen;
-            sh-&gt;alloc &#x3D; initlen;
-            *fp &#x3D; type;
-            break;
+        <span class="hljs-keyword">case</span> SDS_TYPE_32: &#123;
+            SDS_HDR_VAR(<span class="hljs-number">32</span>,s);
+            sh-&gt;len = initlen;
+            sh-&gt;alloc = initlen;
+            *fp = type;
+            <span class="hljs-keyword">break</span>;
         &#125;
-        case SDS_TYPE_64: &#123;
-            SDS_HDR_VAR(64,s);
-            sh-&gt;len &#x3D; initlen;
-            sh-&gt;alloc &#x3D; initlen;
-            *fp &#x3D; type;
-            break;
+        <span class="hljs-keyword">case</span> SDS_TYPE_64: &#123;
+            SDS_HDR_VAR(<span class="hljs-number">64</span>,s);
+            sh-&gt;len = initlen;
+            sh-&gt;alloc = initlen;
+            *fp = type;
+            <span class="hljs-keyword">break</span>;
         &#125;
     &#125;
-    &#x2F;&#x2F;如果两个参数不为0，将字符串数据复制到buf数组
-    if (initlen &amp;&amp; init)
-        memcpy(s, init, initlen);
-    s[initlen] &#x3D; &#39;\0&#39;;
-    return s;
-&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+    <span class="hljs-comment">//如果两个参数不为0，将字符串数据复制到buf数组</span>
+    <span class="hljs-keyword">if</span> (initlen &amp;&amp; init)
+        <span class="hljs-built_in">memcpy</span>(s, init, initlen);
+    s[initlen] = <span class="hljs-string">&#x27;\0&#x27;</span>;
+    <span class="hljs-keyword">return</span> s;
+&#125;</code></pre></div>
 <h2 id="sdsfree">sdsfree</h2>
 <p>通过定位SDS的头部，调用<code>s_free</code>释放内存。为了减少申请内存的开销，SDS可以提供<code>sdsclear</code>进行重置达到清空的目的。
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">&#x2F;* Free an sds string. No operation is performed if &#39;s&#39; is NULL. *&#x2F;
-void sdsfree(sds s) &#123;
-    if (s &#x3D;&#x3D; NULL) return;
-    s_free((char*)s-sdsHdrSize(s[-1]));<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-comment">/* Free an sds string. No operation is performed if &#x27;s&#x27; is NULL. */</span>
+<span class="hljs-type">void</span> <span class="hljs-title function_">sdsfree</span><span class="hljs-params">(sds s)</span> &#123;
+    <span class="hljs-keyword">if</span> (s == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span>;
+    s_free((<span class="hljs-type">char</span>*)s-sdsHdrSize(s[<span class="hljs-number">-1</span>]));</code></pre></div></p>
 <h2 id="sdsclear">sdsclear</h2>
 <p>该方法将字符串长度设置为0，同时将数组第一个元素置为终止符。
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">void sdsclear(sds s) &#123;
-    sdssetlen(s, 0);
-    s[0] &#x3D; &#39;\0&#39;;
-&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-type">void</span> <span class="hljs-title function_">sdsclear</span><span class="hljs-params">(sds s)</span> &#123;
+    sdssetlen(s, <span class="hljs-number">0</span>);
+    s[<span class="hljs-number">0</span>] = <span class="hljs-string">&#x27;\0&#x27;</span>;
+&#125;</code></pre></div></p>
 <h2 id="sdscatsds">sdscatsds</h2>
-<p>通过调用<code>sdscatlen</code>实现拼接逻辑。 <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">sds sdscatsds(sds s, const sds t) &#123;
-    return sdscatlen(s, t, sdslen(t));
+<p>通过调用<code>sdscatlen</code>实现拼接逻辑。 <div class="code-wrapper"><pre><code class="hljs C">sds <span class="hljs-title function_">sdscatsds</span><span class="hljs-params">(sds s, <span class="hljs-type">const</span> sds t)</span> &#123;
+    <span class="hljs-keyword">return</span> sdscatlen(s, t, sdslen(t));
 &#125;
 
-sds sdscatlen(sds s, const void *t, size_t len) &#123;
-    size_t curlen &#x3D; sdslen(s);
-    &#x2F;&#x2F;对buf进行扩容，会进行扩容检测
-    s &#x3D; sdsMakeRoomFor(s,len);
-    if (s &#x3D;&#x3D; NULL) return NULL;
-    &#x2F;&#x2F;调用memcpy实现拼接
-    memcpy(s+curlen, t, len);
-    &#x2F;&#x2F;更新长度
+sds <span class="hljs-title function_">sdscatlen</span><span class="hljs-params">(sds s, <span class="hljs-type">const</span> <span class="hljs-type">void</span> *t, <span class="hljs-type">size_t</span> len)</span> &#123;
+    <span class="hljs-type">size_t</span> curlen = sdslen(s);
+    <span class="hljs-comment">//对buf进行扩容，会进行扩容检测</span>
+    s = sdsMakeRoomFor(s,len);
+    <span class="hljs-keyword">if</span> (s == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+    <span class="hljs-comment">//调用memcpy实现拼接</span>
+    <span class="hljs-built_in">memcpy</span>(s+curlen, t, len);
+    <span class="hljs-comment">//更新长度</span>
     sdssetlen(s, curlen+len);
-    &#x2F;&#x2F;设置终止符
-    s[curlen+len] &#x3D; &#39;\0&#39;;
-    return s;
-&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+    <span class="hljs-comment">//设置终止符</span>
+    s[curlen+len] = <span class="hljs-string">&#x27;\0&#x27;</span>;
+    <span class="hljs-keyword">return</span> s;
+&#125;</code></pre></div></p>
 <h2 id="sdsmakeroomfor">sdsMakeRoomFor</h2>
-<p>SDS扩容操作： <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">#define SDS_MAX_PREALLOC (1024*1024)
+<p>SDS扩容操作： <div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_MAX_PREALLOC (1024*1024)</span>
 
-sds sdsMakeRoomFor(sds s, size_t addlen) &#123;
-    void *sh, *newsh;
-    &#x2F;&#x2F;剩余有效空间
-    size_t avail &#x3D; sdsavail(s);
-    size_t len, newlen;
-    char type, oldtype &#x3D; s[-1] &amp; SDS_TYPE_MASK;
-    int hdrlen;
+sds <span class="hljs-title function_">sdsMakeRoomFor</span><span class="hljs-params">(sds s, <span class="hljs-type">size_t</span> addlen)</span> &#123;
+    <span class="hljs-type">void</span> *sh, *newsh;
+    <span class="hljs-comment">//剩余有效空间</span>
+    <span class="hljs-type">size_t</span> avail = sdsavail(s);
+    <span class="hljs-type">size_t</span> len, newlen;
+    <span class="hljs-type">char</span> type, oldtype = s[<span class="hljs-number">-1</span>] &amp; SDS_TYPE_MASK;
+    <span class="hljs-type">int</span> hdrlen;
 
-    &#x2F;&#x2F;判断有效空间是否大于需要增加的空间大小
-    if (avail &gt;&#x3D; addlen) return s;
-    &#x2F;&#x2F;sds已使用长度
-    len &#x3D; sdslen(s);
-    sh &#x3D; (char*)s-sdsHdrSize(oldtype);
-    &#x2F;&#x2F;新长度
-    newlen &#x3D; (len+addlen);
-    &#x2F;&#x2F;define SDS_MAX_PREALLOC (1024*1024)
-    &#x2F;&#x2F;如果新长度 &lt; 1MB，扩大两倍
-    if (newlen &lt; SDS_MAX_PREALLOC)
-        newlen *&#x3D; 2;
-    else
-        &#x2F;&#x2F;否则扩大1MB
-        newlen +&#x3D; SDS_MAX_PREALLOC;
+    <span class="hljs-comment">//判断有效空间是否大于需要增加的空间大小</span>
+    <span class="hljs-keyword">if</span> (avail &gt;= addlen) <span class="hljs-keyword">return</span> s;
+    <span class="hljs-comment">//sds已使用长度</span>
+    len = sdslen(s);
+    sh = (<span class="hljs-type">char</span>*)s-sdsHdrSize(oldtype);
+    <span class="hljs-comment">//新长度</span>
+    newlen = (len+addlen);
+    <span class="hljs-comment">//define SDS_MAX_PREALLOC (1024*1024)</span>
+    <span class="hljs-comment">//如果新长度 &lt; 1MB，扩大两倍</span>
+    <span class="hljs-keyword">if</span> (newlen &lt; SDS_MAX_PREALLOC)
+        newlen *= <span class="hljs-number">2</span>;
+    <span class="hljs-keyword">else</span>
+        <span class="hljs-comment">//否则扩大1MB</span>
+        newlen += SDS_MAX_PREALLOC;
 
-    &#x2F;&#x2F;根据新长度获取对应type
-    type &#x3D; sdsReqType(newlen);
+    <span class="hljs-comment">//根据新长度获取对应type</span>
+    type = sdsReqType(newlen);
 
-    &#x2F;* Don&#39;t use type 5: the user is appending to the string and type 5 is
-     * not able to remember empty space, so sdsMakeRoomFor() must be called
-     * at every appending operation. *&#x2F;
-    if (type &#x3D;&#x3D; SDS_TYPE_5) type &#x3D; SDS_TYPE_8;
-    &#x2F;&#x2F;
-    hdrlen &#x3D; sdsHdrSize(type);
-    if (oldtype&#x3D;&#x3D;type) &#123;
-        &#x2F;&#x2F;无需更改type，通过s_realloc扩大buf数组即可
-        newsh &#x3D; s_realloc(sh, hdrlen+newlen+1);
-        if (newsh &#x3D;&#x3D; NULL) return NULL;
-        s &#x3D; (char*)newsh+hdrlen;
-    &#125; else &#123;
-        &#x2F;* Since the header size changes, need to move the string forward,
-         * and can&#39;t use realloc *&#x2F;
-         &#x2F;&#x2F;按新的数组长度申请内存
-        newsh &#x3D; s_malloc(hdrlen+newlen+1);
-        if (newsh &#x3D;&#x3D; NULL) return NULL;
-        &#x2F;&#x2F;将buf移动到新位置
-        memcpy((char*)newsh+hdrlen, s, len+1);
-        &#x2F;&#x2F;释放原来的指针
+    <span class="hljs-comment">/* Don&#x27;t use type 5: the user is appending to the string and type 5 is</span>
+<span class="hljs-comment">     * not able to remember empty space, so sdsMakeRoomFor() must be called</span>
+<span class="hljs-comment">     * at every appending operation. */</span>
+    <span class="hljs-keyword">if</span> (type == SDS_TYPE_5) type = SDS_TYPE_8;
+    <span class="hljs-comment">//</span>
+    hdrlen = sdsHdrSize(type);
+    <span class="hljs-keyword">if</span> (oldtype==type) &#123;
+        <span class="hljs-comment">//无需更改type，通过s_realloc扩大buf数组即可</span>
+        newsh = s_realloc(sh, hdrlen+newlen+<span class="hljs-number">1</span>);
+        <span class="hljs-keyword">if</span> (newsh == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+        s = (<span class="hljs-type">char</span>*)newsh+hdrlen;
+    &#125; <span class="hljs-keyword">else</span> &#123;
+        <span class="hljs-comment">/* Since the header size changes, need to move the string forward,</span>
+<span class="hljs-comment">         * and can&#x27;t use realloc */</span>
+         <span class="hljs-comment">//按新的数组长度申请内存</span>
+        newsh = s_malloc(hdrlen+newlen+<span class="hljs-number">1</span>);
+        <span class="hljs-keyword">if</span> (newsh == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+        <span class="hljs-comment">//将buf移动到新位置</span>
+        <span class="hljs-built_in">memcpy</span>((<span class="hljs-type">char</span>*)newsh+hdrlen, s, len+<span class="hljs-number">1</span>);
+        <span class="hljs-comment">//释放原来的指针</span>
         s_free(sh);
-        &#x2F;&#x2F;s是指向buf起始位置的指针
-        s &#x3D; (char*)newsh+hdrlen;
-        &#x2F;&#x2F;赋值flags
-        s[-1] &#x3D; type;
-        &#x2F;&#x2F;设置新的字符串长度
+        <span class="hljs-comment">//s是指向buf起始位置的指针</span>
+        s = (<span class="hljs-type">char</span>*)newsh+hdrlen;
+        <span class="hljs-comment">//赋值flags</span>
+        s[<span class="hljs-number">-1</span>] = type;
+        <span class="hljs-comment">//设置新的字符串长度</span>
         sdssetlen(s, len);
     &#125;
-    &#x2F;&#x2F;设置新的数组长度
+    <span class="hljs-comment">//设置新的数组长度</span>
     sdssetalloc(s, newlen);
-    return s;
-&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+    <span class="hljs-keyword">return</span> s;
+&#125;</code></pre></div></p>
 <h2 id="sdsremovefreespace">sdsRemoveFreeSpace</h2>
 <p>缩容操作：</p>
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">sds sdsRemoveFreeSpace(sds s) &#123;
-    void *sh, *newsh;
-    char type, oldtype &#x3D; s[-1] &amp; SDS_TYPE_MASK;
-    int hdrlen, oldhdrlen &#x3D; sdsHdrSize(oldtype);
-    &#x2F;&#x2F;字符串长度
-    size_t len &#x3D; sdslen(s);
-    &#x2F;&#x2F;剩余有效长度
-    size_t avail &#x3D; sdsavail(s);
-    sh &#x3D; (char*)s-oldhdrlen;
+<div class="code-wrapper"><pre><code class="hljs C">sds <span class="hljs-title function_">sdsRemoveFreeSpace</span><span class="hljs-params">(sds s)</span> &#123;
+    <span class="hljs-type">void</span> *sh, *newsh;
+    <span class="hljs-type">char</span> type, oldtype = s[<span class="hljs-number">-1</span>] &amp; SDS_TYPE_MASK;
+    <span class="hljs-type">int</span> hdrlen, oldhdrlen = sdsHdrSize(oldtype);
+    <span class="hljs-comment">//字符串长度</span>
+    <span class="hljs-type">size_t</span> len = sdslen(s);
+    <span class="hljs-comment">//剩余有效长度</span>
+    <span class="hljs-type">size_t</span> avail = sdsavail(s);
+    sh = (<span class="hljs-type">char</span>*)s-oldhdrlen;
 
     如果不需要缩容直接返回
-    if (avail &#x3D;&#x3D; 0) return s;
+    <span class="hljs-keyword">if</span> (avail == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> s;
 
-    &#x2F;&#x2F;根据长度获取类型
-    type &#x3D; sdsReqType(len);
-    &#x2F;&#x2F;获取头部长度
-    hdrlen &#x3D; sdsHdrSize(type);
+    <span class="hljs-comment">//根据长度获取类型</span>
+    type = sdsReqType(len);
+    <span class="hljs-comment">//获取头部长度</span>
+    hdrlen = sdsHdrSize(type);
 
-    &#x2F;* If the type is the same, or at least a large enough type is still
-     * required, we just realloc(), letting the allocator to do the copy
-     * only if really needed. Otherwise if the change is huge, we manually
-     * reallocate the string to use the different header type. *&#x2F;
-     &#x2F;&#x2F;如果原始类型和更新类型相似，或者type &gt; SDS_TYPE_8
-    if (oldtype&#x3D;&#x3D;type || type &gt; SDS_TYPE_8) &#123;
-    &#x2F;&#x2F;重分配
-        newsh &#x3D; s_realloc(sh, oldhdrlen+len+1);
-        if (newsh &#x3D;&#x3D; NULL) return NULL;
-        s &#x3D; (char*)newsh+oldhdrlen;
-    &#125; else &#123;
-    &#x2F;&#x2F;申请内存空间
-        newsh &#x3D; s_malloc(hdrlen+len+1);
-        if (newsh &#x3D;&#x3D; NULL) return NULL;
-        &#x2F;&#x2F;复制
-        memcpy((char*)newsh+hdrlen, s, len+1);
-        &#x2F;&#x2F;释放指针
+    <span class="hljs-comment">/* If the type is the same, or at least a large enough type is still</span>
+<span class="hljs-comment">     * required, we just realloc(), letting the allocator to do the copy</span>
+<span class="hljs-comment">     * only if really needed. Otherwise if the change is huge, we manually</span>
+<span class="hljs-comment">     * reallocate the string to use the different header type. */</span>
+     <span class="hljs-comment">//如果原始类型和更新类型相似，或者type &gt; SDS_TYPE_8</span>
+    <span class="hljs-keyword">if</span> (oldtype==type || type &gt; SDS_TYPE_8) &#123;
+    <span class="hljs-comment">//重分配</span>
+        newsh = s_realloc(sh, oldhdrlen+len+<span class="hljs-number">1</span>);
+        <span class="hljs-keyword">if</span> (newsh == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+        s = (<span class="hljs-type">char</span>*)newsh+oldhdrlen;
+    &#125; <span class="hljs-keyword">else</span> &#123;
+    <span class="hljs-comment">//申请内存空间</span>
+        newsh = s_malloc(hdrlen+len+<span class="hljs-number">1</span>);
+        <span class="hljs-keyword">if</span> (newsh == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+        <span class="hljs-comment">//复制</span>
+        <span class="hljs-built_in">memcpy</span>((<span class="hljs-type">char</span>*)newsh+hdrlen, s, len+<span class="hljs-number">1</span>);
+        <span class="hljs-comment">//释放指针</span>
         s_free(sh);
-        s &#x3D; (char*)newsh+hdrlen;
-        &#x2F;&#x2F;设置类型
-        s[-1] &#x3D; type;
+        s = (<span class="hljs-type">char</span>*)newsh+hdrlen;
+        <span class="hljs-comment">//设置类型</span>
+        s[<span class="hljs-number">-1</span>] = type;
         sdssetlen(s, len);
     &#125;
     sdssetalloc(s, len);
-    return s;
-&#125;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+    <span class="hljs-keyword">return</span> s;
+&#125;</code></pre></div>
 <h1 id="总结">总结</h1>
 <p>本文主要对Redis中的简单动态字符串的数据结构与基本API实现做了简要分析，基本了解了SDS如何保证二进制安全与SDS的缩容扩容策略的实现。</p>
 
@@ -673,8 +663,6 @@ sds sdsMakeRoomFor(sds s, size_t addlen) &#123;
 
 
 
-  
-    
   
 
 

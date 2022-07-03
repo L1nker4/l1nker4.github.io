@@ -44,17 +44,7 @@
     
     
       
-      
-        
-          
-          
-          
-        
-        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-coy.min.css" />
-      
-      
-        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/line-numbers/prism-line-numbers.min.css" />
-      
+      <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@10/styles/github-gist.min.css" />
     
   
 
@@ -205,7 +195,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      2.1k 字
+      1.8k 字
     </span>
   
 
@@ -214,7 +204,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      18 分钟
+      16 分钟
     </span>
   
 
@@ -264,21 +254,21 @@
 </ul>
 <h3 id="redis-实现分布式锁">Redis 实现分布式锁</h3>
 <h3 id="第一阶段">第一阶段</h3>
-<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello() &#123;
-    Integer lock &#x3D; get(&quot;lock&quot;);
-    if(lock &#x3D;&#x3D; null)&#123;
-        set(&quot;lock&quot;,1);
-        &#x2F;&#x2F;todo
-        del(&quot;lock&quot;);
-        return;
-    &#125;else &#123;
-        &#x2F;&#x2F;自旋
+<div class="code-wrapper"><pre><code class="hljs csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title">hello</span>()</span> &#123;
+    Integer <span class="hljs-keyword">lock</span> = <span class="hljs-keyword">get</span>(<span class="hljs-string">&quot;lock&quot;</span>);
+    <span class="hljs-keyword">if</span>(<span class="hljs-keyword">lock</span> == <span class="hljs-literal">null</span>)&#123;
+        <span class="hljs-keyword">set</span>(<span class="hljs-string">&quot;lock&quot;</span>,<span class="hljs-number">1</span>);
+        <span class="hljs-comment">//todo</span>
+        del(<span class="hljs-string">&quot;lock&quot;</span>);
+        <span class="hljs-keyword">return</span>;
+    &#125;<span class="hljs-keyword">else</span> &#123;
+        <span class="hljs-comment">//自旋</span>
         hello();
     &#125;
 &#125;
 
 
-<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+</code></pre></div>
 <p>存在的问题：</p>
 <ul>
 <li>请求同时打进来，所有请求都获取不到锁</li>
@@ -286,65 +276,65 @@
 <h3 id="第二阶段">第二阶段</h3>
 <p>使用<code>setnx</code>设置锁</p>
 <p><code>setnx</code>在key不存在时可以设置，存在当前key则不操作</p>
-<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello()&#123;
-   String lock &#x3D; setnx(&quot;lock&quot;); &#x2F;&#x2F;0代表没有保存数据，说明有人占坑了，1代表占坑成功
-    if(lock !&#x3D; 0)&#123;
-        &#x2F;&#x2F;todo
-        del(&quot;lock&quot;);
-    &#125;else &#123;
-        &#x2F;&#x2F;自旋
+<div class="code-wrapper"><pre><code class="hljs csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title">hello</span>()</span>&#123;
+   String <span class="hljs-keyword">lock</span> = setnx(<span class="hljs-string">&quot;lock&quot;</span>); <span class="hljs-comment">//0代表没有保存数据，说明有人占坑了，1代表占坑成功</span>
+    <span class="hljs-keyword">if</span>(<span class="hljs-keyword">lock</span> != <span class="hljs-number">0</span>)&#123;
+        <span class="hljs-comment">//todo</span>
+        del(<span class="hljs-string">&quot;lock&quot;</span>);
+    &#125;<span class="hljs-keyword">else</span> &#123;
+        <span class="hljs-comment">//自旋</span>
         hello();
     &#125; 
 &#125;
 
-<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+</code></pre></div>
 <p>存在的问题：</p>
 <ul>
 <li>由于各种问题（未捕获的异常，断电）等导致锁未释放，其他人永远获取不到锁</li>
 </ul>
 <h3 id="第三阶段">第三阶段</h3>
-<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello()&#123;
-    String lock &#x3D; setnx(&quot;lock&quot;);
-    if(lock !&#x3D; 0)&#123;
-        expire(&quot;lock&quot;,10s);
-        &#x2F;&#x2F;todo
-        del(&quot;lock&quot;);
-    &#125;else &#123;
+<div class="code-wrapper"><pre><code class="hljs csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title">hello</span>()</span>&#123;
+    String <span class="hljs-keyword">lock</span> = setnx(<span class="hljs-string">&quot;lock&quot;</span>);
+    <span class="hljs-keyword">if</span>(<span class="hljs-keyword">lock</span> != <span class="hljs-number">0</span>)&#123;
+        expire(<span class="hljs-string">&quot;lock&quot;</span>,<span class="hljs-number">10</span>s);
+        <span class="hljs-comment">//todo</span>
+        del(<span class="hljs-string">&quot;lock&quot;</span>);
+    &#125;<span class="hljs-keyword">else</span> &#123;
         hello();
     &#125;
 &#125;
-<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+</code></pre></div>
 <p>存在的问题：</p>
 <ul>
 <li>刚拿到锁，服务器出现问题，没来得及设置过期时间</li>
 </ul>
 <h3 id="第四阶段">第四阶段</h3>
-<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello() &#123;
-    String result &#x3D; setnxex(&quot;lock&quot;,10s);
-    if(result &#x3D;&#x3D; &quot;ok&quot;)&#123;
-        &#x2F;&#x2F;加锁成功
-        &#x2F;&#x2F;执行业务逻辑
-        &#x2F;&#x2F;释放锁
-    &#125;else &#123;
-        hello();
+<div class="code-wrapper"><pre><code class="hljs typescript"><span class="hljs-keyword">public</span> <span class="hljs-built_in">void</span> <span class="hljs-title function_">hello</span>(<span class="hljs-params"></span>) &#123;
+    <span class="hljs-title class_">String</span> result = <span class="hljs-title function_">setnxex</span>(<span class="hljs-string">&quot;lock&quot;</span>,10s);
+    <span class="hljs-keyword">if</span>(result == <span class="hljs-string">&quot;ok&quot;</span>)&#123;
+        <span class="hljs-comment">//加锁成功</span>
+        <span class="hljs-comment">//执行业务逻辑</span>
+        <span class="hljs-comment">//释放锁</span>
+    &#125;<span class="hljs-keyword">else</span> &#123;
+        <span class="hljs-title function_">hello</span>();
     &#125;
 &#125;
-<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+</code></pre></div>
 <p>存在的问题：</p>
 <ul>
 <li>如果业务逻辑超时，导致锁自动删除，业务执行完又删除了一遍，至少多个人都获取到了锁。</li>
 </ul>
 <h3 id="第五阶段">第五阶段</h3>
-<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello() &#123;
-    String token &#x3D; UUID;
-    String result &#x3D; setnxex(&quot;lock&quot;,token,10s);
-    if(result &#x3D;&#x3D; &quot;ok&quot;)&#123;
-        &#x2F;&#x2F;执行业务
-        &#x2F;&#x2F;释放锁,保证删除自己的锁
-        get(&quot;lock&quot;) &#x3D;&#x3D; token ? del(&quot;lock&quot;) : return;
+<div class="code-wrapper"><pre><code class="hljs typescript"><span class="hljs-keyword">public</span> <span class="hljs-built_in">void</span> <span class="hljs-title function_">hello</span>(<span class="hljs-params"></span>) &#123;
+    <span class="hljs-title class_">String</span> token = <span class="hljs-variable constant_">UUID</span>;
+    <span class="hljs-title class_">String</span> result = <span class="hljs-title function_">setnxex</span>(<span class="hljs-string">&quot;lock&quot;</span>,token,10s);
+    <span class="hljs-keyword">if</span>(result == <span class="hljs-string">&quot;ok&quot;</span>)&#123;
+        <span class="hljs-comment">//执行业务</span>
+        <span class="hljs-comment">//释放锁,保证删除自己的锁</span>
+        <span class="hljs-title function_">get</span>(<span class="hljs-string">&quot;lock&quot;</span>) == token ? <span class="hljs-title function_">del</span>(<span class="hljs-string">&quot;lock&quot;</span>) : <span class="hljs-keyword">return</span>;
     &#125;
 &#125;
-<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+</code></pre></div>
 <p>存在的问题：</p>
 <ul>
 <li>获取锁的时候，锁的值正在返回的过程中，锁过期，redis删除了锁，但是我们拿到了值，对比成功（此时另一个请求创建了锁），但是该线程又删除了一次锁。</li>
@@ -355,25 +345,25 @@
 <li>解决：<code>Lua</code>脚本</li>
 </ul>
 <h3 id="第六阶段">第六阶段</h3>
-<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello() &#123;
-    String token &#x3D; UUID;
-    String lock &#x3D; redis.setnxex(&quot;lock&quot;,token,10s);
-    if(lock &#x3D;&#x3D; &quot;ok&quot;)&#123;
-        &#x2F;&#x2F;执行业务
-        &#x2F;&#x2F;脚本删除锁
-    &#125;else &#123;
+<div class="code-wrapper"><pre><code class="hljs csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title">hello</span>()</span> &#123;
+    String token = UUID;
+    String <span class="hljs-keyword">lock</span> = redis.setnxex(<span class="hljs-string">&quot;lock&quot;</span>,token,<span class="hljs-number">10</span>s);
+    <span class="hljs-keyword">if</span>(<span class="hljs-keyword">lock</span> == <span class="hljs-string">&quot;ok&quot;</span>)&#123;
+        <span class="hljs-comment">//执行业务</span>
+        <span class="hljs-comment">//脚本删除锁</span>
+    &#125;<span class="hljs-keyword">else</span> &#123;
         hello();
     &#125;
 &#125;
-<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+</code></pre></div>
 <h2 id="redisson实现分布式锁">Redisson实现分布式锁</h2>
-<div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">public void hello() &#123;
-    Rlock lock &#x3D; redisson.getLock(&quot;lock&quot;);
-    lock.lock();
-    &#x2F;&#x2F;todo
-    lock.unlock();
+<div class="code-wrapper"><pre><code class="hljs csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title">hello</span>()</span> &#123;
+    Rlock <span class="hljs-keyword">lock</span> = redisson.getLock(<span class="hljs-string">&quot;lock&quot;</span>);
+    <span class="hljs-keyword">lock</span>.<span class="hljs-keyword">lock</span>();
+    <span class="hljs-comment">//todo</span>
+    <span class="hljs-keyword">lock</span>.unlock();
 &#125;
-<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+</code></pre></div>
 <h2 id="其他方向考虑">其他方向考虑</h2>
 <ul>
 <li>自旋
@@ -550,8 +540,6 @@
 
 
 
-  
-    
   
 
 

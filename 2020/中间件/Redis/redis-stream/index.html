@@ -46,17 +46,7 @@
     
     
       
-      
-        
-          
-          
-          
-        
-        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-coy.min.css" />
-      
-      
-        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/line-numbers/prism-line-numbers.min.css" />
-      
+      <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@10/styles/github-gist.min.css" />
     
   
 
@@ -207,7 +197,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      5.7k 字
+      5.5k 字
     </span>
   
 
@@ -216,7 +206,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      48 分钟
+      46 分钟
     </span>
   
 
@@ -258,12 +248,12 @@
 <li>length：代表当前stream中消息个数。</li>
 <li>last_id：为当前stream中最后插入的消息ID，stream为空时，该值为0。</li>
 <li>cgroups：存储了当前stream相关的消费组，以消费组组名为键，streamCG为值存储在rax中。
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct stream &#123;
-    rax *rax;               &#x2F;* The radix tree holding the stream. *&#x2F;
-    uint64_t length;        &#x2F;* Number of elements inside this stream. *&#x2F;
-    streamID last_id;       &#x2F;* Zero if there are yet no items. *&#x2F;
-    rax *cgroups;           &#x2F;* Consumer groups dictionary: name -&gt; streamCG *&#x2F;
-&#125; stream;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></li>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stream</span> &#123;</span>
+    rax *rax;               <span class="hljs-comment">/* The radix tree holding the stream. */</span>
+    <span class="hljs-type">uint64_t</span> length;        <span class="hljs-comment">/* Number of elements inside this stream. */</span>
+    streamID last_id;       <span class="hljs-comment">/* Zero if there are yet no items. */</span>
+    rax *cgroups;           <span class="hljs-comment">/* Consumer groups dictionary: name -&gt; streamCG */</span>
+&#125; stream;</code></pre></div></li>
 </ul>
 <p>一个Stream的基本结构如图所示： <img
 src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/structure.PNG" srcset="/img/loading.gif" lazyload
@@ -272,38 +262,38 @@ alt="Stream结构" /></p>
 entry，该结构存储了该listpack待插入消息的所有field。</p>
 <h3 id="streamid">streamID</h3>
 <p>消息ID的基本结构如下： - ms：消息创建时的时间 - seq：序号
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct streamID &#123;
-    uint64_t ms;        &#x2F;* Unix time in milliseconds. *&#x2F;
-    uint64_t seq;       &#x2F;* Sequence number. *&#x2F;
-&#125; streamID;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamID</span> &#123;</span>
+    <span class="hljs-type">uint64_t</span> ms;        <span class="hljs-comment">/* Unix time in milliseconds. */</span>
+    <span class="hljs-type">uint64_t</span> seq;       <span class="hljs-comment">/* Sequence number. */</span>
+&#125; streamID;</code></pre></div></p>
 <h3 id="streamcg">streamCG</h3>
 <p>每个stream会有多个消费组，每个消费组通过组名称进行唯一标识，同时关联一个streamCG结构。该结构如下：
 - last_id：该消费组已经确认的最后一个消息ID -
 pel：为该消费组尚未确认的消息，消息ID为键，streamNACK为值，存储在rax树中
 - consumers：消费组中的所有消费者，消费者名称为键，streamConsumer为值。
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct streamCG &#123;
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamCG</span> &#123;</span>
     streamID last_id;
     rax *pel;
     rax *consumers;
-&#125; streamCG;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+&#125; streamCG;</code></pre></div></p>
 <h3 id="streamconsumer">streamConsumer</h3>
 <p>消费者结构如下： - seen_time：为该消费者最后一次活跃的时间 -
 name：消费者名称，为sds结构 -
 pel：为该消费者尚未确认的消息，消息ID为键，streamNACK为值，存储在rax树中
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct streamConsumer &#123;
-    mstime_t seen_time;
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamConsumer</span> &#123;</span>
+    <span class="hljs-type">mstime_t</span> seen_time;
     sds name;
     rax *pel;
-&#125; streamConsumer;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+&#125; streamConsumer;</code></pre></div></p>
 <h3 id="streamnack">streamNACK</h3>
 <p>该结构为未确认消息，streamNACK维护了消费组或消费者尚未确认的消息，消费组中的pel的元素与消费者的pel元素是共享的。该结构如下：
 - delivery_time：为该消息最后发送给消费方的时间 -
 delivery_count：该消息已发送的次数 - consumer：当前归属的消费者
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct streamNACK &#123;
-    mstime_t delivery_time;
-    uint64_t delivery_count;
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamNACK</span> &#123;</span>
+    <span class="hljs-type">mstime_t</span> delivery_time;
+    <span class="hljs-type">uint64_t</span> delivery_count;
     streamConsumer *consumer;
-&#125; streamNACK;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+&#125; streamNACK;</code></pre></div></p>
 <h3 id="streamiterator">streamIterator</h3>
 <p>该结构主要提供遍历功能，基本结构如下： -
 stream：当前迭代器正在遍历的消息流 -
@@ -314,26 +304,26 @@ master_fields_ptr：记录field的位置 - entry_flags：当前遍历的消息�
 - rev：迭代器方向 - start_key,end_key：遍历范围 -
 ri：rax迭代器，用于遍历rax树中的所有key - lp：当前的listpack指针 -
 lp_ele：当前正在遍历的listpack中的元素 - lp_flags：指向翻墙消息的flag域
-- field_buf,value_buf：从listpack读取数据的缓存 <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct streamIterator &#123;
-    stream *stream;         &#x2F;* The stream we are iterating. *&#x2F;
-    streamID master_id;     &#x2F;* ID of the master entry at listpack head. *&#x2F;
-    uint64_t master_fields_count;       &#x2F;* Master entries # of fields. *&#x2F;
-    unsigned char *master_fields_start; &#x2F;* Master entries start in listpack. *&#x2F;
-    unsigned char *master_fields_ptr;   &#x2F;* Master field to emit next. *&#x2F;
-    int entry_flags;                    &#x2F;* Flags of entry we are emitting. *&#x2F;
-    int rev;                &#x2F;* True if iterating end to start (reverse). *&#x2F;
-    uint64_t start_key[2];  &#x2F;* Start key as 128 bit big endian. *&#x2F;
-    uint64_t end_key[2];    &#x2F;* End key as 128 bit big endian. *&#x2F;
-    raxIterator ri;         &#x2F;* Rax iterator. *&#x2F;
-    unsigned char *lp;      &#x2F;* Current listpack. *&#x2F;
-    unsigned char *lp_ele;  &#x2F;* Current listpack cursor. *&#x2F;
-    unsigned char *lp_flags; &#x2F;* Current entry flags pointer. *&#x2F;
-    &#x2F;* Buffers used to hold the string of lpGet() when the element is
-     * integer encoded, so that there is no string representation of the
-     * element inside the listpack itself. *&#x2F;
-    unsigned char field_buf[LP_INTBUF_SIZE];
-    unsigned char value_buf[LP_INTBUF_SIZE];
-&#125; streamIterator;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+- field_buf,value_buf：从listpack读取数据的缓存 <div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamIterator</span> &#123;</span>
+    stream *stream;         <span class="hljs-comment">/* The stream we are iterating. */</span>
+    streamID master_id;     <span class="hljs-comment">/* ID of the master entry at listpack head. */</span>
+    <span class="hljs-type">uint64_t</span> master_fields_count;       <span class="hljs-comment">/* Master entries # of fields. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *master_fields_start; <span class="hljs-comment">/* Master entries start in listpack. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *master_fields_ptr;   <span class="hljs-comment">/* Master field to emit next. */</span>
+    <span class="hljs-type">int</span> entry_flags;                    <span class="hljs-comment">/* Flags of entry we are emitting. */</span>
+    <span class="hljs-type">int</span> rev;                <span class="hljs-comment">/* True if iterating end to start (reverse). */</span>
+    <span class="hljs-type">uint64_t</span> start_key[<span class="hljs-number">2</span>];  <span class="hljs-comment">/* Start key as 128 bit big endian. */</span>
+    <span class="hljs-type">uint64_t</span> end_key[<span class="hljs-number">2</span>];    <span class="hljs-comment">/* End key as 128 bit big endian. */</span>
+    raxIterator ri;         <span class="hljs-comment">/* Rax iterator. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *lp;      <span class="hljs-comment">/* Current listpack. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *lp_ele;  <span class="hljs-comment">/* Current listpack cursor. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *lp_flags; <span class="hljs-comment">/* Current entry flags pointer. */</span>
+    <span class="hljs-comment">/* Buffers used to hold the string of lpGet() when the element is</span>
+<span class="hljs-comment">     * integer encoded, so that there is no string representation of the</span>
+<span class="hljs-comment">     * element inside the listpack itself. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> field_buf[LP_INTBUF_SIZE];
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> value_buf[LP_INTBUF_SIZE];
+&#125; streamIterator;</code></pre></div></p>
 <h2 id="listpack">listpack</h2>
 <p>listpack是一个字符串列表的序列化格式，该结构可用于存储字符串或整型。其主要结构如下图所示：
 <img
@@ -350,7 +340,7 @@ src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/encode.PN
 alt="编码取值" /></p>
 <p>Stream的消息内容存储在listpack中，消息存储格式是每个字段都是一个entry，而不是键整个消息作为字符串存储的，每个listpack会存储多个消息，具体存储个数由<code>stream-node-max-bytes</code>（listpack节点最大占用字节数，默认4096）和<code>stream-node-max-entries</code>（最大存储元素个数，默认100）决定.</p>
 <p>每个listpack在创建时，会将第一个插入的entry构建成master
-entry，其基本结构如下所示： <div class="code-wrapper"><pre class="line-numbers language-none"><code class="language-none">count   |   deleted  |  num-fields  |   field-1 |   field-2 |   0<span aria-hidden="true" class="line-numbers-rows"><span></span></span></code></pre></div> 其中： -
+entry，其基本结构如下所示： <div class="code-wrapper"><pre><code class="hljs coq">count   |   <span class="hljs-type">deleted</span>  |  <span class="hljs-type">num</span>-fields  |   <span class="hljs-type">field</span><span class="hljs-number">-1</span> |   <span class="hljs-type">field</span><span class="hljs-number">-2</span> |   <span class="hljs-type">0</span></code></pre></div> 其中： -
 count：为当前listpack中所有未删除的消息个数 -
 deleted：当前listpack中所有已经删除的消息个数 - num-fields：field个数 -
 field-N：field域 - 0为标识位，再从后向前遍历listpack时使用</p>
@@ -359,11 +349,11 @@ entry完全相同，则不需要再次存储field域</p>
 <h2 id="rax">Rax</h2>
 <p>Redis对于Rax的解释为<code>A radix tree implement</code>，基数树的一种实现。Rax中不仅可以存储字符串，也可以为该字符串设置值形成kv结构。其基本结构如下：
 - head：指向头节点 - numele：元素个数（key） - numnodes：节点个数
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct rax &#123;
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rax</span> &#123;</span>
     raxNode *head;
-    uint64_t numele;
-    uint64_t numnodes;
-&#125; rax;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+    <span class="hljs-type">uint64_t</span> numele;
+    <span class="hljs-type">uint64_t</span> numnodes;
+&#125; rax;</code></pre></div></p>
 <h2 id="raxnode">raxNode</h2>
 <p>raxNode代表Rax树中的一个节点，其基本结构如下所示： -
 iskey：表明当前节点是否包含一个key，占用1bit -
@@ -371,25 +361,25 @@ isnull：表明当前key对应的value是否为空，占用1bit -
 iscompr：表明当前节点是否为压缩节点，占用1bit -
 size：压缩节点压缩的字符串长度或者非压缩节点的子节点个数，占用29bit -
 data：包含填充字段，同时存储了当前节点包含的字符串以及子节点的指针，key对应的value指针。
-<div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct raxNode &#123;
-    uint32_t iskey:1;
-    uint32_t isnull:1;
-    uint32_t iscompr:1;
-    uint32_t size:29;
-    unsigned char data[];
-&#125; raxNode;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxNode</span> &#123;</span>
+    <span class="hljs-type">uint32_t</span> iskey:<span class="hljs-number">1</span>;
+    <span class="hljs-type">uint32_t</span> isnull:<span class="hljs-number">1</span>;
+    <span class="hljs-type">uint32_t</span> iscompr:<span class="hljs-number">1</span>;
+    <span class="hljs-type">uint32_t</span> size:<span class="hljs-number">29</span>;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> data[];
+&#125; raxNode;</code></pre></div></p>
 <p>其中raxNode分为压缩节点域非压缩节点。主要区别在于非压缩节点的每个字符都有子节点，如果字符个数小于2，都是非压缩节点。</p>
 <h2 id="raxstack">raxStack</h2>
 <p>raxStack结构用于存储从根节点到当前节点的路径，基本结构如下： -
 stack：用于记录路径，该指针可能指向static_items或者堆内存 -
 items,maxitems：代表stack指向的空间的已用空间以及最大空间 -
 static_items：一个数组，每个元素都是指针，存储路径 -
-oom：代表当前栈是否出现过内存溢出 <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct raxStack &#123;
-    void **stack;
-    size_t items, maxitems;
-    void *static_items[RAX_STACK_STATIC_ITEMS];
-    int oom;
-&#125; raxStack;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+oom：代表当前栈是否出现过内存溢出 <div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxStack</span> &#123;</span>
+    <span class="hljs-type">void</span> **<span class="hljs-built_in">stack</span>;
+    <span class="hljs-type">size_t</span> items, maxitems;
+    <span class="hljs-type">void</span> *static_items[RAX_STACK_STATIC_ITEMS];
+    <span class="hljs-type">int</span> oom;
+&#125; raxStack;</code></pre></div></p>
 <h2 id="raxiterator">raxIterator</h2>
 <p>raxIterator用于遍历Rax树中的所有key，基本结构如下： -
 flags：代表当前迭代器标志位,取值如下： -
@@ -402,18 +392,18 @@ key：存储了当前迭代器遍历到的key，该指针指向key_static_string
 key_static_string：key的默认存储空间，key过大时，会使用堆内存 -
 node：当前key所在的raxNode -
 stack：记录了从根节点到当前节点的路径，用于raxNode线上遍历 -
-node_cb：为节点的回调函数，默认为空 <div class="code-wrapper"><pre class="line-numbers language-C" data-language="C"><code class="language-C">typedef struct raxIterator &#123;
-    int flags;
-    rax *rt;                &#x2F;* Radix tree we are iterating. *&#x2F;
-    unsigned char *key;     &#x2F;* The current string. *&#x2F;
-    void *data;             &#x2F;* Data associated to this key. *&#x2F;
-    size_t key_len;         &#x2F;* Current key length. *&#x2F;
-    size_t key_max;         &#x2F;* Max key len the current key buffer can hold. *&#x2F;
-    unsigned char key_static_string[RAX_ITER_STATIC_LEN];
-    raxNode *node;          &#x2F;* Current node. Only for unsafe iteration. *&#x2F;
-    raxStack stack;         &#x2F;* Stack used for unsafe iteration. *&#x2F;
-    raxNodeCallback node_cb; &#x2F;* Optional node callback. Normally set to NULL. *&#x2F;
-&#125; raxIterator;<span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div></p>
+node_cb：为节点的回调函数，默认为空 <div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxIterator</span> &#123;</span>
+    <span class="hljs-type">int</span> flags;
+    rax *rt;                <span class="hljs-comment">/* Radix tree we are iterating. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *key;     <span class="hljs-comment">/* The current string. */</span>
+    <span class="hljs-type">void</span> *data;             <span class="hljs-comment">/* Data associated to this key. */</span>
+    <span class="hljs-type">size_t</span> key_len;         <span class="hljs-comment">/* Current key length. */</span>
+    <span class="hljs-type">size_t</span> key_max;         <span class="hljs-comment">/* Max key len the current key buffer can hold. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> key_static_string[RAX_ITER_STATIC_LEN];
+    raxNode *node;          <span class="hljs-comment">/* Current node. Only for unsafe iteration. */</span>
+    raxStack <span class="hljs-built_in">stack</span>;         <span class="hljs-comment">/* Stack used for unsafe iteration. */</span>
+    raxNodeCallback node_cb; <span class="hljs-comment">/* Optional node callback. Normally set to NULL. */</span>
+&#125; raxIterator;</code></pre></div></p>
 <h1 id="总结">总结</h1>
 <p>上文主要对Redis
 Stream的基本结构与其底层数据结构做了简要分析，了解了消息由listpack结构存储，以消息ID为key，listpack为value存储在Rax树中。</p>
@@ -577,8 +567,6 @@ Stream的基本结构与其底层数据结构做了简要分析，了解了消�
 
 
 
-  
-    
   
 
 

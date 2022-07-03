@@ -45,17 +45,7 @@
     
     
       
-      
-        
-          
-          
-          
-        
-        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-coy.min.css" />
-      
-      
-        <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/line-numbers/prism-line-numbers.min.css" />
-      
+      <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@10/styles/github-gist.min.css" />
     
   
 
@@ -206,7 +196,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      3.9k 字
+      4k 字
     </span>
   
 
@@ -266,34 +256,34 @@ reason</strong>地返回，因此通常在重新检查返回条件地循环里�
 wait</strong>（忙则等待）的一种优化，减少了自旋对性能的消耗。当时必须与<code>unpark</code>配合使用才会更加高效。</p>
 <p><code>park</code>还提供了支持<code>blocker</code>参数的方法，<code>blocker</code>对象在线程受阻塞时被记录，用于允许监视和诊断工具确定线程被阻塞的原因。提供了<code>getBlocker(Thread t)</code>来访问<code>blocker</code>。</p>
 <p>下面是<code>Java Docs</code>中的示例用法：一个先进先出非重入锁类的基本框架：</p>
-<div class="code-wrapper"><pre class="line-numbers language-java" data-language="java"><code class="language-java"><span class="token keyword">class</span> <span class="token class-name">FIFOMutex</span> <span class="token punctuation">&#123;</span>
-    <span class="token keyword">private</span> <span class="token keyword">final</span> <span class="token class-name">AtomicBoolean</span> locked <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AtomicBoolean</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token keyword">private</span> <span class="token keyword">final</span> <span class="token class-name">Queue</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Thread</span><span class="token punctuation">></span></span> waiters
-      <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">ConcurrentLinkedQueue</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token class-name">Thread</span><span class="token punctuation">></span></span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">class</span> <span class="hljs-title class_">FIFOMutex</span> &#123;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">AtomicBoolean</span> <span class="hljs-variable">locked</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AtomicBoolean</span>(<span class="hljs-literal">false</span>);
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Queue&lt;Thread&gt; waiters
+      = <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConcurrentLinkedQueue</span>&lt;Thread&gt;();
  
-    <span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">lock</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-      <span class="token keyword">boolean</span> wasInterrupted <span class="token operator">=</span> <span class="token boolean">false</span><span class="token punctuation">;</span>
-      <span class="token class-name">Thread</span> current <span class="token operator">=</span> <span class="token class-name">Thread</span><span class="token punctuation">.</span><span class="token function">currentThread</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-      waiters<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span>current<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">lock</span><span class="hljs-params">()</span> &#123;
+      <span class="hljs-type">boolean</span> <span class="hljs-variable">wasInterrupted</span> <span class="hljs-operator">=</span> <span class="hljs-literal">false</span>;
+      <span class="hljs-type">Thread</span> <span class="hljs-variable">current</span> <span class="hljs-operator">=</span> Thread.currentThread();
+      waiters.add(current);
  
-      <span class="token comment">// Block while not first in queue or cannot acquire lock</span>
-      <span class="token keyword">while</span> <span class="token punctuation">(</span>waiters<span class="token punctuation">.</span><span class="token function">peek</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">!=</span> current <span class="token operator">||</span>
-             <span class="token operator">!</span>locked<span class="token punctuation">.</span><span class="token function">compareAndSet</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">,</span> <span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-        <span class="token class-name">LockSupport</span><span class="token punctuation">.</span><span class="token function">park</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-        <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token class-name">Thread</span><span class="token punctuation">.</span><span class="token function">interrupted</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token comment">// ignore interrupts while waiting</span>
-          wasInterrupted <span class="token operator">=</span> <span class="token boolean">true</span><span class="token punctuation">;</span>
-      <span class="token punctuation">&#125;</span>
+      <span class="hljs-comment">// Block while not first in queue or cannot acquire lock</span>
+      <span class="hljs-keyword">while</span> (waiters.peek() != current ||
+             !locked.compareAndSet(<span class="hljs-literal">false</span>, <span class="hljs-literal">true</span>)) &#123;
+        LockSupport.park(<span class="hljs-built_in">this</span>);
+        <span class="hljs-keyword">if</span> (Thread.interrupted()) <span class="hljs-comment">// ignore interrupts while waiting</span>
+          wasInterrupted = <span class="hljs-literal">true</span>;
+      &#125;
 
-      waiters<span class="token punctuation">.</span><span class="token function">remove</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-      <span class="token keyword">if</span> <span class="token punctuation">(</span>wasInterrupted<span class="token punctuation">)</span>          <span class="token comment">// reassert interrupt status on exit</span>
-        current<span class="token punctuation">.</span><span class="token function">interrupt</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token punctuation">&#125;</span>
+      waiters.remove();
+      <span class="hljs-keyword">if</span> (wasInterrupted)          <span class="hljs-comment">// reassert interrupt status on exit</span>
+        current.interrupt();
+    &#125;
  
-    <span class="token keyword">public</span> <span class="token keyword">void</span> <span class="token function">unlock</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-      locked<span class="token punctuation">.</span><span class="token function">set</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-      <span class="token class-name">LockSupport</span><span class="token punctuation">.</span><span class="token function">unpark</span><span class="token punctuation">(</span>waiters<span class="token punctuation">.</span><span class="token function">peek</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token punctuation">&#125;</span>
-  <span class="token punctuation">&#125;</span><span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">unlock</span><span class="hljs-params">()</span> &#123;
+      locked.set(<span class="hljs-literal">false</span>);
+      LockSupport.unpark(waiters.peek());
+    &#125;
+  &#125;&#125;</code></pre></div>
 <hr />
 <h2 id="源码解读">源码解读</h2>
 <h3 id="成员变量">成员变量</h3>
@@ -304,48 +294,48 @@ wait</strong>（忙则等待）的一种优化，减少了自旋对性能的消�
 <li>PROBE：存储<code>Thread.threadLocalRandomProbe</code>的内存偏移地址</li>
 <li>SECONDARY：存储<code>Thread.threadLocalRandomSecondarySeed</code>的内存偏移地址</li>
 </ul>
-<div class="code-wrapper"><pre class="line-numbers language-java" data-language="java"><code class="language-java"><span class="token keyword">private</span> <span class="token keyword">static</span> <span class="token keyword">final</span> <span class="token class-name"><span class="token namespace">sun<span class="token punctuation">.</span>misc<span class="token punctuation">.</span></span>Unsafe</span> UNSAFE<span class="token punctuation">;</span>
-<span class="token keyword">private</span> <span class="token keyword">static</span> <span class="token keyword">final</span> <span class="token keyword">long</span> parkBlockerOffset<span class="token punctuation">;</span>
-<span class="token keyword">private</span> <span class="token keyword">static</span> <span class="token keyword">final</span> <span class="token keyword">long</span> SEED<span class="token punctuation">;</span>
-<span class="token keyword">private</span> <span class="token keyword">static</span> <span class="token keyword">final</span> <span class="token keyword">long</span> PROBE<span class="token punctuation">;</span>
-<span class="token keyword">private</span> <span class="token keyword">static</span> <span class="token keyword">final</span> <span class="token keyword">long</span> SECONDARY<span class="token punctuation">;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> sun.misc.Unsafe UNSAFE;
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> parkBlockerOffset;
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> SEED;
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> PROBE;
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> SECONDARY;</code></pre></div>
 <h3 id="构造方法">构造方法</h3>
 <p>不允许实例化，只能通过调用静态方法来完成操作。</p>
-<div class="code-wrapper"><pre class="line-numbers language-java" data-language="java"><code class="language-java"><span class="token keyword">private</span> <span class="token class-name">LockSupport</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span><span class="token punctuation">&#125;</span> <span class="token comment">// Cannot be instantiated.</span><span aria-hidden="true" class="line-numbers-rows"><span></span></span></code></pre></div>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">private</span> <span class="hljs-title function_">LockSupport</span><span class="hljs-params">()</span> &#123;&#125; <span class="hljs-comment">// Cannot be instantiated.</span></code></pre></div>
 <h3 id="静态代码块">静态代码块</h3>
 <p>通过反射机制获取<code>Thread</code>类的<code>parkBlocker</code>字段，然后通过<code>UNSAFE.objectFieldOffset</code>获取到<code>parkBlocker</code>在内存的偏移量。</p>
 <blockquote>
 <p>Q：为什么不通过get/set方式获取某个字段？</p>
 <p>A：parkBlocker在线程处于阻塞状态下才会被赋值，此时直接调用线程内的方法，线程不会作出回应的。</p>
 </blockquote>
-<div class="code-wrapper"><pre class="line-numbers language-java" data-language="java"><code class="language-java"><span class="token keyword">static</span> <span class="token punctuation">&#123;</span>
-        <span class="token keyword">try</span> <span class="token punctuation">&#123;</span>
-            <span class="token comment">//获取unsafe实例</span>
-            UNSAFE <span class="token operator">=</span> <span class="token class-name"><span class="token namespace">sun<span class="token punctuation">.</span>misc<span class="token punctuation">.</span></span>Unsafe</span><span class="token punctuation">.</span><span class="token function">getUnsafe</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-            <span class="token class-name">Class</span><span class="token generics"><span class="token punctuation">&lt;</span><span class="token operator">?</span><span class="token punctuation">></span></span> tk <span class="token operator">=</span> <span class="token class-name">Thread</span><span class="token punctuation">.</span><span class="token keyword">class</span><span class="token punctuation">;</span>
-            parkBlockerOffset <span class="token operator">=</span> UNSAFE<span class="token punctuation">.</span>objectFieldOffset
-                <span class="token punctuation">(</span>tk<span class="token punctuation">.</span><span class="token function">getDeclaredField</span><span class="token punctuation">(</span><span class="token string">"parkBlocker"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-            SEED <span class="token operator">=</span> UNSAFE<span class="token punctuation">.</span>objectFieldOffset
-                <span class="token punctuation">(</span>tk<span class="token punctuation">.</span><span class="token function">getDeclaredField</span><span class="token punctuation">(</span><span class="token string">"threadLocalRandomSeed"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-            PROBE <span class="token operator">=</span> UNSAFE<span class="token punctuation">.</span>objectFieldOffset
-                <span class="token punctuation">(</span>tk<span class="token punctuation">.</span><span class="token function">getDeclaredField</span><span class="token punctuation">(</span><span class="token string">"threadLocalRandomProbe"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-            SECONDARY <span class="token operator">=</span> UNSAFE<span class="token punctuation">.</span>objectFieldOffset
-                <span class="token punctuation">(</span>tk<span class="token punctuation">.</span><span class="token function">getDeclaredField</span><span class="token punctuation">(</span><span class="token string">"threadLocalRandomSecondarySeed"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-        <span class="token punctuation">&#125;</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span><span class="token class-name">Exception</span> ex<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span> <span class="token keyword">throw</span> <span class="token keyword">new</span> <span class="token class-name">Error</span><span class="token punctuation">(</span>ex<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token punctuation">&#125;</span>
-    <span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">static</span> &#123;
+        <span class="hljs-keyword">try</span> &#123;
+            <span class="hljs-comment">//获取unsafe实例</span>
+            UNSAFE = sun.misc.Unsafe.getUnsafe();
+            Class&lt;?&gt; tk = Thread.class;
+            parkBlockerOffset = UNSAFE.objectFieldOffset
+                (tk.getDeclaredField(<span class="hljs-string">&quot;parkBlocker&quot;</span>));
+            SEED = UNSAFE.objectFieldOffset
+                (tk.getDeclaredField(<span class="hljs-string">&quot;threadLocalRandomSeed&quot;</span>));
+            PROBE = UNSAFE.objectFieldOffset
+                (tk.getDeclaredField(<span class="hljs-string">&quot;threadLocalRandomProbe&quot;</span>));
+            SECONDARY = UNSAFE.objectFieldOffset
+                (tk.getDeclaredField(<span class="hljs-string">&quot;threadLocalRandomSecondarySeed&quot;</span>));
+        &#125; <span class="hljs-keyword">catch</span> (Exception ex) &#123; <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(ex); &#125;
+    &#125;</code></pre></div>
 <h3 id="setblocker">setBlocker</h3>
 <p>对给定的线程<code>t</code>的<code>parkBlocker</code>赋值。</p>
-<div class="code-wrapper"><pre class="line-numbers language-java" data-language="java"><code class="language-java"><span class="token keyword">private</span> <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">setBlocker</span><span class="token punctuation">(</span><span class="token class-name">Thread</span> t<span class="token punctuation">,</span> <span class="token class-name">Object</span> arg<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-        <span class="token comment">// Even though volatile, hotspot doesn't need a write barrier here.</span>
-        UNSAFE<span class="token punctuation">.</span><span class="token function">putObject</span><span class="token punctuation">(</span>t<span class="token punctuation">,</span> parkBlockerOffset<span class="token punctuation">,</span> arg<span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span></span></code></pre></div>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">setBlocker</span><span class="hljs-params">(Thread t, Object arg)</span> &#123;
+        <span class="hljs-comment">// Even though volatile, hotspot doesn&#x27;t need a write barrier here.</span>
+        UNSAFE.putObject(t, parkBlockerOffset, arg);
+    &#125;</code></pre></div>
 <h3 id="getblocker">getBlocker</h3>
 <p>返回线程<code>t</code>的<code>parkBlocker</code>对象。</p>
-<div class="code-wrapper"><pre class="line-numbers language-java" data-language="java"><code class="language-java"><span class="token keyword">public</span> <span class="token keyword">static</span> <span class="token class-name">Object</span> <span class="token function">getBlocker</span><span class="token punctuation">(</span><span class="token class-name">Thread</span> t<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-        <span class="token keyword">if</span> <span class="token punctuation">(</span>t <span class="token operator">==</span> <span class="token keyword">null</span><span class="token punctuation">)</span>
-            <span class="token keyword">throw</span> <span class="token keyword">new</span> <span class="token class-name">NullPointerException</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-        <span class="token keyword">return</span> UNSAFE<span class="token punctuation">.</span><span class="token function">getObjectVolatile</span><span class="token punctuation">(</span>t<span class="token punctuation">,</span> parkBlockerOffset<span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> Object <span class="hljs-title function_">getBlocker</span><span class="hljs-params">(Thread t)</span> &#123;
+        <span class="hljs-keyword">if</span> (t == <span class="hljs-literal">null</span>)
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">NullPointerException</span>();
+        <span class="hljs-keyword">return</span> UNSAFE.getObjectVolatile(t, parkBlockerOffset);
+    &#125;</code></pre></div>
 <h3 id="park">park</h3>
 <p>park方法阻塞线程，发生以下情况时，当前线程会继续执行：</p>
 <ul>
@@ -358,42 +348,42 @@ wait</strong>（忙则等待）的一种优化，减少了自旋对性能的消�
 <p>Q：为什么调用两次setBlocker方法？</p>
 </blockquote>
 <p>A：调用<code>park</code>方法时，当前线程首先设置好<code>parkBlocker</code>字段，然后调用<code>UNSAFE.park</code>方法，此时，当前线程阻塞，第二个<code>setBlocker</code>无法执行，过了一段时间，该线程的<code>unpark</code>方法被调用，该线程拿到<code>permit</code>后执行，将该线程的<code>blocker</code>字段置空。</p>
-<div class="code-wrapper"><pre class="line-numbers language-java" data-language="java"><code class="language-java"><span class="token keyword">public</span> <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">park</span><span class="token punctuation">(</span><span class="token class-name">Object</span> blocker<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-        <span class="token class-name">Thread</span> t <span class="token operator">=</span> <span class="token class-name">Thread</span><span class="token punctuation">.</span><span class="token function">currentThread</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-        <span class="token function">setBlocker</span><span class="token punctuation">(</span>t<span class="token punctuation">,</span> blocker<span class="token punctuation">)</span><span class="token punctuation">;</span>
-        UNSAFE<span class="token punctuation">.</span><span class="token function">park</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">,</span> <span class="token number">0L</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-        <span class="token function">setBlocker</span><span class="token punctuation">(</span>t<span class="token punctuation">,</span> <span class="token keyword">null</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token punctuation">&#125;</span>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">park</span><span class="hljs-params">(Object blocker)</span> &#123;
+        <span class="hljs-type">Thread</span> <span class="hljs-variable">t</span> <span class="hljs-operator">=</span> Thread.currentThread();
+        setBlocker(t, blocker);
+        UNSAFE.park(<span class="hljs-literal">false</span>, <span class="hljs-number">0L</span>);
+        setBlocker(t, <span class="hljs-literal">null</span>);
+    &#125;
 
-<span class="token keyword">public</span> <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">park</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-        UNSAFE<span class="token punctuation">.</span><span class="token function">park</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">,</span> <span class="token number">0L</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">park</span><span class="hljs-params">()</span> &#123;
+        UNSAFE.park(<span class="hljs-literal">false</span>, <span class="hljs-number">0L</span>);
+    &#125;</code></pre></div>
 <h3 id="parknanos">parkNanos</h3>
 <p>阻塞当前线程，最长不超过<code>nanos</code>纳秒</p>
-<div class="code-wrapper"><pre class="line-numbers language-java" data-language="java"><code class="language-java"><span class="token keyword">public</span> <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">parkNanos</span><span class="token punctuation">(</span><span class="token keyword">long</span> nanos<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-        <span class="token keyword">if</span> <span class="token punctuation">(</span>nanos <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span>
-            UNSAFE<span class="token punctuation">.</span><span class="token function">park</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">,</span> nanos<span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token punctuation">&#125;</span>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">parkNanos</span><span class="hljs-params">(<span class="hljs-type">long</span> nanos)</span> &#123;
+        <span class="hljs-keyword">if</span> (nanos &gt; <span class="hljs-number">0</span>)
+            UNSAFE.park(<span class="hljs-literal">false</span>, nanos);
+    &#125;
 
-<span class="token keyword">public</span> <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">parkNanos</span><span class="token punctuation">(</span><span class="token class-name">Object</span> blocker<span class="token punctuation">,</span> <span class="token keyword">long</span> nanos<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-        <span class="token keyword">if</span> <span class="token punctuation">(</span>nanos <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-            <span class="token class-name">Thread</span> t <span class="token operator">=</span> <span class="token class-name">Thread</span><span class="token punctuation">.</span><span class="token function">currentThread</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-            <span class="token function">setBlocker</span><span class="token punctuation">(</span>t<span class="token punctuation">,</span> blocker<span class="token punctuation">)</span><span class="token punctuation">;</span>
-            UNSAFE<span class="token punctuation">.</span><span class="token function">park</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">,</span> nanos<span class="token punctuation">)</span><span class="token punctuation">;</span>
-            <span class="token function">setBlocker</span><span class="token punctuation">(</span>t<span class="token punctuation">,</span> <span class="token keyword">null</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
-        <span class="token punctuation">&#125;</span>
-    <span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span></code></pre></div>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">parkNanos</span><span class="hljs-params">(Object blocker, <span class="hljs-type">long</span> nanos)</span> &#123;
+        <span class="hljs-keyword">if</span> (nanos &gt; <span class="hljs-number">0</span>) &#123;
+            <span class="hljs-type">Thread</span> <span class="hljs-variable">t</span> <span class="hljs-operator">=</span> Thread.currentThread();
+            setBlocker(t, blocker);
+            UNSAFE.park(<span class="hljs-literal">false</span>, nanos);
+            setBlocker(t, <span class="hljs-literal">null</span>);
+        &#125;
+    &#125;</code></pre></div>
 <h3 id="parkuntil">parkUntil</h3>
 <p>该方法表示在限定的时间内将阻塞。</p>
-<div class="code-wrapper"><pre class="line-numbers language-java" data-language="java"><code class="language-java"><span class="token keyword">public</span> <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">parkUntil</span><span class="token punctuation">(</span><span class="token keyword">long</span> deadline<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-        UNSAFE<span class="token punctuation">.</span><span class="token function">park</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">,</span> deadline<span class="token punctuation">)</span><span class="token punctuation">;</span>
-    <span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span></span></code></pre></div>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">parkUntil</span><span class="hljs-params">(<span class="hljs-type">long</span> deadline)</span> &#123;
+        UNSAFE.park(<span class="hljs-literal">true</span>, deadline);
+    &#125;</code></pre></div>
 <h3 id="unpark">unpark</h3>
 <p>如果给定线程的<code>permit</code>不可用，则将其置为可用，如果该线程阻塞，则将它解除阻塞状态。否则，保证下一次调用<code>park</code>不会受阻塞。如果给定线程尚未启动，则无法保证该操作有任何效果。</p>
-<div class="code-wrapper"><pre class="line-numbers language-java" data-language="java"><code class="language-java"><span class="token keyword">public</span> <span class="token keyword">static</span> <span class="token keyword">void</span> <span class="token function">unpark</span><span class="token punctuation">(</span><span class="token class-name">Thread</span> thread<span class="token punctuation">)</span> <span class="token punctuation">&#123;</span>
-    <span class="token keyword">if</span> <span class="token punctuation">(</span>thread <span class="token operator">!=</span> <span class="token keyword">null</span><span class="token punctuation">)</span>
-        UNSAFE<span class="token punctuation">.</span><span class="token function">unpark</span><span class="token punctuation">(</span>thread<span class="token punctuation">)</span><span class="token punctuation">;</span>
-<span class="token punctuation">&#125;</span><span aria-hidden="true" class="line-numbers-rows"><span></span><span></span><span></span><span></span></span></code></pre></div>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">unpark</span><span class="hljs-params">(Thread thread)</span> &#123;
+    <span class="hljs-keyword">if</span> (thread != <span class="hljs-literal">null</span>)
+        UNSAFE.unpark(thread);
+&#125;</code></pre></div>
 <h2 id="参考">参考</h2>
 <p><a
 target="_blank" rel="noopener" href="https://docs.oracle.com/javase/8/docs/api/java/util/concurrent/locks/LockSupport.html#park--">Java
@@ -556,8 +546,6 @@ SE Doc</a></p>
 
 
 
-  
-    
   
 
 
