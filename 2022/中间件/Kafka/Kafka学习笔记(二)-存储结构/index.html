@@ -18,21 +18,21 @@
   <meta name="author" content="Lin Wang">
   <meta name="keywords" content="l1nker4">
   
-    <meta name="description" content="文件目录布局 Kafka中消息以Topic为单位归类，各个Topic下面分为多个分区，分区中每条消息都会被分配一个唯一的序列号（offset）。 在不考虑多副本的情况下，一个分区对应一个Log，为了防止Log过大，Kafka引入LogSegment，将Log切分为多个LogSegment。其结构如下所示：  Log  LogSegment：每个 LogSegment 都有一个基准偏移量">
+    <meta name="description" content="Kafka存储架构 Kafka是为了解决大数据量的实时日志流而产生的，日志流主要特点包括：  数据实时存储 海量数据存储与处理  Kafka需要保证以下几点：  存储的主要是消息流 要保证海量数据的高效存储 要支持海量数据的高效检索 要保证数据的安全性和稳定性  Kafka使用的存储方案是：磁盘顺序写 + 稀疏哈希索引。 日志目录布局 Kafka中消息以Topic为单">
 <meta property="og:type" content="article">
-<meta property="og:title" content="Kafka学习笔记(二)-存储结构">
+<meta property="og:title" content="Kafka学习笔记(二)-存储架构">
 <meta property="og:url" content="https://l1n.wang/2022/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/Kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E4%BA%8C)-%E5%AD%98%E5%82%A8%E7%BB%93%E6%9E%84/index.html">
 <meta property="og:site_name" content="Lin&#39;s Blog">
-<meta property="og:description" content="文件目录布局 Kafka中消息以Topic为单位归类，各个Topic下面分为多个分区，分区中每条消息都会被分配一个唯一的序列号（offset）。 在不考虑多副本的情况下，一个分区对应一个Log，为了防止Log过大，Kafka引入LogSegment，将Log切分为多个LogSegment。其结构如下所示：  Log  LogSegment：每个 LogSegment 都有一个基准偏移量">
+<meta property="og:description" content="Kafka存储架构 Kafka是为了解决大数据量的实时日志流而产生的，日志流主要特点包括：  数据实时存储 海量数据存储与处理  Kafka需要保证以下几点：  存储的主要是消息流 要保证海量数据的高效存储 要支持海量数据的高效检索 要保证数据的安全性和稳定性  Kafka使用的存储方案是：磁盘顺序写 + 稀疏哈希索引。 日志目录布局 Kafka中消息以Topic为单">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2022-06-29T12:06:22.000Z">
-<meta property="article:modified_time" content="2022-06-30T12:17:01.350Z">
+<meta property="article:modified_time" content="2022-07-03T09:38:13.969Z">
 <meta property="article:author" content="Lin Wang">
 <meta property="article:tag" content="l1nker4">
 <meta name="twitter:card" content="summary_large_image">
   
   
-  <title>Kafka学习笔记(二)-存储结构 - Lin&#39;s Blog</title>
+  <title>Kafka学习笔记(二)-存储架构 - Lin&#39;s Blog</title>
 
   <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
 
@@ -174,7 +174,7 @@
       <div class="full-bg-img">
         <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
           <div class="page-header text-center fade-in-up">
-            <span class="h2" id="subtitle" title="Kafka学习笔记(二)-存储结构">
+            <span class="h2" id="subtitle" title="Kafka学习笔记(二)-存储架构">
               
             </span>
 
@@ -195,7 +195,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      4k 字
+      4.3k 字
     </span>
   
 
@@ -204,7 +204,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      34 分钟
+      36 分钟
     </span>
   
 
@@ -233,27 +233,42 @@
         <div class="py-5" id="board">
           <article class="post-content mx-auto">
             <!-- SEO header -->
-            <h1 style="display: none">Kafka学习笔记(二)-存储结构</h1>
+            <h1 style="display: none">Kafka学习笔记(二)-存储架构</h1>
             
             <div class="markdown-body">
-              <h2 id="文件目录布局">文件目录布局</h2>
-<p>Kafka中消息以Topic为单位归类，各个Topic下面分为多个分区，分区中每条消息都会被分配一个唯一的序列号（offset）。</p>
+              <h1 id="kafka存储架构">Kafka存储架构</h1>
+<p>Kafka是为了解决大数据量的实时日志流而产生的，日志流主要特点包括：</p>
+<ol type="1">
+<li>数据实时存储</li>
+<li>海量数据存储与处理</li>
+</ol>
+<p>Kafka需要保证以下几点：</p>
+<ul>
+<li>存储的主要是消息流</li>
+<li>要保证海量数据的高效存储</li>
+<li>要支持海量数据的高效检索</li>
+<li>要保证数据的安全性和稳定性</li>
+</ul>
+<p>Kafka使用的存储方案是：磁盘顺序写 + 稀疏哈希索引。</p>
+<h2 id="日志目录布局">日志目录布局</h2>
+<p>Kafka中消息以Topic为单位归类，各个Topic下面分为多个分区，分区中每条消息都会被分配一个唯一的序列号（offset）。日志命名方式为：<code>&lt;topic&gt;-&lt;partition&gt;</code></p>
 <p>在不考虑多副本的情况下，一个分区对应一个Log，为了防止Log过大，Kafka引入<code>LogSegment</code>，将Log切分为多个<code>LogSegment</code>。其结构如下所示：</p>
 <ul>
 <li>Log
 <ul>
 <li>LogSegment：每个 LogSegment 都有一个基准偏移量
 baseOffset，用来表示当前
-LogSegment中第一条消息的offset。下述文件根据<code>baseOffset</code>命名。
+LogSegment中第一条消息的offset。只有最后一个LogSegment才能写入。下述文件根据<code>baseOffset</code>命名，长度固定为20位数字，没有达到的位数用0填充。
 <ul>
 <li>.log：日志文件</li>
 <li>.index：偏移量索引文件</li>
 <li>.timeindex：时间戳索引文件</li>
+<li>.snapshot：快照索引文件</li>
 </ul></li>
 </ul></li>
 </ul>
 <h2 id="消息格式">消息格式</h2>
-<p>消息格式关系到性能，比如冗余字段会增加分区的存储空间、网络传输的开销较大。</p>
+<p>消息格式关系到存储性能，比如冗余字段会增加分区的存储空间、网络传输的开销较大。</p>
 <p>Kafka3.0中将<code>BatchRecords</code>作为磁盘中的存储单元，一个<code>BatchRecords</code>中包含多个<code>Record</code>。</p>
 <p><code>BatchRecords</code>的格式如下：</p>
 <div class="code-wrapper"><pre><code class="hljs nestedtext"><span class="hljs-attribute">baseOffset</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int64</span>
