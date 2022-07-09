@@ -26,7 +26,7 @@
 <meta property="og:description" content="简介 Kafka是由LinkedIn使用Scala语言开发的分布式消息引擎系统，目前已被捐献给Apache基金会，它以高吞吐量、可持久化、流数据处理等特性而被广泛使用。它主要有以下三种主要功能：  消息中间件：具备常见的消息队列功能：系统解耦、冗余存储、流量削峰填谷、缓冲、异步通信，同时具备消息顺序性保障、回溯消费等功能。 数据存储系统：使用Kafka存储各种服务的log，然后统一输出，E">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2022-05-06T07:08:22.000Z">
-<meta property="article:modified_time" content="2022-07-09T02:51:10.834Z">
+<meta property="article:modified_time" content="2022-07-09T04:33:46.904Z">
 <meta property="article:author" content="Lin Wang">
 <meta property="article:tag" content="l1nker4">
 <meta name="twitter:card" content="summary_large_image">
@@ -204,7 +204,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      90 分钟
+      95 分钟
     </span>
   
 
@@ -263,7 +263,10 @@ Group：消费者组内每个消费者负责消费不同分区的数据。一个
 <li><del>
 Zookeeper集群：负责元数据管理，集群选举。
 </del>
-目前最新版3.1.0提供了KRaft模式，集群不再依赖ZK。</li>
+目前最新版3.1.0提供了KRaft模式，集群不再依赖ZK。
+<ul>
+<li>ZK主要负责存储Kafka集群的元数据，协调集群工作。</li>
+</ul></li>
 </ul></li>
 <li>Topic：<strong>逻辑概念</strong>，Kafka中消息以主题为单位进行分类，生产者将消息发送到特定的主题，消费者订阅主题进行消费。</li>
 <li>Partition：主题可以分为多个分区，分区在物理存储层面可以看作一个可Append的Log文件，消息被Append到Log中会分配一个<code>offset</code>，这个属性是消息的唯一标识
@@ -273,6 +276,8 @@ Zookeeper集群：负责元数据管理，集群选举。
 </ul></li>
 <li>多副本机制：是对于<strong>分区</strong>而言的，Broker层面的领导者被称为Controller
 <ul>
+<li>Leader：分区中多个副本的主副本，Producer/Consumer交互的对象。</li>
+<li>Follower：分区中的从副本，会实时从Leader副本同步数据</li>
 <li>所有副本被称为AR（Assigned
 Replicas），所有与Leader副本数据一致性差距过多的副本组成OSR（Out-of-Sync
 Replicas），其他称为ISR（In-Sync Replicas）。</li>
@@ -411,13 +416,29 @@ API：通过实现<code>connector</code>，不断从源系统拉取数据到Kafk
 </ul>
 <h4 id="发送模式">发送模式</h4>
 <ul>
-<li>fire-and-forget：发后即忘，发送后不关心消息是否正确到达，可能会导致消息丢失。</li>
-<li>sync：同步发送，可以通过在<code>send()</code>后链式调用<code>get()</code>等到Kafka响应。</li>
+<li>fire-and-forget：发后即忘，发送后不关心消息是否正确到达，可能会导致消息丢失。
+<ul>
+<li>适用场景：只关心消息的吞吐量，并允许少量消息发送失败。配合参数<code>acks = 0</code>使用</li>
+</ul></li>
+<li>sync：同步发送，可以通过在<code>send()</code>后链式调用<code>get()</code>等到Kafka响应。
+<ul>
+<li>适用场景：业务要求消息必须按照<strong>顺序发送</strong>，并且数据只能存储在同一个Partition中。</li>
+</ul></li>
 <li>async：异步发送，<code>send()</code>为异步发送。
 <ul>
 <li>可以在send方法中指定<code>Callback()</code>函数，在消息返回响应时调用。</li>
+<li>适用场景：要求知道是否发送成功，并对消息顺序不关心。</li>
 </ul></li>
 </ul>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-comment">//fire-and-forget 模式   </span>
+producer.send(record);
+
+<span class="hljs-comment">//sync 模式 调用future.get()</span>
+future = producer.send(record);
+<span class="hljs-type">RecordMetadata</span> <span class="hljs-variable">metadata</span> <span class="hljs-operator">=</span> future.get();
+
+<span class="hljs-comment">//async</span>
+Future&lt;RecordMetadata&gt; <span class="hljs-title function_">send</span><span class="hljs-params">(ProducerRecord&lt;K, V&gt; record, Callback callback)</span>;</code></pre></div>
 <h4 id="生产者类型">生产者类型</h4>
 <p>生产者主要有两种类型：</p>
 <ul>
@@ -432,6 +453,14 @@ API：通过实现<code>connector</code>，不断从源系统拉取数据到Kafk
 <ul>
 <li>如果key不为null，那么分区器对key使用<code>MurmurHash2</code>算法进行哈希，从而得到分区号。</li>
 <li>如果key为null，消息将以轮询的方式发往主题内的各个可用分区。</li>
+</ul>
+<p>选择分区的策略有以下几种方式：</p>
+<ul>
+<li>轮询策略：顺序分配消息</li>
+<li>消息key指定分区策略：上述hash方式</li>
+<li>随机策略：随机发送到某个分区上</li>
+<li>自定义策略：实现<code>org.apache.kafka.clients.producer.Partitioner</code>接口，重写
+<code>partition</code>方法。</li>
 </ul>
 <h4 id="生产者拦截器">生产者拦截器</h4>
 <p>可以在消息发送之前做一些准备工作，例如：按照某个规则过滤不符合要求的消息、修改消息的内容等发送前的操作。<code>ProducerInterceptor</code>为默认拦截器。通过重写<code>onSend</code>来实现对消息的拦截修改等操作</p>
