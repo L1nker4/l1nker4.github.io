@@ -18,23 +18,21 @@
   <meta name="author" content="Lin Wang">
   <meta name="keywords" content="l1nker4">
   
-    <meta name="description" content="0x01简介 文件上传漏洞简而言之就是攻击者可以通过某些手段上传非法文件到服务器端的一种漏洞，攻击者往往会以此得到webshell，从而进一步提权。为此开发者也会想出各种方法去防止上传漏洞的产生。以下列出几种常见的校验方式： - 前端JS校验 - content-type字段校验 - 服务器端后缀名校验 - 文件头校验 - 服务器端扩展名校验 下面从几个实例来详细解释上传漏洞的原理与突">
+    <meta name="description" content="Controller机制 Controller主要作用是在Zookeeper的帮助下管理和协调整个Kafka集群（在zk中存储集群元数据）。Kafka集群中会有一个或多个Broker，其中一个Broker会被选举为Controller，它负责管理整个集群中所有分区和副本的状态，其工作职责包括以下内容：  Topic管理：完成对Kafka的Topic的创建删除、分区增加等操作。 分区重分配：">
 <meta property="og:type" content="article">
-<meta property="og:title" content="浅析文件上传漏洞">
-<meta property="og:url" content="https://l1n.wang/2018/Web%E5%AE%89%E5%85%A8/uploadvul/index.html">
+<meta property="og:title" content="Kafka学习笔记(四)-集群工作机制">
+<meta property="og:url" content="https://l1n.wang/2022/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/Kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E5%9B%9B)-%E9%9B%86%E7%BE%A4%E5%B7%A5%E4%BD%9C%E6%9C%BA%E5%88%B6/index.html">
 <meta property="og:site_name" content="Lin&#39;s Blog">
-<meta property="og:description" content="0x01简介 文件上传漏洞简而言之就是攻击者可以通过某些手段上传非法文件到服务器端的一种漏洞，攻击者往往会以此得到webshell，从而进一步提权。为此开发者也会想出各种方法去防止上传漏洞的产生。以下列出几种常见的校验方式： - 前端JS校验 - content-type字段校验 - 服务器端后缀名校验 - 文件头校验 - 服务器端扩展名校验 下面从几个实例来详细解释上传漏洞的原理与突">
+<meta property="og:description" content="Controller机制 Controller主要作用是在Zookeeper的帮助下管理和协调整个Kafka集群（在zk中存储集群元数据）。Kafka集群中会有一个或多个Broker，其中一个Broker会被选举为Controller，它负责管理整个集群中所有分区和副本的状态，其工作职责包括以下内容：  Topic管理：完成对Kafka的Topic的创建删除、分区增加等操作。 分区重分配：">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2018-10-01T13:05:56.000Z">
-<meta property="article:modified_time" content="2020-05-01T01:30:30.445Z">
+<meta property="article:published_time" content="2022-07-06T10:49:22.000Z">
+<meta property="article:modified_time" content="2022-07-09T02:54:14.126Z">
 <meta property="article:author" content="Lin Wang">
-<meta property="article:tag" content="PHP代码审计">
-<meta property="article:tag" content="安全">
-<meta property="article:tag" content="CTF">
+<meta property="article:tag" content="l1nker4">
 <meta name="twitter:card" content="summary_large_image">
   
   
-  <title>浅析文件上传漏洞 - Lin&#39;s Blog</title>
+  <title>Kafka学习笔记(四)-集群工作机制 - Lin&#39;s Blog</title>
 
   <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
 
@@ -176,7 +174,7 @@
       <div class="full-bg-img">
         <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
           <div class="page-header text-center fade-in-up">
-            <span class="h2" id="subtitle" title="浅析文件上传漏洞">
+            <span class="h2" id="subtitle" title="Kafka学习笔记(四)-集群工作机制">
               
             </span>
 
@@ -186,8 +184,8 @@
   
     <span class="post-meta">
       <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-      <time datetime="2018-10-01 21:05" pubdate>
-        2018年10月1日 晚上
+      <time datetime="2022-07-06 18:49" pubdate>
+        2022年7月6日 晚上
       </time>
     </span>
   
@@ -197,7 +195,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      2.3k 字
+      2.5k 字
     </span>
   
 
@@ -206,7 +204,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      19 分钟
+      22 分钟
     </span>
   
 
@@ -235,90 +233,100 @@
         <div class="py-5" id="board">
           <article class="post-content mx-auto">
             <!-- SEO header -->
-            <h1 style="display: none">浅析文件上传漏洞</h1>
+            <h1 style="display: none">Kafka学习笔记(四)-集群工作机制</h1>
             
             <div class="markdown-body">
-              <span id="more"></span>
-<h1 id="x01简介">0x01简介</h1>
-<p>文件上传漏洞简而言之就是攻击者可以通过某些手段上传非法文件到服务器端的一种漏洞，攻击者往往会以此得到webshell，从而进一步提权。为此开发者也会想出各种方法去防止上传漏洞的产生。以下列出几种常见的校验方式：
-- 前端JS校验 - content-type字段校验 - 服务器端后缀名校验 - 文件头校验 -
-服务器端扩展名校验</p>
-<p>下面从几个实例来详细解释上传漏洞的原理与突破方法。</p>
-<h1 id="x02正文">0x02正文</h1>
-<h3 id="一前端js校验">一、前端JS校验</h3>
-<p>JS校验往往只是通过脚本获得文件的后缀名，再通过白名单验证，以下列出JS代码供参考：
-<div class="code-wrapper"><pre><code class="hljs JavaScript">&lt;script type=<span class="hljs-string">&quot;text/javascript&quot;</span>&gt;
-    <span class="hljs-keyword">function</span> <span class="hljs-title function_">checkFile</span>(<span class="hljs-params"></span>) &#123;
-        <span class="hljs-keyword">var</span> file = <span class="hljs-variable language_">document</span>.<span class="hljs-title function_">getElementsByName</span>(<span class="hljs-string">&#x27;upload_file&#x27;</span>)[<span class="hljs-number">0</span>].<span class="hljs-property">value</span>;
-        <span class="hljs-keyword">if</span> (file == <span class="hljs-literal">null</span> || file == <span class="hljs-string">&quot;&quot;</span>) &#123;
-            <span class="hljs-title function_">alert</span>(<span class="hljs-string">&quot;请选择要上传的文件!&quot;</span>);
-            <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;
-        &#125;
-        <span class="hljs-comment">//定义允许上传的文件类型</span>
-        <span class="hljs-keyword">var</span> allow_ext = <span class="hljs-string">&quot;.jpg|.png|.gif&quot;</span>;
-        <span class="hljs-comment">//提取上传文件的类型</span>
-        <span class="hljs-keyword">var</span> ext_name = file.<span class="hljs-title function_">substring</span>(file.<span class="hljs-title function_">lastIndexOf</span>(<span class="hljs-string">&quot;.&quot;</span>));
-        <span class="hljs-comment">//判断上传文件类型是否允许上传</span>
-        <span class="hljs-keyword">if</span> (allow_ext.<span class="hljs-title function_">indexOf</span>(ext_name) == -<span class="hljs-number">1</span>) &#123;
-            <span class="hljs-keyword">var</span> errMsg = <span class="hljs-string">&quot;该文件不允许上传，请上传&quot;</span> + allow_ext + <span class="hljs-string">&quot;类型的文件,当前文件类型为：&quot;</span> + ext_name;
-            <span class="hljs-title function_">alert</span>(errMsg);
-            <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;
-        &#125;
-    &#125;
-&lt;/script&gt;</code></pre></div>
-此种校验方式往往很容易突破，一种是通过抓取HTTP数据包，修改重放便可以突破。或者通过浏览器修改前端代码，从而改变代码逻辑。</p>
-<h3 id="二content-type字段校验">二、content-type字段校验</h3>
-<p>首先对MIME进行简单的知识普及
-&gt;http://www.cnblogs.com/jsean/articles/1610265.html</p>
-<blockquote>
-<p>https://developer.mozilla.org/zh-CN/docs/Web/HTTP/Basics_of_HTTP/MIME_Types</p>
-</blockquote>
-<div class="code-wrapper"><pre><code class="hljs php"><span class="hljs-meta">&lt;?php</span>
-        <span class="hljs-keyword">if</span>(<span class="hljs-variable">$_FILES</span>[<span class="hljs-string">&#x27;userfile&#x27;</span>][<span class="hljs-string">&#x27;type&#x27;</span>] != <span class="hljs-string">&quot;image/gif&quot;</span>)  <span class="hljs-comment">#这里对上传的文件类型进行判断，如果不是image/gif类型便返回错误。</span>
-                &#123;   
-                 <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;Sorry, we only allow uploading GIF images&quot;</span>;
-                 <span class="hljs-keyword">exit</span>;
-                 &#125;
-         <span class="hljs-variable">$uploaddir</span> = <span class="hljs-string">&#x27;uploads/&#x27;</span>;
-         <span class="hljs-variable">$uploadfile</span> = <span class="hljs-variable">$uploaddir</span> . <span class="hljs-title function_ invoke__">basename</span>(<span class="hljs-variable">$_FILES</span>[<span class="hljs-string">&#x27;userfile&#x27;</span>][<span class="hljs-string">&#x27;name&#x27;</span>]);
-         <span class="hljs-keyword">if</span> (<span class="hljs-title function_ invoke__">move_uploaded_file</span>(<span class="hljs-variable">$_FILES</span>[<span class="hljs-string">&#x27;userfile&#x27;</span>][<span class="hljs-string">&#x27;tmp_name&#x27;</span>], <span class="hljs-variable">$uploadfile</span>))
-             &#123;
-                 <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;File is valid, and was successfully uploaded.\n&quot;</span>;
-                &#125; <span class="hljs-keyword">else</span> &#123;
-                     <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;File uploading failed.\n&quot;</span>;
-    &#125;
-     <span class="hljs-meta">?&gt;</span></code></pre></div>
-<p>此类校验方式绕过也十分简单，burpsuite截取数据包，修改content-type值，发送数据包即可。</p>
-<h3 id="三文件头校验">三、文件头校验</h3>
-<p>文件头基本概念：
-&gt;https://www.cnblogs.com/mq0036/p/3912355.html</p>
-<p>上传webshell的过程中,添加文件头便可以突破此类校验。例如
-<div class="code-wrapper"><pre><code class="hljs php">GIF89a<span class="hljs-meta">&lt;?php</span> <span class="hljs-title function_ invoke__">phpinfo</span>(); <span class="hljs-meta">?&gt;</span></code></pre></div></p>
-<h3 id="四服务器端扩展名校验">四、服务器端扩展名校验</h3>
-<p>此类校验的上传绕过往往较为复杂，常常与其他漏洞搭配使用，如解析漏洞，文件包含漏洞。</p>
-<div class="code-wrapper"><pre><code class="hljs php"><span class="hljs-meta">&lt;?php</span>
-<span class="hljs-variable">$type</span> = <span class="hljs-keyword">array</span>(<span class="hljs-string">&quot;php&quot;</span>,<span class="hljs-string">&quot;php3&quot;</span>);
-<span class="hljs-comment">//判断上传文件类型</span>
-<span class="hljs-variable">$fileext</span> = <span class="hljs-title function_ invoke__">fileext</span>(<span class="hljs-variable">$_FILE</span>[<span class="hljs-string">&#x27;file&#x27;</span>][<span class="hljs-string">&#x27;name&#x27;</span>]);
-<span class="hljs-keyword">if</span>(!<span class="hljs-title function_ invoke__">in_array</span>(<span class="hljs-variable">$fileext</span>,<span class="hljs-variable">$type</span>))&#123;
-    <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;upload success!&quot;</span>;
-&#125;
-<span class="hljs-keyword">else</span>&#123;
-    <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;sorry&quot;</span>;
-&#125;
-<span class="hljs-meta">?&gt;</span></code></pre></div>
-<p>Apache解析漏洞，IIS6.0解析漏洞在此不再过多阐述。</p>
-<h3 id="五编辑器上传漏洞">五、编辑器上传漏洞</h3>
-<p>早期编辑器例如FCK,eWeb编辑器正在逐渐淡出市场，但是并没有使富文本编辑器的占用率变低，因此在渗透测试的过程中，一般可以查找编辑器漏洞从而获得webshell。</p>
-<h1 id="x03总结">0x03总结</h1>
-<p>在渗透测试的过程中,遇到上传点，通常情况下截取数据包，再通过各种姿势进行bypass。关于防护的几点建议：</p>
+              <h2 id="controller机制">Controller机制</h2>
+<p>Controller主要作用是在Zookeeper的帮助下管理和协调整个Kafka集群（在zk中存储集群元数据）。Kafka集群中会有一个或多个Broker，其中一个Broker会被选举为Controller，它负责管理整个集群中所有分区和副本的状态，其工作职责包括以下内容：</p>
 <ul>
-<li>在服务器端进行校验</li>
-<li>上传的文件可以进行时间戳md5进行命名</li>
-<li>上传的路径隐藏</li>
-<li>文件存储目录权限控制</li>
+<li><strong>Topic管理</strong>：完成对Kafka的Topic的创建删除、分区增加等操作。</li>
+<li><strong>分区重分配</strong>：新的Broker加入集群时，不会自动分担已有的topic负载，只会对后续的topic生效，此时如果需要对已有topic负载，需要用户手动进行<strong>分区重分配</strong>。</li>
+<li><strong>Leader选举</strong>：触发分区选举的几种场景如下：
+<ul>
+<li>Offline：创建新分区或现有分区Leader离线</li>
+<li>Reassign：用户执行重分配操作</li>
+<li>PreferredReplica：leader迁移回首选副本</li>
+<li>分区的现有leader即将下线</li>
+</ul></li>
+<li>集群成员管理：
+<ul>
+<li>Kafka 使用Zookeeper的临时节点来选举Controller</li>
+<li>Zookeeper在Broker加入集群或退出集群时通知Controller</li>
+<li>Controller负责在Broker加入或离开集群时进行分区Leader选举</li>
+</ul></li>
+<li>元数据管理：Controller负责管理集群中所有的元数据</li>
 </ul>
-<p>当然最重要的是，维持网站中间件的安全，杜绝旧版解析漏洞的存在。</p>
+<p>Controller选举流程：</p>
+<ul>
+<li>每个Broker启动时，都会尝试读取<code>/controller</code>节点的brokerid的值，如果值不为-1，则表明已经有其他broker节点成为Controller，当前broker放弃选举</li>
+<li>如果不存在<code>/controller</code>节点或节点数据异常，则主动创建节点并存储brokerid</li>
+<li>其他broker会将选举成功的Brokerid都在内存保存下来</li>
+<li>同时使用<code>/controller_epoch</code>持久性节点来记录任期号，记录Controller发生变化的次数，类似于Raft中的任期。
+<ul>
+<li>初始值为1，每个与Controller交互的请求都会携带<code>controller_epoch</code>，如果请求的<code>controller_epoch</code>大于内存中<code>controller_epoch</code>，说明内存中的值过期了，目前已有新的Controller当选。</li>
+<li>由两部分组成：
+<ul>
+<li>epoch：单调递增的版本号，leader发生变更，进行自增</li>
+<li>start offset：Leader副本在该Epoch值上写入的首条消息的位移。</li>
+</ul></li>
+<li>每个分区都缓存该值，并定期持久化到<code>checkpoint</code>文件中</li>
+</ul></li>
+</ul>
+<h3 id="partition-leader选举">Partition Leader选举</h3>
+<p>Controller拥有选举分区Leader的功能，每个分区都会有一个Broker作为Leader，处理所有的读写请求，选举流程由Controller负责：</p>
+<ol type="1">
+<li>Controller从ZK中读取当前分区所有的ISR集合</li>
+<li>调用配置的分区选择算法选举分区的Leader</li>
+</ol>
+<p><code>Partition Leader</code>的定义如下：</p>
+<blockquote>
+<p>Each partition has one server which acts as the "leader" and zero or
+more servers which act as "followers". The leader handles all read and
+write requests for the partition while the followers passively replicate
+the leader. If the leader fails, one of the followers will automatically
+become the new leader. Each server acts as a leader for some of its
+partitions and a follower for others so load is well balanced within the
+cluster.</p>
+</blockquote>
+<h3 id="故障转移">故障转移</h3>
+<p>如果Controller发生故障（宕机或网络超时等），Kafka能够立即启用备用Controller来代替之前的，这个过程称为<code>Failover</code>。其基本流程如下：</p>
+<ol type="1">
+<li>ZK检测到当前controller宕机（ZK的watch机制），删除<code>/controller</code>临时节点。</li>
+<li>某个Broker抢先注册了<code>/controller</code>临时节点，成为新的controller</li>
+<li>该Broker从ZK拉取元数据，并执行初始化。</li>
+</ol>
+<h2 id="分区副本机制">分区副本机制</h2>
+<p>副本对分区数据进行冗余存储，以保证系统的高可用和数据一致性，当分区Leader发生宕机或数据丢失，可以从其他副本获取分区数据。分区Leader负责处理分区所有的读写请求。</p>
+<p>每个分区都有一个ISR集合，用于维护所有同步并可用的副本，ISR最少拥有Leader副本这一个元素，对于Follower来说，必须满足以下条件才是ISR：</p>
+<ul>
+<li>必须定时向Zookeeper发送心跳</li>
+<li>在规定时间内从Leader获取过消息</li>
+</ul>
+<p>若副本不满足以上两条件，就会从ISR列表移除。</p>
+<p><code>replica.lag.time.max.ms</code>：Follower能落后Leader的最长时间间隔，默认为10s</p>
+<p>使用Zookeeper来管理ISR，节点位置为<code>/brokers/topics/[topic]/partitions/[partition]/state</code></p>
+<h2 id="hw和leo机制">HW和LEO机制</h2>
+<p>几个offset概念：</p>
+<ul>
+<li>base offset：副本中第一条消息的offset</li>
+<li>high watermark（HW）：副本中最新一条已提交消息的offset
+<ul>
+<li>用来标识分区中哪些消息可以消费，HW之后的数据对消费者不可见</li>
+<li>完成副本数据同步的任务</li>
+<li>HW永远小于LEO：定义决定的</li>
+</ul></li>
+<li>log end offset（LEO）：副本中下一条待写入消息的offset
+<ul>
+<li>用于更新HW：follower和Leader的LEO同步后，两者HW就可以更新</li>
+</ul></li>
+</ul>
+<p>Leader除了保存自己的一组HW和LEO，也会保存其他Follower的值，目的是帮助Leader副本确定分区高水位。</p>
+<h3 id="更新机制">更新机制</h3>
+<ul>
+<li>Follower从Leader同步数据时，会携带自己的LEO值，Leader将Follower中最小的LEO作为HW值，这是为了保证Leader宕机后，新选举的节点拥有所有HW之前的数据，保证了数据安全性。</li>
+<li>Follower获取数据时，请求Leader的HW，然后follower.HW =
+min(follower.LEO, leader.HW)</li>
+</ul>
 
             </div>
             <hr>
@@ -328,23 +336,12 @@
                   <div class="post-meta mr-3">
                     <i class="iconfont icon-category"></i>
                     
-                      <a class="hover-with-bg" href="/categories/Web%E5%AE%89%E5%85%A8/">Web安全</a>
+                      <a class="hover-with-bg" href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/">中间件</a>
                     
-                      <a class="hover-with-bg" href="/categories/Web%E5%AE%89%E5%85%A8/CTF/">CTF</a>
+                      <a class="hover-with-bg" href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/">Kafka</a>
                     
                   </div>
                 
-                
-                  <div class="post-meta">
-                    <i class="iconfont icon-tags"></i>
-                    
-                      <a class="hover-with-bg" href="/tags/PHP%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1/">PHP代码审计</a>
-                    
-                      <a class="hover-with-bg" href="/tags/%E5%AE%89%E5%85%A8/">安全</a>
-                    
-                      <a class="hover-with-bg" href="/tags/CTF/">CTF</a>
-                    
-                  </div>
                 
               </div>
               
@@ -359,18 +356,12 @@
                   <article class="post-prev col-6">
                     
                     
-                      <a href="/2018/Web%E5%AE%89%E5%85%A8/php-audit-cover/">
-                        <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">理解PHP变量覆盖漏洞</span>
-                        <span class="visible-mobile">上一篇</span>
-                      </a>
-                    
                   </article>
                   <article class="post-next col-6">
                     
                     
-                      <a href="/2018/Web%E5%AE%89%E5%85%A8/nctf/">
-                        <span class="hidden-mobile">南京邮电大学CTF平台Web系列WriteUp</span>
+                      <a href="/2022/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/Kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E4%B8%89)-%E9%80%9A%E4%BF%A1%E5%8D%8F%E8%AE%AE/">
+                        <span class="hidden-mobile">Kafka学习笔记(三)-通信协议</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
