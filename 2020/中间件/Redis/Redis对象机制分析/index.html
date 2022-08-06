@@ -18,21 +18,21 @@
   <meta name="author" content="Lin Wang">
   <meta name="keywords" content="l1nker4">
   
-    <meta name="description" content="网络IO流程 网络IO中的一次请求和响应的流程基本如下：  内核通过网卡读取客户端的请求数据，将数据读取到内核缓冲区。数据从网卡到内核空间； 从内核缓冲区读取数据到应用进程缓冲区。数据从内核空间到用户空间； 服务端进程在自己的用户空间中，处理客户端的请求。数据在用户空间中被处理； 处理完数据并构建好的响应之后，将数据从用户缓冲区写入内核缓冲区。 内核将内核缓冲区中的响应写入网卡，网卡">
+    <meta name="description" content="简介 Redis中提供的数据结构都使用了下面的redisObject进行包装，通过包装可以提供不同场景下使用不同的数据结构的实现。Redis的对象机制还使用了引用计数方式的内存回收机制。 typedef struct redisObject &amp;#123;      &#x2F;&#x2F; 类型     unsigned type:4;      &#x2F;&#x2F; 编码     unsigned encoding:4;">
 <meta property="og:type" content="article">
-<meta property="og:title" content="网络IO模型总结">
-<meta property="og:url" content="https://l1n.wang/2022/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E7%BD%91%E7%BB%9CIO%E6%A8%A1%E5%9E%8B%E6%80%BB%E7%BB%93/index.html">
+<meta property="og:title" content="Redis对象机制分析">
+<meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/Redis%E5%AF%B9%E8%B1%A1%E6%9C%BA%E5%88%B6%E5%88%86%E6%9E%90/index.html">
 <meta property="og:site_name" content="Lin&#39;s Blog">
-<meta property="og:description" content="网络IO流程 网络IO中的一次请求和响应的流程基本如下：  内核通过网卡读取客户端的请求数据，将数据读取到内核缓冲区。数据从网卡到内核空间； 从内核缓冲区读取数据到应用进程缓冲区。数据从内核空间到用户空间； 服务端进程在自己的用户空间中，处理客户端的请求。数据在用户空间中被处理； 处理完数据并构建好的响应之后，将数据从用户缓冲区写入内核缓冲区。 内核将内核缓冲区中的响应写入网卡，网卡">
+<meta property="og:description" content="简介 Redis中提供的数据结构都使用了下面的redisObject进行包装，通过包装可以提供不同场景下使用不同的数据结构的实现。Redis的对象机制还使用了引用计数方式的内存回收机制。 typedef struct redisObject &amp;#123;      &#x2F;&#x2F; 类型     unsigned type:4;      &#x2F;&#x2F; 编码     unsigned encoding:4;">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2022-02-22T02:44:13.000Z">
-<meta property="article:modified_time" content="2022-07-30T02:10:27.238Z">
+<meta property="article:published_time" content="2020-07-11T00:12:54.000Z">
+<meta property="article:modified_time" content="2022-08-06T07:17:26.045Z">
 <meta property="article:author" content="Lin Wang">
-<meta property="article:tag" content="操作系统">
+<meta property="article:tag" content="l1nker4">
 <meta name="twitter:card" content="summary_large_image">
   
   
-  <title>网络IO模型总结 - Lin&#39;s Blog</title>
+  <title>Redis对象机制分析 - Lin&#39;s Blog</title>
 
   <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
 
@@ -174,7 +174,7 @@
       <div class="full-bg-img">
         <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
           <div class="page-header text-center fade-in-up">
-            <span class="h2" id="subtitle" title="网络IO模型总结">
+            <span class="h2" id="subtitle" title="Redis对象机制分析">
               
             </span>
 
@@ -184,8 +184,8 @@
   
     <span class="post-meta">
       <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-      <time datetime="2022-02-22 10:44" pubdate>
-        2022年2月22日 上午
+      <time datetime="2020-07-11 08:12" pubdate>
+        2020年7月11日 早上
       </time>
     </span>
   
@@ -195,7 +195,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      1.3k 字
+      2.1k 字
     </span>
   
 
@@ -204,7 +204,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      12 分钟
+      18 分钟
     </span>
   
 
@@ -233,61 +233,98 @@
         <div class="py-5" id="board">
           <article class="post-content mx-auto">
             <!-- SEO header -->
-            <h1 style="display: none">网络IO模型总结</h1>
+            <h1 style="display: none">Redis对象机制分析</h1>
             
             <div class="markdown-body">
-              <h2 id="网络io流程">网络IO流程</h2>
-<p>网络IO中的一次请求和响应的流程基本如下：</p>
-<ol type="1">
-<li>内核通过网卡读取客户端的请求数据，将数据读取到内核缓冲区。数据从网卡到内核空间；</li>
-<li>从内核缓冲区读取数据到应用进程缓冲区。数据从内核空间到用户空间；</li>
-<li>服务端进程在自己的用户空间中，处理客户端的请求。数据在用户空间中被处理；</li>
-<li>处理完数据并构建好的响应之后，将数据从用户缓冲区写入内核缓冲区。</li>
-<li>内核将内核缓冲区中的响应写入网卡，网卡通过底层的通讯协议，会将数据发送给目标客户端。</li>
-</ol>
-<p>两组概念：</p>
+              <h2 id="简介">简介</h2>
+<p>Redis中提供的数据结构都使用了下面的redisObject进行包装，通过包装可以提供不同场景下使用不同的数据结构的实现。Redis的对象机制还使用了<strong>引用计数</strong>方式的内存回收机制。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">redisObject</span> &#123;</span>
+
+    <span class="hljs-comment">// 类型</span>
+    <span class="hljs-type">unsigned</span> type:<span class="hljs-number">4</span>;
+
+    <span class="hljs-comment">// 编码</span>
+    <span class="hljs-type">unsigned</span> encoding:<span class="hljs-number">4</span>;
+
+    <span class="hljs-comment">// 对象最后一次被访问的时间</span>
+    <span class="hljs-type">unsigned</span> lru:REDIS_LRU_BITS; <span class="hljs-comment">/* lru time (relative to server.lruclock) */</span>
+
+    <span class="hljs-comment">// 引用计数</span>
+    <span class="hljs-type">int</span> refcount;
+
+    <span class="hljs-comment">// 指向实际值的指针</span>
+    <span class="hljs-type">void</span> *ptr;
+
+&#125; robj;</code></pre></div>
+<p>type值可选：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_STRING 0</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_LIST 1</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_SET 2</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_ZSET 3</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_HASH 4</span></code></pre></div>
+<p>encoding可选：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_ENCODING_RAW 0     <span class="hljs-comment">/* Raw representation */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_ENCODING_INT 1     <span class="hljs-comment">/* Encoded as integer */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_ENCODING_HT 2      <span class="hljs-comment">/* Encoded as hash table */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_ENCODING_ZIPMAP 3  <span class="hljs-comment">/* Encoded as zipmap */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_ENCODING_LINKEDLIST 4 <span class="hljs-comment">/* Encoded as regular linked list */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_ENCODING_ZIPLIST 5 <span class="hljs-comment">/* Encoded as ziplist */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_ENCODING_INTSET 6  <span class="hljs-comment">/* Encoded as intset */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_ENCODING_SKIPLIST 7  <span class="hljs-comment">/* Encoded as skiplist */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_ENCODING_EMBSTR 8  <span class="hljs-comment">/* Embedded sds string encoding */</span></span></code></pre></div>
+<h2 id="结构的编码方案">结构的编码方案</h2>
+<h3 id="string">String</h3>
+<p>编码策略如下：</p>
 <ul>
-<li><strong>同步</strong>：请求被逐个地处理，无法并发执行。</li>
-<li><strong>异步</strong>：多个请求可以并发执行，内核IO操作完成后会通知用户线程，或者调用用户进程的回调函数。</li>
-<li><strong>阻塞</strong>：请求发出后，由于该请求操作需要的条件不满足，请求操作一直阻塞，不会返回，直到条件满足。</li>
-<li><strong>非阻塞</strong>：请求发出后，若该请求需要的条件不满足，则立即返回一个标志信息告知条件不满足，而不会一直等待。一般需要通过循环判断请求条件是否满足来获取请求结果。</li>
+<li>若保存的为整数值，并且可以用long表示，使用int进行编码</li>
+<li>若保存的为字符串值，并且长度大于32字节，使用SDS存储，编码格式为raw</li>
+<li>若保存的为字符串值，并且长度小于32字节，使用embstr进行编码</li>
 </ul>
-<p>在《UNIX网络编程》中，将UNIX的IO模型分为了以下五种：</p>
+<p>embstr是对短字符串的优化编码，使用redisObject和sdshdr来表示字符串对象，embstr只调用一次内存分配函数来分配两个struct，raw编码使用两次内存分配函数分别完成分配。同理内存释放也如此。</p>
+<h3 id="list">List</h3>
+<p>编码策略如下：</p>
 <ul>
-<li>阻塞式IO</li>
-<li>非阻塞式IO</li>
-<li>IO多路复用</li>
-<li>信号驱动式IO</li>
-<li>异步IO</li>
+<li>列表对象字符串对象长度小于64字节，并且保存元素数量小于512，使用ziplist进行编码，否则使用linkedlist编码</li>
+<li>上述两个阈值通过<code>list-max-ziplist-value</code>和<code>list-max-ziplist-entries</code>控制</li>
 </ul>
-<h2 id="阻塞式io">阻塞式IO</h2>
-<p>该模型中，用户空间的应用程序通过执行read调用（底层是recvfrom系统调用）来从socket中读取数据，在应用程序发起read调用后，会一直阻塞，直到数据包到达网卡上并复制到内核空间中，随后从内核空间拷贝到用户空间之后才会返回。</p>
-<p><img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/network-io/blocking-io.jpg" srcset="/img/loading.gif" lazyload /></p>
-<p>BIO在实现异步操作时，只能使用多线程进行处理，一个请求对应一个线程，该模型对于高并发环境，开销十分巨大，需要考虑其他的IO处理模型。</p>
-<h2 id="非阻塞式io">非阻塞式IO</h2>
-<p>应用程序发起系统调用，如果内核数据暂未准备好，进程可以做其他事，然后再次轮询内核获取请求结果。</p>
-<p><img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/network-io/nonblocking-io.jpg" srcset="/img/loading.gif" lazyload /></p>
-<p>简单的NIO需要不断的重复发起IO系统调用，这种不断地询问内核的操作，这将占用大量的
-CPU 时间，并导致<strong>上下文切换</strong>，系统资源利用率较低。</p>
-<h2 id="io多路复用">IO多路复用</h2>
-<p>IO多路复用模型通过一个<strong>监听线程</strong>发起另一种形式的系统调用，由一个线程监听多个文件描述符（fd，linux系统把所有网络请求以一个fd来标识），一旦某个fd的操作就绪（一般是内核缓冲区可读/可写），该系统调用就会返回，随后监听线程可以通知程序对准备好了的fd进行对应的IO系统调用，比如通过recvfrom读取数据。</p>
-<p>在Linux中select、poll、epoll函数就是IO多路复用的具体实现。Java4新增的NIO包中引入的选择器Selector，使用的就是IO多路复用模型，通过它，只需要一个线程便可以管理多个客户端连接。</p>
-<p><img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/network-io/multiplexing.jpg" srcset="/img/loading.gif" lazyload /></p>
-<h2 id="信号驱动io">信号驱动IO</h2>
-<p>应用程序通过sigaction系统调用安装一个信号处理函数，应用程序继续工作，当数据准备好后，内核给进程发送一个<code>SIGIO</code>信号，应用程序开始<strong>执行系统调用</strong>执行IO操作。</p>
-<p><img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/network-io/signal-io.jpg" srcset="/img/loading.gif" lazyload /></p>
-<p>这种模型的优势在于等待数据达到期间，进程不被阻塞。只需要等待信号处理函数的通知。</p>
-<h2 id="异步io">异步IO</h2>
-<p>AIO的基本流程是：用户线程通过系统调用，告知内核启动某个IO操作，用户线程随即返回。内核在整个IO操作（包括数据准备、数据复制）完成后，会通知用户程序，用户执行后续的业务操作。</p>
-<p><img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/network-io/aio.jpg" srcset="/img/loading.gif" lazyload /></p>
-<p>与信号驱动式IO的区别：信号驱动模型是由内核通知我们<strong>何时可以启动一个IO操作</strong>，而异步IO模型由内核通知我们<strong>IO操作何时完成</strong>。信号驱动IO更像半异步IO。</p>
-<h2 id="参考">参考</h2>
-<p>《UNIX网络编程》</p>
+<h3 id="hash">Hash</h3>
+<p>编码策略如下：</p>
+<ul>
+<li>保存的所有键值长度都小于64字节，并且键值对数量小于512个，满足这两个条件使用ziplist编码，否则使用hashtable编码</li>
+<li>阈值由<code>hash-max-ziplist-value</code>和<code>hash-max-ziplist-entries</code>控制</li>
+<li>ziplist编码时，键值节点紧挨在一起，先添加的靠近表头</li>
+<li>hashtable编码时，键值对使用dictEntry存储，键使用<code>StringObject</code>，值使用<code>StringObject</code></li>
+</ul>
+<h3 id="set">Set</h3>
+<p>编码策略如下：</p>
+<ul>
+<li>集合对象保存的所有元素都是整数时，并且元素个数不超过512个，使用intset进行存储，否则使用hashtable存储</li>
+<li>阈值通过<code>set-max-intset-entries</code>进行控制</li>
+<li>intset编码时，集合存储在整数集合中</li>
+<li>hashtable编码时，每个键都是<code>StringObject</code>，值为NULL</li>
+</ul>
+<h3 id="zset">Zset</h3>
+<p>编码策略如下：</p>
+<ul>
+<li>有序集合保存的元素数量小于128个，保存的所有成员长度都小于64字节，同时满足使用ziplist编码，否则使用skiplist编码，并使用hashtable进行辅助存储。</li>
+<li>上述阈值使用<code>zset-max-ziplist-entries</code>和<code>zset-max-ziplist-value</code>来控制</li>
+<li>ziplist中有序集合元素按score从大到小排序。</li>
+<li>skiplist按照score从大到小保存了所有集合元素，支持范围查询等操作
+<ul>
+<li>同时使用hashtable存储成员到score的映射（键为元素，值为score），通过hashtable可以在<span
+class="math inline">\(O(1)\)</span>时间查到元素的score</li>
+<li>skiplist和hashtable给你通过指针共享元素和score，因此不会浪费额外的内存。</li>
+</ul></li>
+</ul>
+<p><strong>为什么同时使用跳表 + 哈希表 来实现有序集合？</strong></p>
+<ul>
+<li>若只用hashtable实现，尽管可以在<span
+class="math inline">\(O(1)\)</span>时间内找到元素对应的score，但是无法满足范围查找，例如ZRANGE等命令，hashtable完成排序至少需要<span
+class="math inline">\(O(N * logN)\)</span>的时间以及<span
+class="math inline">\(O(N)\)</span>的空间。</li>
+<li>若只用skiplist实现，根据元素查找score的操作升到<span
+class="math inline">\(O(logN)\)</span>的时间复杂度。</li>
+</ul>
 
             </div>
             <hr>
@@ -297,19 +334,12 @@ src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/network-io/aio.jpg" sr
                   <div class="post-meta mr-3">
                     <i class="iconfont icon-category"></i>
                     
-                      <a class="hover-with-bg" href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/">计算机基础</a>
+                      <a class="hover-with-bg" href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/">中间件</a>
                     
-                      <a class="hover-with-bg" href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/">操作系统</a>
+                      <a class="hover-with-bg" href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/">Redis</a>
                     
                   </div>
                 
-                
-                  <div class="post-meta">
-                    <i class="iconfont icon-tags"></i>
-                    
-                      <a class="hover-with-bg" href="/tags/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/">操作系统</a>
-                    
-                  </div>
                 
               </div>
               
@@ -324,9 +354,9 @@ src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/network-io/aio.jpg" sr
                   <article class="post-prev col-6">
                     
                     
-                      <a href="/2022/MySQL/MySQL%E8%B0%83%E4%BC%98%E6%80%BB%E7%BB%93%E7%AC%94%E8%AE%B0/">
+                      <a href="/2020/MySQL/mysql-structure-and-engine/">
                         <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">MySQL调优总结</span>
+                        <span class="hidden-mobile">MySQL体系结构和存储引擎</span>
                         <span class="visible-mobile">上一篇</span>
                       </a>
                     
@@ -334,8 +364,8 @@ src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/network-io/aio.jpg" sr
                   <article class="post-next col-6">
                     
                     
-                      <a href="/2022/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/raft-note/">
-                        <span class="hidden-mobile">Raft论文阅读笔记</span>
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/Redis%E8%BF%87%E6%9C%9F%E5%88%A0%E9%99%A4%E7%AD%96%E7%95%A5%E4%B8%8E%E5%86%85%E5%AD%98%E6%B7%98%E6%B1%B0%E6%9C%BA%E5%88%B6/">
+                        <span class="hidden-mobile">Redis过期删除策略与内存淘汰机制</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>

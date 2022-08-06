@@ -18,15 +18,15 @@
   <meta name="author" content="Lin Wang">
   <meta name="keywords" content="l1nker4">
   
-    <meta name="description" content="简介 整数集合是一个有序的，存储Integer类型数据的结构，当元素为64位有符号整数范围之内时，它是Redis数据结构中有序集合ZSET的底层实现，但是当元素个数超过一定数量时（默认为512），会转为hashtable进行存储，由配置项set-max-intset-entries 512决定。如果向有序集合中添加非整型变量，底层实现也会装欢为hashtable。 数据结构  encodi">
+    <meta name="description" content="简介 Intset是一个有序的，存储Integer类型数据的结构，当元素为64位有符号整数范围之内时，它是Redis数据结构中有序集合ZSET的底层实现，但是当元素个数超过一定数量时（默认为512），会转为hashtable进行存储，由配置项set-max-intset-entries 512决定。如果向有序集合中添加非整型变量，底层实现也会装欢为hashtable。 数据结构 intset">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Redis底层数据结构-Intset源码分析">
 <meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-intset/index.html">
 <meta property="og:site_name" content="Lin&#39;s Blog">
-<meta property="og:description" content="简介 整数集合是一个有序的，存储Integer类型数据的结构，当元素为64位有符号整数范围之内时，它是Redis数据结构中有序集合ZSET的底层实现，但是当元素个数超过一定数量时（默认为512），会转为hashtable进行存储，由配置项set-max-intset-entries 512决定。如果向有序集合中添加非整型变量，底层实现也会装欢为hashtable。 数据结构  encodi">
+<meta property="og:description" content="简介 Intset是一个有序的，存储Integer类型数据的结构，当元素为64位有符号整数范围之内时，它是Redis数据结构中有序集合ZSET的底层实现，但是当元素个数超过一定数量时（默认为512），会转为hashtable进行存储，由配置项set-max-intset-entries 512决定。如果向有序集合中添加非整型变量，底层实现也会装欢为hashtable。 数据结构 intset">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2020-06-20T07:28:27.000Z">
-<meta property="article:modified_time" content="2020-06-20T07:29:07.238Z">
+<meta property="article:modified_time" content="2022-07-30T02:10:27.200Z">
 <meta property="article:author" content="Lin Wang">
 <meta property="article:tag" content="数据结构">
 <meta property="article:tag" content="源码分析">
@@ -197,7 +197,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      4.1k 字
+      4.2k 字
     </span>
   
 
@@ -206,7 +206,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      35 分钟
+      36 分钟
     </span>
   
 
@@ -239,17 +239,9 @@
             
             <div class="markdown-body">
               <h1 id="简介">简介</h1>
-<p>整数集合是一个有序的，存储Integer类型数据的结构，当元素为64位有符号整数范围之内时，它是Redis数据结构中有序集合ZSET的底层实现，但是当元素个数超过一定数量时（默认为512），会转为hashtable进行存储，由配置项<code>set-max-intset-entries 512</code>决定。如果向有序集合中添加非整型变量，底层实现也会装欢为hashtable。</p>
+<p>Intset是一个有序的，存储Integer类型数据的结构，当元素为64位有符号整数范围之内时，它是Redis数据结构中有序集合ZSET的底层实现，但是当元素个数超过一定数量时（默认为512），会转为hashtable进行存储，由配置项<code>set-max-intset-entries 512</code>决定。如果向有序集合中添加非整型变量，底层实现也会装欢为hashtable。</p>
 <h1 id="数据结构">数据结构</h1>
-<ul>
-<li>encoding：编码类型，决定每个元素占用几个字节
-<ul>
-<li>INTSET_ENC_INT16：当元素大小位于<code>INT16_MIN</code>和<code>INT16_MAX</code>之间使用，每个元素占用两个字节。</li>
-<li>INTSET_ENC_INT32：元素大小位于<code>INT16_MAX</code>和<code>INT32_MAX</code>之间或<code>INT32_MIN</code>到<code>INT16_MIN</code>之间，该编码方式占用四个字节。</li>
-<li>INTSET_ENC_INT64：元素大小位于<code>INT32_MAX</code>到<code>INT64_MAX</code>或<code>INT64_MIN</code>到<code>INT32_MIN</code>之间，该编码方式每个元素占用八个字节。</li>
-</ul></li>
-<li>length：元素个数</li>
-<li>contents：存储具体元素的数组 <div class="code-wrapper"><pre><code class="hljs C">
+<p>intset结构如下： <div class="code-wrapper"><pre><code class="hljs C">
 <span class="hljs-meta">#<span class="hljs-keyword">define</span> INTSET_ENC_INT16 (sizeof(int16_t))</span>
 <span class="hljs-meta">#<span class="hljs-keyword">define</span> INTSET_ENC_INT32： (sizeof(int32_t))</span>
 <span class="hljs-meta">#<span class="hljs-keyword">define</span> INTSET_ENC_INT64 (sizeof(int64_t))</span>
@@ -258,8 +250,16 @@
     <span class="hljs-type">uint32_t</span> encoding;
     <span class="hljs-type">uint32_t</span> length;
     <span class="hljs-type">int8_t</span> contents[];
-&#125; intset;</code></pre></div></li>
-</ul>
+&#125; intset;</code></pre></div> 各字段含义： -
+encoding：编码类型，决定每个元素占用几个字节 -
+INTSET_ENC_INT16：当元素大小位于<code>INT16_MIN</code>和<code>INT16_MAX</code>之间使用，每个元素占用两个字节。
+-
+INTSET_ENC_INT32：元素大小位于<code>INT16_MAX</code>和<code>INT32_MAX</code>之间或<code>INT32_MIN</code>到<code>INT16_MIN</code>之间，该编码方式占用四个字节。
+-
+INTSET_ENC_INT64：元素大小位于<code>INT32_MAX</code>到<code>INT64_MAX</code>或<code>INT64_MIN</code>到<code>INT32_MIN</code>之间，该编码方式每个元素占用八个字节。
+- length：元素个数 -
+contents：存储具体元素的数组，从小到大排序，并且不包含任何重复项</p>
+<p>当添加的新元素比集合里面所有元素类型都长时，集合需要整体进行upgrade，然后完成添加。</p>
 <h1 id="接口">接口</h1>
 <h2 id="intsetfind">intsetFind</h2>
 <p>查找算法主要通过二分查找实现。 <div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-comment">/* Determine whether a value belongs to this set */</span>
