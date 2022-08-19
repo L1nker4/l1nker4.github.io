@@ -26,7 +26,7 @@
 <meta property="og:description" content="主从复制模式 Redis集群实现数据同步，保证服务高可用。  一主多从 数据流向是单向的，master-&gt;slave  开启指令： slaveof 192.168.1.10 6379		&#x2F;&#x2F;当前服务节点称为指定IP的从节点 slaveof no one                  &#x2F;&#x2F;取消从属关系 配置文件： slaveof ip port slave-read-on">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2020-07-13T10:12:10.000Z">
-<meta property="article:modified_time" content="2022-08-14T12:03:34.557Z">
+<meta property="article:modified_time" content="2022-08-19T13:45:57.168Z">
 <meta property="article:author" content="Lin Wang">
 <meta property="article:tag" content="l1nker4">
 <meta name="twitter:card" content="summary_large_image">
@@ -195,7 +195,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      3.1k 字
+      5.8k 字
     </span>
   
 
@@ -204,7 +204,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      26 分钟
+      49 分钟
     </span>
   
 
@@ -336,6 +336,128 @@ ID和<code>leader_epoch</code>。</li>
 <li>让其他slave改为复制新的master的数据。向其他slave发送<code>SLAVEOF</code>。</li>
 </ul>
 <h2 id="redis-cluster">Redis Cluster</h2>
+<p>Redis集群是Redis提供的分布式数据库方案，通过sharding完成数据共享，并通过复制、故障转移来提供高可用特性。</p>
+<h3 id="node">Node</h3>
+<p>一个集群由多个Node构成，刚运行时都是独立的Node，需要通过<code>CLUSTER MEET &lt;ip&gt; &lt;port&gt;</code>指令来构成集群。<code>CLUSTER NODE</code>可以查询集群信息。Node通过以下配置参数判断是否以集群模式启动：</p>
+<div class="code-wrapper"><pre><code class="hljs bash">cluster-enabled <span class="hljs-built_in">yes</span></code></pre></div>
+<p>Node使用以下struct来定义：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">// 节点状态</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">clusterNode</span> &#123;</span>
+
+    <span class="hljs-comment">// 创建节点的时间</span>
+    <span class="hljs-type">mstime_t</span> ctime; <span class="hljs-comment">/* Node object creation time. */</span>
+
+    <span class="hljs-comment">// 节点的名字，由 40 个十六进制字符组成</span>
+    <span class="hljs-comment">// 例如 68eef66df23420a5862208ef5b1a7005b806f2ff</span>
+    <span class="hljs-type">char</span> name[REDIS_CLUSTER_NAMELEN]; <span class="hljs-comment">/* Node name, hex string, sha1-size */</span>
+
+    <span class="hljs-comment">// 节点标识</span>
+    <span class="hljs-comment">// 使用各种不同的标识值记录节点的角色（比如主节点或者从节点），</span>
+    <span class="hljs-comment">// 以及节点目前所处的状态（比如在线或者下线）。</span>
+    <span class="hljs-type">int</span> flags;      <span class="hljs-comment">/* REDIS_NODE_... */</span>
+
+    <span class="hljs-comment">// 节点当前的配置纪元，用于实现故障转移</span>
+    <span class="hljs-type">uint64_t</span> configEpoch; <span class="hljs-comment">/* Last configEpoch observed for this node */</span>
+    
+    <span class="hljs-comment">// 该节点负责处理的槽数量</span>
+    <span class="hljs-type">int</span> numslots;   <span class="hljs-comment">/* Number of slots handled by this node */</span>
+
+    <span class="hljs-comment">// 如果本节点是主节点，那么用这个属性记录从节点的数量</span>
+    <span class="hljs-type">int</span> numslaves;  <span class="hljs-comment">/* Number of slave nodes, if this is a master */</span>
+
+    <span class="hljs-comment">// 指针数组，指向各个从节点</span>
+    <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">clusterNode</span> **<span class="hljs-title">slaves</span>;</span> <span class="hljs-comment">/* pointers to slave nodes */</span>
+
+    <span class="hljs-comment">// 如果这是一个从节点，那么指向主节点</span>
+    <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">clusterNode</span> *<span class="hljs-title">slaveof</span>;</span> <span class="hljs-comment">/* pointer to the master node */</span>
+
+    <span class="hljs-comment">// 最后一次发送 PING 命令的时间</span>
+    <span class="hljs-type">mstime_t</span> ping_sent;      <span class="hljs-comment">/* Unix time we sent latest ping */</span>
+
+    <span class="hljs-comment">// 最后一次接收 PONG 回复的时间戳</span>
+    <span class="hljs-type">mstime_t</span> pong_received;  <span class="hljs-comment">/* Unix time we received the pong */</span>
+
+    <span class="hljs-comment">// 最后一次被设置为 FAIL 状态的时间</span>
+    <span class="hljs-type">mstime_t</span> fail_time;      <span class="hljs-comment">/* Unix time when FAIL flag was set */</span>
+
+    <span class="hljs-comment">// 最后一次给某个从节点投票的时间</span>
+    <span class="hljs-type">mstime_t</span> voted_time;     <span class="hljs-comment">/* Last time we voted for a slave of this master */</span>
+
+    <span class="hljs-comment">// 最后一次从这个节点接收到复制偏移量的时间</span>
+    <span class="hljs-type">mstime_t</span> repl_offset_time;  <span class="hljs-comment">/* Unix time we received offset for this node */</span>
+
+    <span class="hljs-comment">// 这个节点的复制偏移量</span>
+    <span class="hljs-type">long</span> <span class="hljs-type">long</span> repl_offset;      <span class="hljs-comment">/* Last known repl offset for this node. */</span>
+
+    <span class="hljs-comment">// 节点的 IP 地址</span>
+    <span class="hljs-type">char</span> ip[REDIS_IP_STR_LEN];  <span class="hljs-comment">/* Latest known IP address of this node */</span>
+
+    <span class="hljs-comment">// 节点的端口号</span>
+    <span class="hljs-type">int</span> port;                   <span class="hljs-comment">/* Latest known port of this node */</span>
+
+    <span class="hljs-comment">// 保存连接节点所需的有关信息</span>
+    clusterLink *link;          <span class="hljs-comment">/* TCP/IP link with this node */</span>
+
+    <span class="hljs-comment">// 一个链表，记录了所有其他节点对该节点的下线报告</span>
+    <span class="hljs-built_in">list</span> *fail_reports;         <span class="hljs-comment">/* List of nodes signaling this as failing */</span>
+
+&#125;;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">clusterLink</span> &#123;</span>
+
+    <span class="hljs-comment">// 连接的创建时间</span>
+    <span class="hljs-type">mstime_t</span> ctime;             <span class="hljs-comment">/* Link creation time */</span>
+
+    <span class="hljs-comment">// TCP 套接字描述符</span>
+    <span class="hljs-type">int</span> fd;                     <span class="hljs-comment">/* TCP socket file descriptor */</span>
+
+    <span class="hljs-comment">// 输出缓冲区，保存着等待发送给其他节点的消息（message）。</span>
+    sds sndbuf;                 <span class="hljs-comment">/* Packet send buffer */</span>
+
+    <span class="hljs-comment">// 输入缓冲区，保存着从其他节点接收到的消息。</span>
+    sds rcvbuf;                 <span class="hljs-comment">/* Packet reception buffer */</span>
+
+    <span class="hljs-comment">// 与这个连接相关联的节点，如果没有的话就为 NULL</span>
+    <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">clusterNode</span> *<span class="hljs-title">node</span>;</span>   <span class="hljs-comment">/* Node related to this link if any, or NULL */</span>
+
+&#125; clusterLink;</code></pre></div>
+<h3 id="slot">slot</h3>
+<p>集群通过分片的方式保存数据，整个数据库被分为16384个slot，slot被定义在<code>clusterNode</code>中，整个slot数组长度为2048
+bytes，以<code>bitmap</code>形式进行存储。处理slot的node的映射信息存储在<code>clusterState</code>中。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">// 槽数量</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_CLUSTER_SLOTS 16384</span>
+
+<span class="hljs-comment">// 由这个节点负责处理的槽</span>
+<span class="hljs-comment">// 一共有 REDIS_CLUSTER_SLOTS / 8 个字节长</span>
+<span class="hljs-comment">// 每个字节的每个位记录了一个槽的保存状态</span>
+<span class="hljs-comment">// 位的值为 1 表示槽正由本节点处理，值为 0 则表示槽并非本节点处理</span>
+<span class="hljs-comment">// 比如 slots[0] 的第一个位保存了槽 0 的保存情况</span>
+<span class="hljs-comment">// slots[0] 的第二个位保存了槽 1 的保存情况，以此类推</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> slots[REDIS_CLUSTER_SLOTS/<span class="hljs-number">8</span>];
+
+<span class="hljs-comment">// 该节点负责处理的槽数量</span>
+<span class="hljs-type">int</span> numslots;
+
+
+<span class="hljs-comment">// 存储处理各个槽的节点</span>
+<span class="hljs-comment">// 例如 slots[i] = clusterNode_A 表示槽 i 由节点 A 处理</span>
+clusterNode *slots[REDIS_CLUSTER_SLOTS];</code></pre></div>
+<p>至于为什么需要存储slot-&gt;node的映射，是为了解决<strong>想知道slot[i]由哪个node存储</strong>，使用该映射能在<span
+class="math inline">\(O(1)\)</span>内查询到，否则需要遍历<code>clusterState.nodes</code>字典中的所有<code>clusterNode</code>结构，检查这些结构的slots数组，直到找到负责处理slot{i]的节点为止。</p>
+<div class="code-wrapper"><pre><code class="hljs apache"><span class="hljs-comment"># 将slot分配给指定节点</span>
+<span class="hljs-attribute">CLUSTER</span> ADDSLOTS ＜slot＞<span class="hljs-meta"> [slot ...]</span></code></pre></div>
+<h3 id="命令处理">命令处理</h3>
+<p>假设客户端向集群发送key相关指令，处理流程如下：</p>
+<ol type="1">
+<li>接受命令的Node计算出key属于哪个slot，并判断当前slot是否属于自己，是则执行
+<ul>
+<li>通过<code>CRC16(key) &amp; 16383</code>计算key的所属slot</li>
+</ul></li>
+<li>否则给客户端返回MOVED错误（附带处理该slot的Node信息），客户端重新给正确Node发送请求。
+<ul>
+<li><code>MOVED ＜slot＞ ＜ip＞:＜port＞</code></li>
+</ul></li>
+</ol>
 <h3 id="哈希分布">哈希分布</h3>
 <ul>
 <li>数据分散度更高</li>
