@@ -26,7 +26,7 @@
 <meta property="og:description" content="过期删除策略 过期删除策略主要有以下三种：  定时删除：设置过期时间的同时，创建一个定时器，当到达过期时间后，执行删除操作。  优点：对内存友好，不会长时间占用内存 缺点：对CPU不友好，当过期entry过多会占用大量CPU时间，并且创建定时器存在性能消耗。  惰性删除：每次查询到该entry时，检查是否过期，若过期就删除，否则返回。  优点：对CPU友好 缺点：无用数据占用">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2020-07-10T05:12:24.000Z">
-<meta property="article:modified_time" content="2022-08-06T07:20:59.797Z">
+<meta property="article:modified_time" content="2022-09-05T14:58:00.703Z">
 <meta property="article:author" content="Lin Wang">
 <meta property="article:tag" content="l1nker4">
 <meta name="twitter:card" content="summary_large_image">
@@ -195,7 +195,7 @@
   
     <span class="post-meta mr-2">
       <i class="iconfont icon-chart"></i>
-      553 字
+      1.1k 字
     </span>
   
 
@@ -204,7 +204,7 @@
       <i class="iconfont icon-clock-fill"></i>
       
       
-      5 分钟
+      9 分钟
     </span>
   
 
@@ -254,7 +254,9 @@
 <li>综合考虑上述策略的优缺点，可以合理设置执行时长和频率。</li>
 </ul></li>
 </ul>
-<p>Redis中主要配合使用<strong>惰性删除</strong>和<strong>定期删除</strong>两种策略，在内存和CPU性能中取得平衡。</p>
+<p>Redis中主要配合使用<strong>惰性删除</strong>和<strong>定期删除</strong>两种策略，在内存和CPU性能中取得平衡。
+使用过期字典存储所有key的过期时间。key是一个指针，指向key对象，value是一个long
+long类型的整数，保存key的过期时间。</p>
 <p>实现：</p>
 <ul>
 <li>惰性删除：<code>db.c/expireIfNeeded</code>在读写之前对key进行检查.</li>
@@ -267,6 +269,30 @@
 </ul></li>
 </ul></li>
 </ul>
+<h2 id="内存淘汰策略">内存淘汰策略</h2>
+<p>当Redis的运行内存已经超过设置的最大内存时，会使用内存淘汰策略删除符合相关条件的key。
+最大内存通过设置<code>maxmemory &lt;bytes&gt;</code>即可。默认为0，表示没有内存大小的限制。</p>
+<p>Redis的内存淘汰策略如下：</p>
+<ul>
+<li>不淘汰
+<ul>
+<li>noeviction：不淘汰任何数据、直接返回错误。</li>
+</ul></li>
+<li>对设置了过期时间的数据进行淘汰
+<ul>
+<li>volatile-random： 随意淘汰设置了过期时间的任意entry。</li>
+<li>volatile-ttl：优先淘汰更早过期的entry。</li>
+<li>volatile-lru：淘汰所有设置了过期时间的entry中最近最久未使用的entry。</li>
+<li>volatile-lfu：淘汰所有设置了过期时间的entry中最少使用的entry。</li>
+</ul></li>
+<li>对全部数据进行淘汰
+<ul>
+<li>allkeys-random：随即淘汰任意entry。</li>
+<li>allkeys-lru：使用LRU策略淘汰任意entry。</li>
+<li>allkeys-lfu：使用LFU策略淘汰任意entry。</li>
+</ul></li>
+</ul>
+<p>修改redis.conf中的<code>maxmemory-policy &lt;策略&gt;</code>即可。</p>
 
             </div>
             <hr>
