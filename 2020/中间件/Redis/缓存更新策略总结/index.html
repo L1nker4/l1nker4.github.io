@@ -18,24 +18,22 @@
   <meta name="author" content="Lin Wang">
   <meta name="keywords" content="l1nker4">
   
-    <meta name="description" content="0x01 简介 变量覆盖漏洞是指攻击者使用自定义的变量去覆盖源代码中的变量，从而改变代码逻辑，实现攻击目的的一种漏洞。 通常造成变量覆盖的往往是以下几种情况： - register_globals&#x3D;On （PHP5.3废弃，PHP5.4中已经正式移除此功能） - 可变变量 - extract() - parse_str() - import_request_variables() 下">
+    <meta name="description" content="Cache Aside 具体逻辑如下：  写策略：更DB数据，再删除cache数据 读策略：  cache hit：直接返回命中数据。 cache miss：从数据库中读取，然后将数据写入cache，并返回。   适用场景：  适合读多写少的场景，不适合写多的场景。  Read&#x2F;Write Through 具体逻辑如下：  Read Through：写入时先查询">
 <meta property="og:type" content="article">
-<meta property="og:title" content="理解PHP变量覆盖漏洞">
-<meta property="og:url" content="https://l1n.wang/2018/Web%E5%AE%89%E5%85%A8/php-audit-cover/index.html">
+<meta property="og:title" content="缓存更新策略总结">
+<meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/%E7%BC%93%E5%AD%98%E6%9B%B4%E6%96%B0%E7%AD%96%E7%95%A5%E6%80%BB%E7%BB%93/index.html">
 <meta property="og:site_name" content="Lin&#39;s Blog">
-<meta property="og:description" content="0x01 简介 变量覆盖漏洞是指攻击者使用自定义的变量去覆盖源代码中的变量，从而改变代码逻辑，实现攻击目的的一种漏洞。 通常造成变量覆盖的往往是以下几种情况： - register_globals&#x3D;On （PHP5.3废弃，PHP5.4中已经正式移除此功能） - 可变变量 - extract() - parse_str() - import_request_variables() 下">
+<meta property="og:description" content="Cache Aside 具体逻辑如下：  写策略：更DB数据，再删除cache数据 读策略：  cache hit：直接返回命中数据。 cache miss：从数据库中读取，然后将数据写入cache，并返回。   适用场景：  适合读多写少的场景，不适合写多的场景。  Read&#x2F;Write Through 具体逻辑如下：  Read Through：写入时先查询">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2018-11-01T03:32:14.000Z">
-<meta property="article:modified_time" content="2020-05-01T01:31:14.055Z">
+<meta property="article:published_time" content="2020-07-25T10:12:10.000Z">
+<meta property="article:modified_time" content="2022-12-11T07:07:31.235Z">
 <meta property="article:author" content="Lin Wang">
-<meta property="article:tag" content="CTF">
-<meta property="article:tag" content="PHP代码审计">
-<meta property="article:tag" content="安全">
+<meta property="article:tag" content="l1nker4">
 <meta name="twitter:card" content="summary_large_image">
   
   
   
-  <title>理解PHP变量覆盖漏洞 - Lin&#39;s Blog</title>
+  <title>缓存更新策略总结 - Lin&#39;s Blog</title>
 
   <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
 
@@ -222,7 +220,7 @@
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
-            <span id="subtitle" data-typed-text="理解PHP变量覆盖漏洞"></span>
+            <span id="subtitle" data-typed-text="缓存更新策略总结"></span>
           
         </div>
 
@@ -233,8 +231,8 @@
     
       <span class="post-meta">
         <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-        <time datetime="2018-11-01 11:32" pubdate>
-          2018年11月1日 中午
+        <time datetime="2020-07-25 18:12" pubdate>
+          2020年7月25日 晚上
         </time>
       </span>
     
@@ -246,7 +244,7 @@
         <i class="iconfont icon-chart"></i>
         
           <!-- compatible with older versions-->
-          1.4k 字
+          387 字
         
       </span>
     
@@ -258,7 +256,7 @@
         
         
           <!-- compatible with older versions-->
-          12 分钟
+          4 分钟
         
       </span>
     
@@ -296,81 +294,41 @@
         <div id="board">
           <article class="post-content mx-auto">
             <!-- SEO header -->
-            <h1 style="display: none">理解PHP变量覆盖漏洞</h1>
+            <h1 style="display: none">缓存更新策略总结</h1>
             
             
               <div class="markdown-body">
                 
-                <span id="more"></span>
-<h2 id="x01-简介">0x01 简介</h2>
-<p>变量覆盖漏洞是指攻击者使用自定义的变量去覆盖源代码中的变量，从而改变代码逻辑，实现攻击目的的一种漏洞。</p>
-<p>通常造成变量覆盖的往往是以下几种情况： - register_globals=On
-（PHP5.3废弃，PHP5.4中已经正式移除此功能） - 可变变量 - extract() -
-parse_str() - import_request_variables()
-下面正式介绍变量覆盖的具体利用方法与原理。</p>
-<h2 id="x02-正文">0x02 正文</h2>
-<h3 id="可变变量">$可变变量</h3>
-<p>看下面一段代码： <div class="code-wrapper"><pre><code class="hljs PHP"><span class="hljs-meta">&lt;?php</span>
-<span class="hljs-keyword">foreach</span> (<span class="hljs-keyword">array</span>(<span class="hljs-string">&#x27;_COOKIE&#x27;</span>,<span class="hljs-string">&#x27;_POST&#x27;</span>,<span class="hljs-string">&#x27;_GET&#x27;</span>) <span class="hljs-keyword">as</span> <span class="hljs-variable">$_request</span>)  
-&#123;
-    <span class="hljs-keyword">foreach</span> (<span class="hljs-variable">$$_request</span> <span class="hljs-keyword">as</span> <span class="hljs-variable">$_key</span>=&gt;<span class="hljs-variable">$_value</span>)  
-    &#123;
-        <span class="hljs-variable">$$_key</span>=  <span class="hljs-variable">$_value</span>;
-    &#125;
-&#125;
-<span class="hljs-variable">$id</span> = <span class="hljs-keyword">isset</span>(<span class="hljs-variable">$id</span>) ? <span class="hljs-variable">$id</span> : <span class="hljs-number">2</span>;
-<span class="hljs-keyword">if</span>(<span class="hljs-variable">$id</span> == <span class="hljs-number">1</span>) &#123;
-    <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;flag&#123;xx&#125;&quot;</span>;
-    <span class="hljs-keyword">die</span>();
-&#125;
-<span class="hljs-meta">?&gt;</span></code></pre></div>
-使用foreach遍历COOKIE，POST，GET数组，然后将数组键名作为变量名，键值作为变量值。上述代码传入id=1即可得到flag。</p>
-<h3 id="extract">extract()</h3>
-<p>首先看看手册中对该函数的定义 <img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/php-cover/cover1.jpg" srcset="/img/loading.gif" lazyload /></p>
-<p>下面从实例讲起: <div class="code-wrapper"><pre><code class="hljs PHP"><span class="hljs-meta">&lt;?php</span>
-<span class="hljs-variable">$flag</span>=<span class="hljs-string">&#x27;flag&#123;xxxxx&#125;&#x27;</span>; 
-<span class="hljs-title function_ invoke__">extract</span>(<span class="hljs-variable">$_GET</span>);
- <span class="hljs-keyword">if</span>(<span class="hljs-keyword">isset</span>(<span class="hljs-variable">$a</span>)) &#123; 
-    <span class="hljs-variable">$content</span>=<span class="hljs-title function_ invoke__">trim</span>(<span class="hljs-title function_ invoke__">file_get_contents</span>(<span class="hljs-variable">$flag</span>));
-    <span class="hljs-keyword">if</span>(<span class="hljs-variable">$a</span>==<span class="hljs-variable">$content</span>)
-    &#123; 
-        <span class="hljs-keyword">echo</span> <span class="hljs-variable">$flag</span>; 
-    &#125;
-   <span class="hljs-keyword">else</span>
-   &#123; 
-    <span class="hljs-keyword">echo</span><span class="hljs-string">&#x27;Oh.no&#x27;</span>;
-   &#125; 
-   &#125;<span class="hljs-keyword">else</span> &#123;
-    <span class="hljs-keyword">echo</span> <span class="hljs-string">&quot;input a value&quot;</span>;
-   &#125;
-<span class="hljs-meta">?&gt;</span></code></pre></div>
-首先extract函数将所有GET方法得到的数组键名与键值转化为内部变量与值，接可以看到content变量使用file_get_contents()读入一个文件，由于trim()函数处理后，content变量变为一个空字符串，代码逻辑只需要<strong>a
-== content</strong>即可。</p>
-<p>传入 <strong>?a=</strong> 即可得到flag。</p>
-<h3 id="parse_str">parse_str()</h3>
-<p><img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/cover3.jpg" srcset="/img/loading.gif" lazyload /></p>
-<div class="code-wrapper"><pre><code class="hljs PHP"><span class="hljs-meta">&lt;?php</span>
-<span class="hljs-title function_ invoke__">parse_str</span>(<span class="hljs-string">&quot;a=1&quot;</span>);
-<span class="hljs-keyword">echo</span> <span class="hljs-variable">$a</span>.<span class="hljs-string">&quot;&lt;br/&gt;&quot;</span>;      <span class="hljs-comment">//$a=1</span>
-<span class="hljs-title function_ invoke__">parse_str</span>(<span class="hljs-string">&quot;b=1&amp;c=2&quot;</span>,<span class="hljs-variable">$myArray</span>);
-<span class="hljs-title function_ invoke__">print_r</span>(<span class="hljs-variable">$myArray</span>);   <span class="hljs-comment">//Array ( [b] =&gt; 1 [c] =&gt; 2 ) </span>
-<span class="hljs-meta">?&gt;</span></code></pre></div>
-<p>这个简单的实例中可以看出parse_str可以将字符串解析为变量与值。</p>
-<h3 id="import_request_variables">import_request_variables()</h3>
-<p><img
-src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/import.jpg" srcset="/img/loading.gif" lazyload /></p>
-<div class="code-wrapper"><pre><code class="hljs PHP"><span class="hljs-meta">&lt;?php</span>
-<span class="hljs-comment">// 此处将导入 GET 和 POST 变量</span>
-<span class="hljs-comment">// 使用&quot;rvar_&quot;作为前缀</span>
-<span class="hljs-variable">$rvar_foo</span> = <span class="hljs-number">1</span>;
-<span class="hljs-title function_ invoke__">import_request_variables</span>(<span class="hljs-string">&quot;gP&quot;</span>, <span class="hljs-string">&quot;rvar_&quot;</span>);
-<span class="hljs-keyword">echo</span> <span class="hljs-variable">$rvar_foo</span>;
-<span class="hljs-meta">?&gt;</span></code></pre></div>
-<p>通过import_request_variables函数作用后，可以对原变量值进行覆盖。</p>
-<h2 id="x03-总结">0x03 总结</h2>
-<p>博客文章以后会在公众号上同步发布，欢迎师傅们关注。微信号：coding_lin</p>
+                <h2 id="cache-aside">Cache Aside</h2>
+<p>具体逻辑如下：</p>
+<ul>
+<li>写策略：更DB数据，再删除cache数据</li>
+<li>读策略：
+<ul>
+<li>cache hit：直接返回命中数据。</li>
+<li>cache miss：从数据库中读取，然后将数据写入cache，并返回。</li>
+</ul></li>
+</ul>
+<p>适用场景：</p>
+<ul>
+<li>适合读多写少的场景，不适合写多的场景。</li>
+</ul>
+<h2 id="readwrite-through">Read/Write Through</h2>
+<p>具体逻辑如下：</p>
+<ul>
+<li>Read
+Through：写入时先查询cache是否hit，hit直接返回，miss则有cache组件负责去DB查，并写入cache，再返回。</li>
+<li>Write
+Through：更新先查询cache是否hit，hit则更新缓存中数据，然后有cache组件更新到DB，完成后通知更新完成。若miss则直接更新数据库</li>
+</ul>
+<h2 id="write-back">Write Back</h2>
+<p>具体逻辑如下：</p>
+<ul>
+<li>只更新缓存，立即返回，持久层更新采用异步更新方式。</li>
+</ul>
+<p>广泛用于OS，比如CPU
+Cache、文件系统Cache，数据非强一致性，存在丢数据的问题。</p>
+<p>适用场景：写多场景</p>
 
                 
               </div>
@@ -389,12 +347,12 @@ src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/import.jpg" srcset="/i
     
       <span class="category-chain">
         
-  <a href="/categories/Web%E5%AE%89%E5%85%A8/" class="category-chain-item">Web安全</a>
+  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/" class="category-chain-item">中间件</a>
   
   
     <span>></span>
     
-  <a href="/categories/Web%E5%AE%89%E5%85%A8/CTF/" class="category-chain-item">CTF</a>
+  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/" class="category-chain-item">Redis</a>
   
   
 
@@ -408,17 +366,6 @@ src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/import.jpg" srcset="/i
     </div>
   
   
-    <div class="post-meta">
-      <i class="iconfont icon-tags"></i>
-      
-        <a href="/tags/CTF/">#CTF</a>
-      
-        <a href="/tags/PHP%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1/">#PHP代码审计</a>
-      
-        <a href="/tags/%E5%AE%89%E5%85%A8/">#安全</a>
-      
-    </div>
-  
 </div>
 
 
@@ -427,8 +374,8 @@ src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/import.jpg" srcset="/i
 
   <div class="license-box my-3">
     <div class="license-title">
-      <div>理解PHP变量覆盖漏洞</div>
-      <div>https://l1n.wang/2018/Web安全/php-audit-cover/</div>
+      <div>缓存更新策略总结</div>
+      <div>https://l1n.wang/2020/中间件/Redis/缓存更新策略总结/</div>
     </div>
     <div class="license-meta">
       
@@ -440,7 +387,7 @@ src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/import.jpg" srcset="/i
       
         <div class="license-meta-item license-meta-date">
           <div>发布于</div>
-          <div>2018年11月1日</div>
+          <div>2020年7月25日</div>
         </div>
       
       
@@ -472,9 +419,9 @@ src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/import.jpg" srcset="/i
                   <article class="post-prev col-6">
                     
                     
-                      <a href="/2018/%E9%9A%8F%E7%AC%94/2018-nanjing/" title="2018-南京之行">
+                      <a href="/2020/Java%E9%9B%86%E5%90%88/java-arraylist/" title="ArrayList源码分析">
                         <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">2018-南京之行</span>
+                        <span class="hidden-mobile">ArrayList源码分析</span>
                         <span class="visible-mobile">上一篇</span>
                       </a>
                     
@@ -482,8 +429,8 @@ src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/import.jpg" srcset="/i
                   <article class="post-next col-6">
                     
                     
-                      <a href="/2018/Web%E5%AE%89%E5%85%A8/uploadvul/" title="浅析文件上传漏洞">
-                        <span class="hidden-mobile">浅析文件上传漏洞</span>
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/Redis%E5%86%85%E5%AD%98%E4%BC%98%E5%8C%96/" title="Redis内存优化">
+                        <span class="hidden-mobile">Redis内存优化</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
