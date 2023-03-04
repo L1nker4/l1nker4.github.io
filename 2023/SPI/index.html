@@ -18,22 +18,22 @@
   <meta name="author" content="Lin Wang">
   <meta name="keywords" content="l1nker4">
   
-    <meta name="description" content="Controller机制 Controller主要作用是在Zookeeper的帮助下管理和协调整个Kafka集群（在zk中存储集群元数据）。Kafka集群中会有一个或多个Broker，其中一个Broker会被选举为Controller，它负责管理整个集群中所有分区和副本的状态，其工作职责包括以下内容：  Topic管理：完成对Kafka的Topic的创建删除、分区增加等操作。 分区重分配：">
+    <meta name="description" content="概念 SPI（Service Provider Interface）是JDK内置的服务提供机制，常用于框架的动态扩展，类似于可拔插机制。提供方将接口实现类配置在classpath下的指定位置，调用方读取并加载。当提供方发生变化时，接口的实现也会改变。Java生态中JDK、Dubbo、Spring等都通过SPI提供了动态扩展的能力。 JDK案例 public interface Search">
 <meta property="og:type" content="article">
-<meta property="og:title" content="Kafka学习笔记(四)-集群工作机制">
-<meta property="og:url" content="https://l1n.wang/2022/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/Kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E5%9B%9B)-%E9%9B%86%E7%BE%A4%E5%B7%A5%E4%BD%9C%E6%9C%BA%E5%88%B6/index.html">
+<meta property="og:title" content="SPI">
+<meta property="og:url" content="https://l1n.wang/2023/SPI/index.html">
 <meta property="og:site_name" content="l1nker4&#39;s Blog">
-<meta property="og:description" content="Controller机制 Controller主要作用是在Zookeeper的帮助下管理和协调整个Kafka集群（在zk中存储集群元数据）。Kafka集群中会有一个或多个Broker，其中一个Broker会被选举为Controller，它负责管理整个集群中所有分区和副本的状态，其工作职责包括以下内容：  Topic管理：完成对Kafka的Topic的创建删除、分区增加等操作。 分区重分配：">
+<meta property="og:description" content="概念 SPI（Service Provider Interface）是JDK内置的服务提供机制，常用于框架的动态扩展，类似于可拔插机制。提供方将接口实现类配置在classpath下的指定位置，调用方读取并加载。当提供方发生变化时，接口的实现也会改变。Java生态中JDK、Dubbo、Spring等都通过SPI提供了动态扩展的能力。 JDK案例 public interface Search">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2022-07-06T10:49:22.000Z">
-<meta property="article:modified_time" content="2022-11-13T13:19:35.962Z">
+<meta property="article:published_time" content="2023-02-26T09:01:26.000Z">
+<meta property="article:modified_time" content="2023-02-26T13:16:39.141Z">
 <meta property="article:author" content="Lin Wang">
 <meta property="article:tag" content="l1nker4">
 <meta name="twitter:card" content="summary_large_image">
   
   
   
-  <title>Kafka学习笔记(四)-集群工作机制 - l1nker4&#39;s Blog</title>
+  <title>SPI - l1nker4&#39;s Blog</title>
 
   <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
 
@@ -220,7 +220,7 @@
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
-            <span id="subtitle" data-typed-text="Kafka学习笔记(四)-集群工作机制"></span>
+            <span id="subtitle" data-typed-text="SPI"></span>
           
         </div>
 
@@ -231,8 +231,8 @@
     
       <span class="post-meta">
         <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-        <time datetime="2022-07-06 18:49" pubdate>
-          2022年7月6日 晚上
+        <time datetime="2023-02-26 17:01" pubdate>
+          2023年2月26日 下午
         </time>
       </span>
     
@@ -244,7 +244,7 @@
         <i class="iconfont icon-chart"></i>
         
           <!-- compatible with older versions-->
-          3.3k 字
+          1.1k 字
         
       </span>
     
@@ -256,7 +256,7 @@
         
         
           <!-- compatible with older versions-->
-          28 分钟
+          10 分钟
         
       </span>
     
@@ -294,136 +294,58 @@
         <div id="board">
           <article class="post-content mx-auto">
             <!-- SEO header -->
-            <h1 style="display: none">Kafka学习笔记(四)-集群工作机制</h1>
+            <h1 style="display: none">SPI</h1>
             
             
               <div class="markdown-body">
                 
-                <h2 id="controller机制">Controller机制</h2>
-<p>Controller主要作用是在Zookeeper的帮助下管理和协调整个Kafka集群（在zk中存储集群元数据）。Kafka集群中会有一个或多个Broker，其中一个Broker会被选举为Controller，它负责管理整个集群中所有分区和副本的状态，其工作职责包括以下内容：</p>
+                <h2 id="概念">概念</h2>
+<p>SPI（Service Provider
+Interface）是JDK内置的服务提供机制，常用于框架的动态扩展，类似于可拔插机制。提供方将接口实现类配置在classpath下的指定位置，调用方读取并加载。当提供方发生变化时，接口的实现也会改变。Java生态中JDK、Dubbo、Spring等都通过SPI提供了动态扩展的能力。</p>
+<h3 id="jdk案例">JDK案例</h3>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">Search</span> &#123;
+    <span class="hljs-keyword">void</span> <span class="hljs-title function_">search</span><span class="hljs-params">()</span>;
+&#125;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">FileSearchImpl</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Search</span> &#123;
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">search</span><span class="hljs-params">()</span> &#123;
+        System.out.println(<span class="hljs-string">&quot;file search...&quot;</span>);
+    &#125;
+&#125;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DataBaseSearchImpl</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Search</span> &#123;
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">search</span><span class="hljs-params">()</span> &#123;
+        System.out.println(<span class="hljs-string">&quot;db search&quot;</span>);
+    &#125;
+&#125;
+
+
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SpiTest</span> &#123;
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> &#123;
+        ServiceLoader&lt;Search&gt; searches = ServiceLoader.load(Search.class);
+        searches.forEach(Search::search);
+    &#125;
+&#125;</code></pre></div>
+<p>resources文件夹创建<code>META-INF/services/wang.l1n.spi.Search</code>文件，内容为接口实现类：</p>
+<div class="code-wrapper"><pre><code class="hljs stylus">wang<span class="hljs-selector-class">.l1n</span><span class="hljs-selector-class">.spi</span><span class="hljs-selector-class">.FileSearchImpl</span>
+wang<span class="hljs-selector-class">.l1n</span><span class="hljs-selector-class">.spi</span>.DataBaseSearchImpl</code></pre></div>
+<p>运行结果：</p>
+<p><img
+src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20230226183550948.png" srcset="/img/loading.gif" lazyload
+alt="SPI运行结果" /></p>
+<p><code>ServiceLoder.load</code>方法用于加载SPI实现类</p>
+<p>如下，通过线程上下文的类加载器</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> &lt;S&gt; ServiceLoader&lt;S&gt; <span class="hljs-title function_">load</span><span class="hljs-params">(Class&lt;S&gt; service)</span> &#123;
+        <span class="hljs-type">ClassLoader</span> <span class="hljs-variable">cl</span> <span class="hljs-operator">=</span> Thread.currentThread().getContextClassLoader();
+        <span class="hljs-keyword">return</span> ServiceLoader.load(service, cl);
+    &#125;</code></pre></div>
+<p>JDK的SPI能实现加载扩展接口的基本要求，存在几个缺点：</p>
 <ul>
-<li><strong>Topic管理</strong>：完成对Kafka的Topic的创建删除、分区增加等操作。</li>
-<li><strong>分区重分配</strong>：新的Broker加入集群时，不会自动分担已有的topic负载，只会对后续的topic生效，此时如果需要对已有topic负载，需要用户手动进行<strong>分区重分配</strong>。</li>
-<li><strong>Leader选举</strong>：负责Partition Leader选举的工作</li>
-<li>集群成员管理：
-<ul>
-<li>Kafka 使用Zookeeper的临时节点来选举Controller</li>
-<li>Zookeeper在Broker加入集群或退出集群时通知Controller</li>
-<li>Controller负责在Broker加入或离开集群时进行分区Leader选举</li>
-</ul></li>
-<li>元数据管理：Controller负责管理集群中所有的元数据</li>
-</ul>
-<p>Controller选举流程：</p>
-<ul>
-<li>每个Broker启动时，都会尝试读取<code>/controller</code>节点的brokerid的值，如果值不为-1，则表明已经有其他broker节点成为Controller，当前broker放弃选举</li>
-<li>如果不存在<code>/controller</code>节点或节点数据异常，则主动创建节点并存储brokerid</li>
-<li>其他broker会将选举成功的Brokerid都在内存保存下来</li>
-<li>同时使用<code>/controller_epoch</code>持久性节点来记录任期号，记录Controller发生变化的次数，类似于Raft中的任期。
-<ul>
-<li>初始值为1，每个与Controller交互的请求都会携带<code>controller_epoch</code>，如果请求的<code>controller_epoch</code>大于内存中<code>controller_epoch</code>，说明内存中的值过期了，目前已有新的Controller当选。</li>
-<li>由两部分组成：
-<ul>
-<li>epoch：单调递增的版本号，leader发生变更，进行自增</li>
-<li>start offset：Leader副本在该Epoch值上写入的首条消息的位移。</li>
-</ul></li>
-<li>每个分区都缓存该值，并定期持久化到<code>checkpoint</code>文件中</li>
-</ul></li>
-</ul>
-<h3 id="partition-leader选举">Partition Leader选举</h3>
-<p>Controller拥有选举分区Leader的功能，每个分区都会有一个Broker作为Leader，处理所有的读写请求，选举流程由Controller负责：</p>
-<ol type="1">
-<li>Controller从ZK中读取当前分区所有的ISR集合</li>
-<li>调用配置的分区选择算法选举分区的Leader</li>
-</ol>
-<p><code>Partition Leader</code>的定义如下：</p>
-<blockquote>
-<p>Each partition has one server which acts as the "leader" and zero or
-more servers which act as "followers". The leader handles all read and
-write requests for the partition while the followers passively replicate
-the leader. If the leader fails, one of the followers will automatically
-become the new leader. Each server acts as a leader for some of its
-partitions and a follower for others so load is well balanced within the
-cluster.</p>
-</blockquote>
-<p>触发Partition Leader选举的时机如下：</p>
-<ul>
-<li>Offline：创建新分区或现有分区Leader离线</li>
-<li>Reassign：用户执行重分配操作</li>
-<li>PreferredReplica：leader迁移回首选副本</li>
-<li>分区的现有leader即将下线</li>
-</ul>
-<h3 id="故障转移">故障转移</h3>
-<p>如果Controller发生故障（宕机或网络超时等），Kafka能够立即启用备用Controller来代替之前的，这个过程称为<code>Failover</code>。其基本流程如下：</p>
-<ol type="1">
-<li>ZK检测到当前controller宕机（ZK的watch机制），删除<code>/controller</code>临时节点。</li>
-<li>某个Broker抢先注册了<code>/controller</code>临时节点，成为新的controller</li>
-<li>该Broker从ZK拉取元数据，并执行初始化。</li>
-</ol>
-<h2 id="分区副本机制">分区副本机制</h2>
-<p>副本对分区数据进行冗余存储，以保证系统的高可用和数据一致性，当分区Leader发生宕机或数据丢失，可以从其他副本获取分区数据。分区Leader负责处理分区所有的读写请求。</p>
-<p>每个分区都有一个ISR集合，用于维护所有同步并可用的副本，ISR最少拥有Leader副本这一个元素，对于Follower来说，必须满足以下条件才是ISR：</p>
-<ul>
-<li>必须定时向Zookeeper发送心跳</li>
-<li>在规定时间内从Leader获取过消息</li>
-</ul>
-<p>若副本不满足以上两条件，就会从ISR列表移除。</p>
-<p><code>replica.lag.time.max.ms</code>：Follower能落后Leader的最长时间间隔，默认为10s</p>
-<p>使用Zookeeper来管理ISR，节点位置为<code>/brokers/topics/[topic]/partitions/[partition]/state</code></p>
-<h3 id="hw和leo机制">HW和LEO机制</h3>
-<p>几个offset概念：</p>
-<ul>
-<li>base offset：副本中第一条消息的offset</li>
-<li>high watermark（HW）：副本中最新一条已提交消息的offset
-<ul>
-<li>用来标识分区中哪些消息可以消费，HW之后的数据对消费者不可见</li>
-<li>完成副本数据同步的任务</li>
-<li>HW永远小于LEO：定义决定的</li>
-</ul></li>
-<li>log end offset（LEO）：副本中下一条待写入消息的offset
-<ul>
-<li>用于更新HW：follower和Leader的LEO同步后，两者HW就可以更新</li>
-</ul></li>
-</ul>
-<p>Leader除了保存自己的一组HW和LEO，也会保存其他Follower的值，目的是帮助Leader副本确定分区高水位。</p>
-<h3 id="更新机制">更新机制</h3>
-<ul>
-<li>Follower从Leader同步数据时，会携带自己的LEO值，Leader将Follower中最小的LEO作为HW值，这是为了保证Leader宕机后，新选举的节点拥有所有HW之前的数据，保证了数据安全性。</li>
-<li>Follower获取数据时，请求Leader的HW，然后follower.HW =
-min(follower.LEO, leader.HW)</li>
-</ul>
-<h2 id="常见问题">常见问题</h2>
-<h3 id="kafka如何保证消息有序">Kafka如何保证消息有序</h3>
-<p>Kafka中并不保证消息全局有序，只能保证<strong>分区有序</strong>。</p>
-<ul>
-<li>生产者：使用同步方式发送，设置<code>acks = all &amp;  max.in.flight.requests.per.connection = 1</code>，存在下面的问题：
-<ul>
-<li>重发问题：发送失败，需要判断是否自动重试，设置<code>retries &gt; 0</code></li>
-<li>幂等问题：设置<code>enable.idempotence = true</code>，设置后生产者客户端会给消息添加序列号，每次发送把序列号递增1</li>
-</ul></li>
-<li>服务端Broder：Kafka只能保证单个Partition内消息有序，若要Topic全局有序，需要设置单分区。</li>
-<li>消费者：根据Group机制，Topic下的分区只能从属group下的某一个消费者，若Consumer单线程消费没有问题，多线程并发消费顺序会乱。</li>
-</ul>
-<h3 id="如何处理kafka大量消息积压">如何处理Kafka大量消息积压</h3>
-<p>出现消息积压的原因：Kafka集群中出现了<strong>性能问题</strong>，来不及消费消息。</p>
-<p>解决：</p>
-<ul>
-<li><p>生产端性能优化</p>
-<ul>
-<li>检查发送消息的业务逻辑，合理设置并发数量和批量大小，注意消息体大小。</li>
-<li>可以动态配置开关，关闭MQ生产，并在解决积压问题后，通过<strong>消息补偿机制</strong>进行补偿，<strong>消费端需要支持幂等</strong>。</li>
-</ul></li>
-<li><p>消费端性能优化</p>
-<ul>
-<li>自动提交改为手动提交</li>
-<li>单条消息消费改为批量消费</li>
-<li>涉及DB操作，一定要检查是否存在慢SQL</li>
-<li>一定要保证消费端速度大于生产端的生产速度，扩容消费端实例来提升总体的消费能力。要注意在扩大Consumer实例的同时，必须扩容Topic的Partition数量，确保两者数量大致相等。</li>
-</ul></li>
-<li><p>查看Broker端日志、监控系统等情况，是否存在硬件层面的问题：磁盘空间等。</p>
-<ul>
-<li>partition分区数 &gt;
-应用消费节点时，可以扩大Broker分区数量，否则扩broker分区没用。</li>
-</ul></li>
+<li>需要遍历所有class并进行实例化，需要调用某个特定实现只能循环找。</li>
+<li>无法和Spring提供的上下文融合使用。</li>
 </ul>
 
                 
@@ -432,34 +354,6 @@ min(follower.LEO, leader.HW)</li>
             <hr/>
             <div>
               <div class="post-metas my-3">
-  
-    <div class="post-meta mr-3 d-flex align-items-center">
-      <i class="iconfont icon-category"></i>
-      
-
-<span class="category-chains">
-  
-  
-    
-      <span class="category-chain">
-        
-  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/" class="category-chain-item">中间件</a>
-  
-  
-    <span>></span>
-    
-  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/" class="category-chain-item">Kafka</a>
-  
-  
-
-  
-
-      </span>
-    
-  
-</span>
-
-    </div>
   
   
 </div>
@@ -470,8 +364,8 @@ min(follower.LEO, leader.HW)</li>
 
   <div class="license-box my-3">
     <div class="license-title">
-      <div>Kafka学习笔记(四)-集群工作机制</div>
-      <div>https://l1n.wang/2022/中间件/Kafka/Kafka学习笔记(四)-集群工作机制/</div>
+      <div>SPI</div>
+      <div>https://l1n.wang/2023/SPI/</div>
     </div>
     <div class="license-meta">
       
@@ -483,7 +377,7 @@ min(follower.LEO, leader.HW)</li>
       
         <div class="license-meta-item license-meta-date">
           <div>发布于</div>
-          <div>2022年7月6日</div>
+          <div>2023年2月26日</div>
         </div>
       
       
@@ -515,18 +409,12 @@ min(follower.LEO, leader.HW)</li>
                   <article class="post-prev col-6">
                     
                     
-                      <a href="/2022/%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/%E7%9F%AD%E7%BD%91%E5%9D%80%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E6%80%BB%E7%BB%93/" title="短网址系统设计总结">
-                        <i class="iconfont icon-arrowleft"></i>
-                        <span class="hidden-mobile">短网址系统设计总结</span>
-                        <span class="visible-mobile">上一篇</span>
-                      </a>
-                    
                   </article>
                   <article class="post-next col-6">
                     
                     
-                      <a href="/2022/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/Kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E4%B8%89)-%E9%80%9A%E4%BF%A1%E5%8D%8F%E8%AE%AE/" title="Kafka学习笔记(三)-通信协议">
-                        <span class="hidden-mobile">Kafka学习笔记(三)-通信协议</span>
+                      <a href="/2023/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/%E7%8A%B6%E6%80%81%E6%9C%BA%E5%BC%95%E6%93%8E%E7%9A%84%E4%B8%9A%E5%8A%A1%E5%AE%9E%E8%B7%B5/" title="状态机引擎的业务实践">
+                        <span class="hidden-mobile">状态机引擎的业务实践</span>
                         <span class="visible-mobile">下一篇</span>
                         <i class="iconfont icon-arrowright"></i>
                       </a>
