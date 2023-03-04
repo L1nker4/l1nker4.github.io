@@ -20,20 +20,20 @@
   
     <meta name="description" content="概念 SPI（Service Provider Interface）是JDK内置的服务提供机制，常用于框架的动态扩展，类似于可拔插机制。提供方将接口实现类配置在classpath下的指定位置，调用方读取并加载。当提供方发生变化时，接口的实现也会改变。Java生态中JDK、Dubbo、Spring等都通过SPI提供了动态扩展的能力。 样例 public interface Search &amp;#">
 <meta property="og:type" content="article">
-<meta property="og:title" content="SPI">
-<meta property="og:url" content="https://l1n.wang/2023/SPI/index.html">
+<meta property="og:title" content="Java SPI机制学习与常用框架SPI案例">
+<meta property="og:url" content="https://l1n.wang/2023/Java%E5%9F%BA%E7%A1%80/Java%20SPI%E6%9C%BA%E5%88%B6%E5%AD%A6%E4%B9%A0%E4%B8%8E%E5%B8%B8%E7%94%A8%E6%A1%86%E6%9E%B6SPI%E6%A1%88%E4%BE%8B/index.html">
 <meta property="og:site_name" content="l1nker4&#39;s Blog">
 <meta property="og:description" content="概念 SPI（Service Provider Interface）是JDK内置的服务提供机制，常用于框架的动态扩展，类似于可拔插机制。提供方将接口实现类配置在classpath下的指定位置，调用方读取并加载。当提供方发生变化时，接口的实现也会改变。Java生态中JDK、Dubbo、Spring等都通过SPI提供了动态扩展的能力。 样例 public interface Search &amp;#">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2023-02-26T09:01:26.000Z">
-<meta property="article:modified_time" content="2023-03-04T03:02:51.565Z">
+<meta property="article:published_time" content="2023-02-28T09:01:26.000Z">
+<meta property="article:modified_time" content="2023-03-04T09:39:19.257Z">
 <meta property="article:author" content="Lin Wang">
-<meta property="article:tag" content="l1nker4">
+<meta property="article:tag" content="Java">
 <meta name="twitter:card" content="summary_large_image">
   
   
   
-  <title>SPI - l1nker4&#39;s Blog</title>
+  <title>Java SPI机制学习与常用框架SPI案例 - l1nker4&#39;s Blog</title>
 
   <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
 
@@ -220,7 +220,7 @@
       <div class="banner-text text-center fade-in-up">
         <div class="h2">
           
-            <span id="subtitle" data-typed-text="SPI"></span>
+            <span id="subtitle" data-typed-text="Java SPI机制学习与常用框架SPI案例"></span>
           
         </div>
 
@@ -231,8 +231,8 @@
     
       <span class="post-meta">
         <i class="iconfont icon-date-fill" aria-hidden="true"></i>
-        <time datetime="2023-02-26 17:01" pubdate>
-          2023年2月26日 下午
+        <time datetime="2023-02-28 17:01" pubdate>
+          2023年2月28日 下午
         </time>
       </span>
     
@@ -244,7 +244,7 @@
         <i class="iconfont icon-chart"></i>
         
           <!-- compatible with older versions-->
-          1.1k 字
+          6.5k 字
         
       </span>
     
@@ -256,7 +256,7 @@
         
         
           <!-- compatible with older versions-->
-          10 分钟
+          55 分钟
         
       </span>
     
@@ -294,7 +294,7 @@
         <div id="board">
           <article class="post-content mx-auto">
             <!-- SEO header -->
-            <h1 style="display: none">SPI</h1>
+            <h1 style="display: none">Java SPI机制学习与常用框架SPI案例</h1>
             
             
               <div class="markdown-body">
@@ -302,7 +302,7 @@
                 <h2 id="概念">概念</h2>
 <p>SPI（Service Provider
 Interface）是JDK内置的服务提供机制，常用于框架的动态扩展，类似于可拔插机制。提供方将接口实现类配置在classpath下的指定位置，调用方读取并加载。当提供方发生变化时，接口的实现也会改变。Java生态中JDK、Dubbo、Spring等都通过SPI提供了动态扩展的能力。</p>
-<p>样例</p>
+<h2 id="样例">样例</h2>
 <div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">Search</span> &#123;
     <span class="hljs-keyword">void</span> <span class="hljs-title function_">search</span><span class="hljs-params">()</span>;
 &#125;
@@ -336,17 +336,225 @@ wang<span class="hljs-selector-class">.l1n</span><span class="hljs-selector-clas
 <p><img
 src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20230226183550948.png" srcset="/img/loading.gif" lazyload
 alt="SPI运行结果" /></p>
-<p><code>ServiceLoder.load</code>方法用于加载SPI实现类</p>
-<p>如下，通过线程上下文的类加载器</p>
+<h3 id="load加载流程">load加载流程</h3>
+<p><code>ServiceLoder.load</code>静态方法用于加载SPI实现类，实现逻辑如下：</p>
+<ol type="1">
+<li>获取当前线程类加载器和上下文信息，调用实例化方法，重新加载SPI</li>
+<li>重新加载SPI的流程：
+<ol type="1">
+<li>清空缓存providers中已实例化的SPI服务，providers是LinkedHashMap类型，用于保存已经被成功加载的SPI示例对象
+<ul>
+<li>如果providers非空，直接返回Iterator，否则返回LazyIterator的Iterator。</li>
+</ul></li>
+<li>创建LazyIterator懒加载迭代器，传入SPI类型和类加载器</li>
+</ol></li>
+</ol>
+<p>实现代码和对应的成员变量如下：</p>
 <div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> &lt;S&gt; ServiceLoader&lt;S&gt; <span class="hljs-title function_">load</span><span class="hljs-params">(Class&lt;S&gt; service)</span> &#123;
         <span class="hljs-type">ClassLoader</span> <span class="hljs-variable">cl</span> <span class="hljs-operator">=</span> Thread.currentThread().getContextClassLoader();
         <span class="hljs-keyword">return</span> ServiceLoader.load(service, cl);
+    &#125;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> &lt;S&gt; ServiceLoader&lt;S&gt; <span class="hljs-title function_">load</span><span class="hljs-params">(Class&lt;S&gt; service,</span>
+<span class="hljs-params">                                            ClassLoader loader)</span>
+    &#123;
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ServiceLoader</span>&lt;&gt;(service, loader);
+    &#125;
+
+<span class="hljs-keyword">private</span> <span class="hljs-title function_">ServiceLoader</span><span class="hljs-params">(Class&lt;S&gt; svc, ClassLoader cl)</span> &#123;
+        service = Objects.requireNonNull(svc, <span class="hljs-string">&quot;Service interface cannot be null&quot;</span>);
+        loader = (cl == <span class="hljs-literal">null</span>) ? ClassLoader.getSystemClassLoader() : cl;
+        acc = (System.getSecurityManager() != <span class="hljs-literal">null</span>) ? AccessController.getContext() : <span class="hljs-literal">null</span>;
+        reload();
+    &#125;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">reload</span><span class="hljs-params">()</span> &#123;
+        providers.clear();
+        lookupIterator = <span class="hljs-keyword">new</span> <span class="hljs-title class_">LazyIterator</span>(service, loader);
+    &#125;
+
+	
+	<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">PREFIX</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;META-INF/services/&quot;</span>;
+
+    <span class="hljs-comment">// The class or interface representing the service being loaded</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Class&lt;S&gt; service;
+
+    <span class="hljs-comment">// The class loader used to locate, load, and instantiate providers</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ClassLoader loader;
+
+    <span class="hljs-comment">// The access control context taken when the ServiceLoader is created</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> AccessControlContext acc;
+
+    <span class="hljs-comment">// Cached providers, in instantiation order</span>
+    <span class="hljs-keyword">private</span> LinkedHashMap&lt;String,S&gt; providers = <span class="hljs-keyword">new</span> <span class="hljs-title class_">LinkedHashMap</span>&lt;&gt;();
+
+    <span class="hljs-comment">// The current lazy-lookup iterator</span>
+    <span class="hljs-keyword">private</span> LazyIterator lookupIterator;</code></pre></div>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> Iterator&lt;S&gt; <span class="hljs-title function_">iterator</span><span class="hljs-params">()</span> &#123;
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Iterator</span>&lt;S&gt;() &#123;
+
+            Iterator&lt;Map.Entry&lt;String,S&gt;&gt; knownProviders
+                = providers.entrySet().iterator();
+
+            <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">hasNext</span><span class="hljs-params">()</span> &#123;
+                <span class="hljs-keyword">if</span> (knownProviders.hasNext())
+                    <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>;
+                <span class="hljs-keyword">return</span> lookupIterator.hasNext();
+            &#125;
+
+            <span class="hljs-keyword">public</span> S <span class="hljs-title function_">next</span><span class="hljs-params">()</span> &#123;
+                <span class="hljs-keyword">if</span> (knownProviders.hasNext())
+                    <span class="hljs-keyword">return</span> knownProviders.next().getValue();
+                <span class="hljs-keyword">return</span> lookupIterator.next();
+            &#125;
+
+            <span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">remove</span><span class="hljs-params">()</span> &#123;
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">UnsupportedOperationException</span>();
+            &#125;
+
+        &#125;;
     &#125;</code></pre></div>
-<p>JDK的SPI能实现加载扩展接口的基本要求，存在几个缺点：</p>
+<h3 id="lazyiterator加载流程">LazyIterator加载流程</h3>
+<p>加载流程参考代码注释：</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">private</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">LazyIterator</span>
+        <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Iterator</span>&lt;S&gt;
+    &#123;
+
+        Class&lt;S&gt; service;
+        ClassLoader loader;
+        Enumeration&lt;URL&gt; configs = <span class="hljs-literal">null</span>;
+        Iterator&lt;String&gt; pending = <span class="hljs-literal">null</span>;
+        <span class="hljs-type">String</span> <span class="hljs-variable">nextName</span> <span class="hljs-operator">=</span> <span class="hljs-literal">null</span>;
+
+        <span class="hljs-keyword">private</span> <span class="hljs-title function_">LazyIterator</span><span class="hljs-params">(Class&lt;S&gt; service, ClassLoader loader)</span> &#123;
+            <span class="hljs-built_in">this</span>.service = service;
+            <span class="hljs-built_in">this</span>.loader = loader;
+        &#125;
+
+        <span class="hljs-keyword">private</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">hasNextService</span><span class="hljs-params">()</span> &#123;
+            <span class="hljs-keyword">if</span> (nextName != <span class="hljs-literal">null</span>) &#123;
+                <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>;
+            &#125;
+            <span class="hljs-keyword">if</span> (configs == <span class="hljs-literal">null</span>) &#123;
+                <span class="hljs-keyword">try</span> &#123;
+                    <span class="hljs-comment">//获取接口的全称，拼接了META-INF/services/</span>
+                    <span class="hljs-type">String</span> <span class="hljs-variable">fullName</span> <span class="hljs-operator">=</span> PREFIX + service.getName();
+                    <span class="hljs-comment">//类加载加载文件内容</span>
+                    <span class="hljs-keyword">if</span> (loader == <span class="hljs-literal">null</span>)
+                        configs = ClassLoader.getSystemResources(fullName);
+                    <span class="hljs-keyword">else</span>
+                        configs = loader.getResources(fullName);
+                &#125; <span class="hljs-keyword">catch</span> (IOException x) &#123;
+                    fail(service, <span class="hljs-string">&quot;Error locating configuration files&quot;</span>, x);
+                &#125;
+            &#125;
+            <span class="hljs-comment">//解析文件内容，获取SPI接口的实现类名</span>
+            <span class="hljs-keyword">while</span> ((pending == <span class="hljs-literal">null</span>) || !pending.hasNext()) &#123;
+                <span class="hljs-keyword">if</span> (!configs.hasMoreElements()) &#123;
+                    <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;
+                &#125;
+                pending = parse(service, configs.nextElement());
+            &#125;
+            nextName = pending.next();
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>;
+        &#125;
+
+        <span class="hljs-keyword">private</span> S <span class="hljs-title function_">nextService</span><span class="hljs-params">()</span> &#123;
+            <span class="hljs-keyword">if</span> (!hasNextService())
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">NoSuchElementException</span>();
+            <span class="hljs-type">String</span> <span class="hljs-variable">cn</span> <span class="hljs-operator">=</span> nextName;
+            nextName = <span class="hljs-literal">null</span>;
+            Class&lt;?&gt; c = <span class="hljs-literal">null</span>;
+            <span class="hljs-keyword">try</span> &#123;
+                <span class="hljs-comment">//获取Class对象</span>
+                c = Class.forName(cn, <span class="hljs-literal">false</span>, loader);
+            &#125; <span class="hljs-keyword">catch</span> (ClassNotFoundException x) &#123;
+                fail(service,
+                     <span class="hljs-string">&quot;Provider &quot;</span> + cn + <span class="hljs-string">&quot; not found&quot;</span>);
+            &#125;
+            <span class="hljs-keyword">if</span> (!service.isAssignableFrom(c)) &#123;
+                fail(service,
+                     <span class="hljs-string">&quot;Provider &quot;</span> + cn  + <span class="hljs-string">&quot; not a subtype&quot;</span>);
+            &#125;
+            <span class="hljs-keyword">try</span> &#123;
+                <span class="hljs-comment">//使用newInstance创建对象，并添加到providers缓存中</span>
+                <span class="hljs-type">S</span> <span class="hljs-variable">p</span> <span class="hljs-operator">=</span> service.cast(c.newInstance());
+                providers.put(cn, p);
+                <span class="hljs-keyword">return</span> p;
+            &#125; <span class="hljs-keyword">catch</span> (Throwable x) &#123;
+                fail(service,
+                     <span class="hljs-string">&quot;Provider &quot;</span> + cn + <span class="hljs-string">&quot; could not be instantiated&quot;</span>,
+                     x);
+            &#125;
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>();          <span class="hljs-comment">// This cannot happen</span>
+        &#125;
+&#125;</code></pre></div>
+<p>JDK SPI能实现加载扩展接口的基本要求，存在几个缺点：</p>
 <ul>
 <li>需要遍历所有class并进行实例化，需要调用某个特定实现只能循环找。</li>
 <li>无法和Spring提供的上下文融合使用。</li>
+<li>ServiceLoader类非线程安全</li>
 </ul>
+<h2 id="常用框架spi案例">常用框架SPI案例</h2>
+<h3 id="spring-boot">Spring Boot</h3>
+<p><code>org.springframework.core.io.support.SpringFactoriesLoader#loadFactoryNames</code>方法用于加载所有<code>META-INF/spring.factories</code>文件，主要流程如下：</p>
+<ul>
+<li>搜索classpath下所有<code>META-INF/spring.factories</code>配置文件</li>
+<li>解析文件，获取文件中对应的全限定类名</li>
+</ul>
+<p>代码注释如下：</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">FACTORIES_RESOURCE_LOCATION</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;META-INF/spring.factories&quot;</span>;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> List&lt;String&gt; <span class="hljs-title function_">loadFactoryNames</span><span class="hljs-params">(Class&lt;?&gt; factoryType, <span class="hljs-meta">@Nullable</span> ClassLoader classLoader)</span> &#123;
+		<span class="hljs-type">ClassLoader</span> <span class="hljs-variable">classLoaderToUse</span> <span class="hljs-operator">=</span> classLoader;
+		<span class="hljs-keyword">if</span> (classLoaderToUse == <span class="hljs-literal">null</span>) &#123;
+			classLoaderToUse = SpringFactoriesLoader.class.getClassLoader();
+		&#125;
+		<span class="hljs-type">String</span> <span class="hljs-variable">factoryTypeName</span> <span class="hljs-operator">=</span> factoryType.getName();
+		<span class="hljs-keyword">return</span> loadSpringFactories(classLoaderToUse).getOrDefault(factoryTypeName, Collections.emptyList());
+	&#125;
+
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> Map&lt;String, List&lt;String&gt;&gt; <span class="hljs-title function_">loadSpringFactories</span><span class="hljs-params">(ClassLoader classLoader)</span> &#123;
+		
+    	<span class="hljs-comment">//读取缓存</span>
+    	Map&lt;String, List&lt;String&gt;&gt; result = cache.get(classLoader);
+		<span class="hljs-keyword">if</span> (result != <span class="hljs-literal">null</span>) &#123;
+			<span class="hljs-keyword">return</span> result;
+		&#125;
+
+		result = <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashMap</span>&lt;&gt;();
+		<span class="hljs-keyword">try</span> &#123;
+            <span class="hljs-comment">//获取文件路径</span>
+			Enumeration&lt;URL&gt; urls = classLoader.getResources(FACTORIES_RESOURCE_LOCATION);
+            <span class="hljs-comment">//遍历所有路径</span>
+			<span class="hljs-keyword">while</span> (urls.hasMoreElements()) &#123;
+				<span class="hljs-type">URL</span> <span class="hljs-variable">url</span> <span class="hljs-operator">=</span> urls.nextElement();
+				<span class="hljs-type">UrlResource</span> <span class="hljs-variable">resource</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">UrlResource</span>(url);
+                解析获取Properties对象
+				<span class="hljs-type">Properties</span> <span class="hljs-variable">properties</span> <span class="hljs-operator">=</span> PropertiesLoaderUtils.loadProperties(resource);
+                <span class="hljs-comment">//解析properties，存放到map中</span>
+				<span class="hljs-keyword">for</span> (Map.Entry&lt;?, ?&gt; entry : properties.entrySet()) &#123;
+					<span class="hljs-type">String</span> <span class="hljs-variable">factoryTypeName</span> <span class="hljs-operator">=</span> ((String) entry.getKey()).trim();
+					String[] factoryImplementationNames =
+							StringUtils.commaDelimitedListToStringArray((String) entry.getValue());
+					<span class="hljs-keyword">for</span> (String factoryImplementationName : factoryImplementationNames) &#123;
+						result.computeIfAbsent(factoryTypeName, key -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;())
+								.add(factoryImplementationName.trim());
+					&#125;
+				&#125;
+			&#125;
+
+			<span class="hljs-comment">// Replace all lists with unmodifiable lists containing unique elements</span>
+			result.replaceAll((factoryType, implementations) -&gt; implementations.stream().distinct()
+					.collect(Collectors.collectingAndThen(Collectors.toList(), Collections::unmodifiableList)));
+			cache.put(classLoader, result);
+		&#125;
+		<span class="hljs-keyword">catch</span> (IOException ex) &#123;
+			<span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;Unable to load factories from location [&quot;</span> +
+					FACTORIES_RESOURCE_LOCATION + <span class="hljs-string">&quot;]&quot;</span>, ex);
+		&#125;
+		<span class="hljs-keyword">return</span> result;
+	&#125;</code></pre></div>
 
                 
               </div>
@@ -355,6 +563,41 @@ alt="SPI运行结果" /></p>
             <div>
               <div class="post-metas my-3">
   
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/Java/" class="category-chain-item">Java</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/Java/%E5%9F%BA%E7%A1%80/" class="category-chain-item">基础</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/Java/">#Java</a>
+      
+    </div>
   
 </div>
 
@@ -364,8 +607,8 @@ alt="SPI运行结果" /></p>
 
   <div class="license-box my-3">
     <div class="license-title">
-      <div>SPI</div>
-      <div>https://l1n.wang/2023/SPI/</div>
+      <div>Java SPI机制学习与常用框架SPI案例</div>
+      <div>https://l1n.wang/2023/Java基础/Java SPI机制学习与常用框架SPI案例/</div>
     </div>
     <div class="license-meta">
       
@@ -377,7 +620,7 @@ alt="SPI运行结果" /></p>
       
         <div class="license-meta-item license-meta-date">
           <div>发布于</div>
-          <div>2023年2月26日</div>
+          <div>2023年2月28日</div>
         </div>
       
       
