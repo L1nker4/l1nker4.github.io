@@ -26,7 +26,7 @@
 <meta property="og:description" content="概念 SPI（Service Provider Interface）是JDK内置的服务提供机制，常用于框架的动态扩展，类似于可拔插机制。提供方将接口实现类配置在classpath下的指定位置，调用方读取并加载。当提供方发生变化时，接口的实现也会改变。Java生态中JDK、Dubbo、Spring等都通过SPI提供了动态扩展的能力。 样例 public interface Search &amp;#">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2023-02-28T09:01:26.000Z">
-<meta property="article:modified_time" content="2023-03-04T09:39:19.257Z">
+<meta property="article:modified_time" content="2023-08-21T13:16:11.508Z">
 <meta property="article:author" content="Lin Wang">
 <meta property="article:tag" content="Java">
 <meta name="twitter:card" content="summary_large_image">
@@ -248,7 +248,7 @@
         <i class="iconfont icon-chart"></i>
         
           <!-- compatible with older versions-->
-          6.5k 字
+          10k 字
         
       </span>
     
@@ -260,7 +260,7 @@
         
         
           <!-- compatible with older versions-->
-          55 分钟
+          87 分钟
         
       </span>
     
@@ -559,6 +559,127 @@ alt="SPI运行结果" /></p>
 		&#125;
 		<span class="hljs-keyword">return</span> result;
 	&#125;</code></pre></div>
+<h3 id="dubbo">Dubbo</h3>
+<p>Dubbo并未使用Java
+SPI，基于SPI机制实现了了功能更强的ExtensionLoader，核心模块位于：org.apache.dubbo.common.extension.ExtensionLoader
+配置文件需要放在META-INF/dubbo下，以如下配置为例：</p>
+<div class="code-wrapper"><pre><code class="hljs stylus">optimusPrime = org<span class="hljs-selector-class">.apache</span><span class="hljs-selector-class">.spi</span><span class="hljs-selector-class">.OptimusPrime</span>
+bumblebee = org<span class="hljs-selector-class">.apache</span><span class="hljs-selector-class">.spi</span>.Bumblebee</code></pre></div>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DubboSPITest</span> &#123;
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">sayHello</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception &#123;
+        ExtensionLoader&lt;Robot&gt; extensionLoader = 
+            ExtensionLoader.getExtensionLoader(Robot.class);
+        <span class="hljs-type">Robot</span> <span class="hljs-variable">optimusPrime</span> <span class="hljs-operator">=</span> extensionLoader.getExtension(<span class="hljs-string">&quot;optimusPrime&quot;</span>);
+        optimusPrime.sayHello();
+        <span class="hljs-type">Robot</span> <span class="hljs-variable">bumblebee</span> <span class="hljs-operator">=</span> extensionLoader.getExtension(<span class="hljs-string">&quot;bumblebee&quot;</span>);
+        bumblebee.sayHello();
+    &#125;
+&#125;</code></pre></div>
+<p>下面简要一下Dubbo SPI的核心类ExtensionLoader的实现。</p>
+<h3 id="核心成员变量">核心成员变量</h3>
+<ul>
+<li><code>LoadingStrategy[] strategies</code>：配置文件加载策略。</li>
+<li><code>ConcurrentMap&lt;Class&lt;?&gt;, ExtensionLoader&lt;?&gt;&gt; EXTENSION_LOADERS</code>：每个扩展接口对应一个ExtensionLoader实例，该集合缓存了所有Loader实例。</li>
+<li><code>ConcurrentMap&lt;Class&lt;?&gt;, Object&gt; EXTENSION_INSTANCES</code>：该Map缓存了扩展实现类与对应实例对象的映射关系</li>
+</ul>
+<h4 id="loadstrategy">LoadStrategy</h4>
+<p>Subbo在加载SPI实现类时存在优先级，当前存在三个实现： <img
+src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20230806222254.png" srcset="/img/loading.gif" lazyload
+alt="LoadStrategy" /></p>
+<p>配置文件目录有以下三个位置： 1.
+META-INF/dubbo：由DubboLoadingStrategy负责，用户自定义SPI配置文件 2.
+META-INF/services：由ServicesLoadingStrategy负责，兼容JDK SPI 3.
+META-INF/dubbo/internal：由DubboInternalLoadingStrategy负责，Dubbo内部使用的SPI配置文件</p>
+<h3 id="核心实现">核心实现</h3>
+<p>Dubbo
+SPI的核心实现方法为：org.apache.dubbo.common.extension.ExtensionLoader#getExtension</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> T <span class="hljs-title function_">getExtension</span><span class="hljs-params">(String name)</span> &#123;
+        <span class="hljs-keyword">if</span> (StringUtils.isEmpty(name)) &#123;
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;Extension name == null&quot;</span>);
+        &#125;
+        <span class="hljs-keyword">if</span> (<span class="hljs-string">&quot;true&quot;</span>.equals(name)) &#123;
+	        <span class="hljs-comment">//获取默认的扩展实现类</span>
+            <span class="hljs-keyword">return</span> getDefaultExtension();
+        &#125;
+        <span class="hljs-comment">//从cachedInstances&lt;name, Holder&lt;&gt;&gt;</span>
+        <span class="hljs-keyword">final</span> Holder&lt;Object&gt; holder = getOrCreateHolder(name);
+        <span class="hljs-type">Object</span> <span class="hljs-variable">instance</span> <span class="hljs-operator">=</span> holder.get();
+        <span class="hljs-comment">//double check</span>
+        <span class="hljs-keyword">if</span> (instance == <span class="hljs-literal">null</span>) &#123;
+            <span class="hljs-keyword">synchronized</span> (holder) &#123;
+                instance = holder.get();
+                <span class="hljs-keyword">if</span> (instance == <span class="hljs-literal">null</span>) &#123;
+	                <span class="hljs-comment">//若未创建实例，则创建并set</span>
+                    instance = createExtension(name);
+                    holder.set(instanc  e);
+                &#125;
+            &#125;
+        &#125;
+        <span class="hljs-keyword">return</span> (T) instance;
+    &#125;
+</code></pre></div>
+<p>在createExtension()方法中实现了SPI配置文件的查找已经对应实现类的实例化，同时还实现了自动装配以及自动Wrapper包装等功能：</p>
+<ol type="1">
+<li>getExtensionClasses()会获取cachedClass缓存，根据扩展名获取对应的实现类，如果未初始化，则调用loadExtensionClasses()加载实现类。</li>
+<li><strong>自动装配</strong>扩展对象的属性（injectExtension()方法）</li>
+<li>自动包装扩展对象</li>
+</ol>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-comment">//扩展实现类的加载过程</span>
+<span class="hljs-keyword">private</span> T <span class="hljs-title function_">createExtension</span><span class="hljs-params">(String name)</span> &#123;
+        Class&lt;?&gt; clazz = getExtensionClasses().get(name); <span class="hljs-comment">// 1</span>
+        <span class="hljs-keyword">if</span> (clazz == <span class="hljs-literal">null</span>) &#123;
+            <span class="hljs-keyword">throw</span> findException(name);
+        &#125;
+        <span class="hljs-keyword">try</span> &#123;
+            <span class="hljs-type">T</span> <span class="hljs-variable">instance</span> <span class="hljs-operator">=</span> (T) EXTENSION_INSTANCES.get(clazz);
+            <span class="hljs-keyword">if</span> (instance == <span class="hljs-literal">null</span>) &#123;
+                EXTENSION_INSTANCES.putIfAbsent(clazz, clazz.newInstance());
+                instance = (T) EXTENSION_INSTANCES.get(clazz);
+            &#125;
+            injectExtension(instance); <span class="hljs-comment">// 2</span>
+        <span class="hljs-comment">//3</span>
+            Set&lt;Class&lt;?&gt;&gt; wrapperClasses = cachedWrapperClasses;
+            <span class="hljs-keyword">if</span> (CollectionUtils.isNotEmpty(wrapperClasses)) &#123;
+                <span class="hljs-keyword">for</span> (Class&lt;?&gt; wrapperClass : wrapperClasses) &#123;
+                    instance = injectExtension((T) wrapperClass.getConstructor(type).newInstance(instance));
+                &#125;
+            &#125;
+            initExtension(instance);
+            <span class="hljs-keyword">return</span> instance;
+        &#125; <span class="hljs-keyword">catch</span> (Throwable t) &#123;
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;Extension instance (name: &quot;</span> + name + <span class="hljs-string">&quot;, class: &quot;</span> +
+                    type + <span class="hljs-string">&quot;) couldn&#x27;t be instantiated: &quot;</span> + t.getMessage(), t);
+        &#125;
+    &#125;</code></pre></div>
+<p>getExtensionClasses()实现： <div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">private</span> Map&lt;String, Class&lt;?&gt;&gt; getExtensionClasses() &#123;  
+    Map&lt;String, Class&lt;?&gt;&gt; classes = cachedClasses.get();  
+    <span class="hljs-keyword">if</span> (classes == <span class="hljs-literal">null</span>) &#123;  
+        <span class="hljs-keyword">synchronized</span> (cachedClasses) &#123;  
+            classes = cachedClasses.get();  
+            <span class="hljs-keyword">if</span> (classes == <span class="hljs-literal">null</span>) &#123;  
+                classes = loadExtensionClasses();  
+                cachedClasses.set(classes);  
+            &#125;  
+        &#125;  
+    &#125;  
+    <span class="hljs-keyword">return</span> classes;  
+&#125;
+
+<span class="hljs-keyword">private</span> Map&lt;String, Class&lt;?&gt;&gt; loadExtensionClasses() &#123;
+        cacheDefaultExtensionName();
+
+        Map&lt;String, Class&lt;?&gt;&gt; extensionClasses = <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashMap</span>&lt;&gt;();
+
+        <span class="hljs-keyword">for</span> (LoadingStrategy strategy : strategies) &#123;
+            loadDirectory(extensionClasses, strategy.directory(), type.getName(), strategy.preferExtensionClassLoader(), strategy.overridden(), strategy.excludedPackages());
+            loadDirectory(extensionClasses, strategy.directory(), type.getName().replace(<span class="hljs-string">&quot;org.apache&quot;</span>, <span class="hljs-string">&quot;com.alibaba&quot;</span>), strategy.preferExtensionClassLoader(), strategy.overridden(), strategy.excludedPackages());
+        &#125;
+
+        <span class="hljs-keyword">return</span> extensionClasses;
+    &#125;
+</code></pre></div></p>
 
                 
               </div>
