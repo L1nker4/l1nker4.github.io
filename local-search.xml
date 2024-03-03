@@ -4,6 +4,35 @@
   
   
   <entry>
+    <title>JVM内存问题排查流程</title>
+    <link href="/2024/JVM/JVM%E5%86%85%E5%AD%98%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5%E6%B5%81%E7%A8%8B/"/>
+    <url>/2024/JVM/JVM%E5%86%85%E5%AD%98%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5%E6%B5%81%E7%A8%8B/</url>
+    
+    <content type="html"><![CDATA[<h2 id="确认问题现象">确认问题现象</h2><p>可以通过服务状态，监控面板、日志信息、监控工具（VisualVM）等，确认问题类型：1. 内存使用率居高不下、内存缓慢增加、OOM等 2. 频繁GC：Full GC等</p><p>发现问题不建议重启，留存状态。</p><h2 id="保留数据">保留数据</h2><h3 id="heapdump文件">heapdump文件</h3><div class="code-wrapper"><pre><code class="hljs ruby"><span class="hljs-comment">#arthas导出方式</span>heapdump /tmp/dump.hprof<span class="hljs-comment">#jmap命令保存整个Java堆</span>jmap -<span class="hljs-symbol">dump:</span>format=b,file=heap.bin &lt;pid&gt; <span class="hljs-comment">#jmap命令只保存Java堆中的存活对象, 包含live选项，会在堆转储前执行一次Full GC</span>jmap -<span class="hljs-symbol">dump:</span>live,format=b,file=heap.bin &lt;pid&gt;<span class="hljs-comment">#jcmd命令保存整个Java堆,Jdk1.7后有效</span>jcmd &lt;pid&gt; <span class="hljs-variable constant_">GC</span>.heap_dump filename=heap.bin<span class="hljs-comment">#在出现OutOfMemoryError的时候JVM自动生成（推荐）节点剩余内存不足heapdump会生成失败</span>-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpOnOutOfMemoryError</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:HeapDumpPath=/tmp/heap</span>.bin<span class="hljs-comment">#编程的方式生成</span>使用HotSpotDiagnosticMXBean.dumpHeap()方法<span class="hljs-comment">#在出现Full GC前后JVM自动生成，本地快速调试可用</span>-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpBeforeFullGC</span>或 -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpAfterFullGC</span></code></pre></div><p>JVM参数： <div class="code-wrapper"><pre><code class="hljs ruby">-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:printGCDetails</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+UseConcMarkSweepGC</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpOnOutOfMemoryError</span></code></pre></div></p><h3 id="gc日志">GC日志</h3><p>JVM启动参数如下： <div class="code-wrapper"><pre><code class="hljs ruby"><span class="hljs-comment"># Java8及以下</span>-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+PrintGCDetails</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+PrintGCDateStamps</span> -<span class="hljs-symbol">Xloggc:</span>&lt;path&gt;<span class="hljs-comment"># Java9及以上</span>-<span class="hljs-symbol">Xlog:</span>gc*<span class="hljs-symbol">:&lt;path&gt;</span><span class="hljs-symbol">:time</span></code></pre></div></p><p>可以通过EasyGC进行日志分析。</p><h3 id="服务日志">服务日志</h3><p>通常由日志组件（Promtail &amp; loki）进行采集、存储、展示。</p><h2 id="实际问题">实际问题</h2><h3 id="堆内存溢出">堆内存溢出</h3><p>问题现象： 1. OutOfMemoryError</p><h3 id="直接内存溢出">直接内存溢出</h3><p>问题现象：top指令中相关Java进程占用的RES超过了-Xmx的大小，并且内存占用不断上升。</p><p>问题定位方法：</p><ol type="1"><li>可通过开启NMT（<strong>-XX:NativeMemoryTracking=detail</strong>）定位问题</li><li>jcmd查看直接内存情况：jcmd pid VM.native_memory detail</li></ol><p>NIO、Netty等常用直接内存，Netty可以通过<code>-Dio.netty.leakDetectionLevel</code>开启</p><h3 id="栈空间溢出">栈空间溢出</h3><p>问题现象： 1. StackOverflow 2. OutOfMemoryError：unable to create newnative thread</p><p>问题定位方法： 1. 分析Java调用栈 2. 开启Linux coredump日志</p><h3 id="频繁gc">频繁GC</h3><p>问题现象：通过监控面板、jstat等方式，发生频繁GC现象：</p><ol type="1"><li>Minor GC：回收新生代区域</li><li>Major GC：回收老年代区域</li><li>Full GC：回收整个堆区和方法区</li><li>Mixed GC：回收整个新生代和部分老年代，部分GC实现（G1）</li></ol><h2 id="附jvm参数">附JVM参数</h2><h4 id="xms512m">-Xms512m</h4><ul><li><p>意义： 设置堆内存初始值大小。</p></li><li><p>默认值：如果未设置，初始值将是老年代和年轻代分配制内存之和。 ####-Xmx1024m</p></li><li><p>意义： 设置堆内存最大值。</p></li></ul><h4 id="xxnewration">-XX:NewRatio=n</h4><ul><li>意义：设置老年代和年轻代的比例。比如：-XX:NewRatio=2</li></ul><p>-XX:SurvivorRatio年轻代分配：默认情况下Eden、From、To的比例是8:1:1。SurvivorRatio默认值是8，如果SurvivorRatio修改成4，那么其比例就是4:1:1</p><h4 id="xxmaxrampercentage85.0">-XX:MaxRAMPercentage=85.0</h4><p>堆的最大值百分比</p><h4 id="xalwaysclassgc">-Xalwaysclassgc</h4><p>在全局垃圾回收期间始终执行动态类卸载检查。</p><h4 id="xaggressive">-Xaggressive</h4><p>Enables performance optimizations and new platform exploitation thatare expected to be the default in future releases.</p><h4 id="xxprintgcdetails">-XX:+PrintGCDetails</h4><p>打印GC日志</p><h4 id="xxprintgctimestamps">-XX:+PrintGCTimeStamps</h4><p>打印GC时间戳</p><h4 id="xloggc">-Xloggc</h4><p>GC日志存储位置</p><h4 id="verboseclass">-verbose:class</h4><p>用于同时跟踪类的加载和卸载</p><h4 id="xxtraceclassloading">-XX:+TraceClassLoading</h4><p>单独跟踪类的加载</p><h4 id="xxtraceclassunloading">-XX:+TraceClassUnloading</h4><p>单独跟踪类的卸载</p><h4id="xxnativememorytrackingoff-summary-detail">-XX:NativeMemoryTracking=[off| summary | detail ]</h4><p>开启直接内存追踪</p><h4 id="xxmaxdirectmemorysize">-XX:MaxDirectMemorySize</h4><p>最大直接内存</p><h4 id="xxmaxjavastacktracedepth">-XX:MaxJavaStackTraceDepth</h4><p>栈帧输出数量</p>]]></content>
+    
+    
+    <categories>
+      
+      <category>Java</category>
+      
+      <category>JVM</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>Java</tag>
+      
+      <tag>JVM</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>《软件研发效能之美》思维导图</title>
     <link href="/2024/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E3%80%8A%E8%BD%AF%E4%BB%B6%E7%A0%94%E5%8F%91%E6%95%88%E8%83%BD%E4%B9%8B%E7%BE%8E%E3%80%8B%E6%80%9D%E7%BB%B4%E5%AF%BC%E5%9B%BE/"/>
     <url>/2024/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E3%80%8A%E8%BD%AF%E4%BB%B6%E7%A0%94%E5%8F%91%E6%95%88%E8%83%BD%E4%B9%8B%E7%BE%8E%E3%80%8B%E6%80%9D%E7%BB%B4%E5%AF%BC%E5%9B%BE/</url>
@@ -2732,11 +2761,11 @@
     
     <tags>
       
-      <tag>CTF</tag>
-      
       <tag>PHP代码审计</tag>
       
       <tag>安全</tag>
+      
+      <tag>CTF</tag>
       
     </tags>
     
@@ -2763,11 +2792,11 @@
     
     <tags>
       
-      <tag>CTF</tag>
-      
       <tag>PHP代码审计</tag>
       
       <tag>安全</tag>
+      
+      <tag>CTF</tag>
       
     </tags>
     
@@ -2794,11 +2823,11 @@
     
     <tags>
       
-      <tag>CTF</tag>
-      
       <tag>PHP代码审计</tag>
       
       <tag>安全</tag>
+      
+      <tag>CTF</tag>
       
     </tags>
     
@@ -2844,11 +2873,11 @@
     
     <tags>
       
-      <tag>CTF</tag>
-      
       <tag>PHP代码审计</tag>
       
       <tag>安全</tag>
+      
+      <tag>CTF</tag>
       
     </tags>
     
@@ -2875,11 +2904,11 @@
     
     <tags>
       
-      <tag>CTF</tag>
-      
       <tag>PHP代码审计</tag>
       
       <tag>安全</tag>
+      
+      <tag>CTF</tag>
       
     </tags>
     

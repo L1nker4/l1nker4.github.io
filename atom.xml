@@ -6,7 +6,7 @@
   <link href="https://l1n.wang/atom.xml" rel="self"/>
   
   <link href="https://l1n.wang/"/>
-  <updated>2024-01-14T13:49:13.455Z</updated>
+  <updated>2024-03-03T13:39:20.976Z</updated>
   <id>https://l1n.wang/</id>
   
   <author>
@@ -15,6 +15,37 @@
   </author>
   
   <generator uri="https://hexo.io/">Hexo</generator>
+  
+  <entry>
+    <title>JVM内存问题排查流程</title>
+    <link href="https://l1n.wang/2024/JVM/JVM%E5%86%85%E5%AD%98%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5%E6%B5%81%E7%A8%8B/"/>
+    <id>https://l1n.wang/2024/JVM/JVM%E5%86%85%E5%AD%98%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5%E6%B5%81%E7%A8%8B/</id>
+    <published>2024-03-03T13:34:49.000Z</published>
+    <updated>2024-03-03T13:39:20.976Z</updated>
+    
+    <content type="html"><![CDATA[<h2 id="确认问题现象">确认问题现象</h2><p>可以通过服务状态，监控面板、日志信息、监控工具（VisualVM）等，确认问题类型：1. 内存使用率居高不下、内存缓慢增加、OOM等 2. 频繁GC：Full GC等</p><p>发现问题不建议重启，留存状态。</p><h2 id="保留数据">保留数据</h2><h3 id="heapdump文件">heapdump文件</h3><div class="code-wrapper"><pre><code class="hljs ruby"><span class="hljs-comment">#arthas导出方式</span>heapdump /tmp/dump.hprof<span class="hljs-comment">#jmap命令保存整个Java堆</span>jmap -<span class="hljs-symbol">dump:</span>format=b,file=heap.bin &lt;pid&gt; <span class="hljs-comment">#jmap命令只保存Java堆中的存活对象, 包含live选项，会在堆转储前执行一次Full GC</span>jmap -<span class="hljs-symbol">dump:</span>live,format=b,file=heap.bin &lt;pid&gt;<span class="hljs-comment">#jcmd命令保存整个Java堆,Jdk1.7后有效</span>jcmd &lt;pid&gt; <span class="hljs-variable constant_">GC</span>.heap_dump filename=heap.bin<span class="hljs-comment">#在出现OutOfMemoryError的时候JVM自动生成（推荐）节点剩余内存不足heapdump会生成失败</span>-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpOnOutOfMemoryError</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:HeapDumpPath=/tmp/heap</span>.bin<span class="hljs-comment">#编程的方式生成</span>使用HotSpotDiagnosticMXBean.dumpHeap()方法<span class="hljs-comment">#在出现Full GC前后JVM自动生成，本地快速调试可用</span>-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpBeforeFullGC</span>或 -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpAfterFullGC</span></code></pre></div><p>JVM参数： <div class="code-wrapper"><pre><code class="hljs ruby">-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:printGCDetails</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+UseConcMarkSweepGC</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpOnOutOfMemoryError</span></code></pre></div></p><h3 id="gc日志">GC日志</h3><p>JVM启动参数如下： <div class="code-wrapper"><pre><code class="hljs ruby"><span class="hljs-comment"># Java8及以下</span>-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+PrintGCDetails</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+PrintGCDateStamps</span> -<span class="hljs-symbol">Xloggc:</span>&lt;path&gt;<span class="hljs-comment"># Java9及以上</span>-<span class="hljs-symbol">Xlog:</span>gc*<span class="hljs-symbol">:&lt;path&gt;</span><span class="hljs-symbol">:time</span></code></pre></div></p><p>可以通过EasyGC进行日志分析。</p><h3 id="服务日志">服务日志</h3><p>通常由日志组件（Promtail &amp; loki）进行采集、存储、展示。</p><h2 id="实际问题">实际问题</h2><h3 id="堆内存溢出">堆内存溢出</h3><p>问题现象： 1. OutOfMemoryError</p><h3 id="直接内存溢出">直接内存溢出</h3><p>问题现象：top指令中相关Java进程占用的RES超过了-Xmx的大小，并且内存占用不断上升。</p><p>问题定位方法：</p><ol type="1"><li>可通过开启NMT（<strong>-XX:NativeMemoryTracking=detail</strong>）定位问题</li><li>jcmd查看直接内存情况：jcmd pid VM.native_memory detail</li></ol><p>NIO、Netty等常用直接内存，Netty可以通过<code>-Dio.netty.leakDetectionLevel</code>开启</p><h3 id="栈空间溢出">栈空间溢出</h3><p>问题现象： 1. StackOverflow 2. OutOfMemoryError：unable to create newnative thread</p><p>问题定位方法： 1. 分析Java调用栈 2. 开启Linux coredump日志</p><h3 id="频繁gc">频繁GC</h3><p>问题现象：通过监控面板、jstat等方式，发生频繁GC现象：</p><ol type="1"><li>Minor GC：回收新生代区域</li><li>Major GC：回收老年代区域</li><li>Full GC：回收整个堆区和方法区</li><li>Mixed GC：回收整个新生代和部分老年代，部分GC实现（G1）</li></ol><h2 id="附jvm参数">附JVM参数</h2><h4 id="xms512m">-Xms512m</h4><ul><li><p>意义： 设置堆内存初始值大小。</p></li><li><p>默认值：如果未设置，初始值将是老年代和年轻代分配制内存之和。 ####-Xmx1024m</p></li><li><p>意义： 设置堆内存最大值。</p></li></ul><h4 id="xxnewration">-XX:NewRatio=n</h4><ul><li>意义：设置老年代和年轻代的比例。比如：-XX:NewRatio=2</li></ul><p>-XX:SurvivorRatio年轻代分配：默认情况下Eden、From、To的比例是8:1:1。SurvivorRatio默认值是8，如果SurvivorRatio修改成4，那么其比例就是4:1:1</p><h4 id="xxmaxrampercentage85.0">-XX:MaxRAMPercentage=85.0</h4><p>堆的最大值百分比</p><h4 id="xalwaysclassgc">-Xalwaysclassgc</h4><p>在全局垃圾回收期间始终执行动态类卸载检查。</p><h4 id="xaggressive">-Xaggressive</h4><p>Enables performance optimizations and new platform exploitation thatare expected to be the default in future releases.</p><h4 id="xxprintgcdetails">-XX:+PrintGCDetails</h4><p>打印GC日志</p><h4 id="xxprintgctimestamps">-XX:+PrintGCTimeStamps</h4><p>打印GC时间戳</p><h4 id="xloggc">-Xloggc</h4><p>GC日志存储位置</p><h4 id="verboseclass">-verbose:class</h4><p>用于同时跟踪类的加载和卸载</p><h4 id="xxtraceclassloading">-XX:+TraceClassLoading</h4><p>单独跟踪类的加载</p><h4 id="xxtraceclassunloading">-XX:+TraceClassUnloading</h4><p>单独跟踪类的卸载</p><h4id="xxnativememorytrackingoff-summary-detail">-XX:NativeMemoryTracking=[off| summary | detail ]</h4><p>开启直接内存追踪</p><h4 id="xxmaxdirectmemorysize">-XX:MaxDirectMemorySize</h4><p>最大直接内存</p><h4 id="xxmaxjavastacktracedepth">-XX:MaxJavaStackTraceDepth</h4><p>栈帧输出数量</p>]]></content>
+    
+    
+      
+      
+    <summary type="html">&lt;h2 id=&quot;确认问题现象&quot;&gt;确认问题现象&lt;/h2&gt;
+&lt;p&gt;可以通过服务状态，监控面板、日志信息、监控工具（VisualVM）等，确认问题类型：
+1. 内存使用率居高不下、内存缓慢增加、OOM等 2. 频繁GC：Full GC等&lt;/p&gt;
+&lt;p&gt;发现问题不建议重启，留存状态</summary>
+      
+    
+    
+    
+    <category term="Java" scheme="https://l1n.wang/categories/Java/"/>
+    
+    <category term="JVM" scheme="https://l1n.wang/categories/Java/JVM/"/>
+    
+    
+    <category term="Java" scheme="https://l1n.wang/tags/Java/"/>
+    
+    <category term="JVM" scheme="https://l1n.wang/tags/JVM/"/>
+    
+  </entry>
   
   <entry>
     <title>《软件研发效能之美》思维导图</title>
@@ -520,31 +551,6 @@ API，适合于存储大容量的非结构化数据，支持单个对象最大5T
       
     <summary type="html">&lt;h2 id=&quot;controller机制&quot;&gt;Controller机制&lt;/h2&gt;
 &lt;p&gt;Controller主要作用是在Zookeeper的帮助下管理和协调整个Kafka集群（在zk中存储集群元数据）。Kafka集群中会有一个或多个Broker，其中一个Broker会被选举为Co</summary>
-      
-    
-    
-    
-    <category term="中间件" scheme="https://l1n.wang/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/"/>
-    
-    <category term="Kafka" scheme="https://l1n.wang/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/"/>
-    
-    
-  </entry>
-  
-  <entry>
-    <title>Kafka学习笔记(三)-通信协议</title>
-    <link href="https://l1n.wang/2022/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/Kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E4%B8%89)-%E9%80%9A%E4%BF%A1%E5%8D%8F%E8%AE%AE/"/>
-    <id>https://l1n.wang/2022/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/Kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E4%B8%89)-%E9%80%9A%E4%BF%A1%E5%8D%8F%E8%AE%AE/</id>
-    <published>2022-07-03T02:49:22.000Z</published>
-    <updated>2023-07-16T12:00:32.777Z</updated>
-    
-    <content type="html"><![CDATA[<h2 id="协议设计">协议设计</h2><p>需要进行网络传输的中间件都会拥有自己的一套通信协议，这往往会成为该组件的性能瓶颈，需要考虑的优化点较多。Kafka自定义了基于TCP的二进制通信协议，Kafka2.0中，一共有43种协议类型，每个都有对应的请求和响应，与HTTP协议类似，它同样有<code>RequestHeader</code>和<code>RequestBody</code>。其中<code>RequestHeader</code>结构如下：</p><ul><li>api_key：API标识，例如PRODUCE、FETCH等，用于分别请求的作用。</li><li>api_version：API版本号</li><li>correlation_id：客户端指定的唯一标识，服务端返回响应需要将该字段返回以此对应。</li><li>client_id：客户端id</li></ul><p>Kafka除了提供基本数据类型，还提供了以下的特有类型：</p><ul><li>nullable_string：可为空的字符串类型，若为空用-1表示</li><li>bytes：表示字节序列，开头是数据长度N（int32表示），后面是N个字节</li><li>nullable_bytes：与上述string相同</li><li>records：表示Kafka中的消息序列</li><li>array：表示一个给定类型T的数组</li></ul><p><code>RequestBody</code>结构如下：</p><ul><li>transactional_id：事务id，不使用事务，此项为null</li><li>acks：对应客户端的acks参数</li><li>timeout：超时时间</li><li>topic_data：要发送的数据集合，array类型<ul><li>topic：主题</li><li>data：数据，array类型<ul><li>partition：分区编号</li><li>record_set：数据</li></ul></li></ul></li></ul><p><code>Response</code>结构如下：</p><ul><li>ResponseHeader<ul><li>correlation_id：与请求相对应</li></ul></li><li>ResponseBody<ul><li>responses：array类型，返回的响应结果<ul><li>topic：主题</li><li>partition_responses：返回结果，array类型<ul><li>partition：分区编号</li><li>error_code：错误码，用来标识错误类型</li><li>base_offset：消息集的起始偏移量</li><li>log_append_time：消息写入broker的时间</li><li>log_start_offset：所在分区起始偏移量</li></ul></li></ul></li></ul></li></ul>]]></content>
-    
-    
-      
-      
-    <summary type="html">&lt;h2 id=&quot;协议设计&quot;&gt;协议设计&lt;/h2&gt;
-&lt;p&gt;需要进行网络传输的中间件都会拥有自己的一套通信协议，这往往会成为该组件的性能瓶颈，需要考虑的优化点较多。Kafka自定义了基于TCP的二进制通信协议，Kafka2.0中，一共有43种协议类型，每个都有对应的请求和响应，与HT</summary>
       
     
     
