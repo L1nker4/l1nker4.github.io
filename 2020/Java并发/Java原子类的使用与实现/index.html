@@ -1,0 +1,975 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介通常情况下，在Java中，++i这类自增&#x2F;自减运算符在并发环境中不能保证并发安全。需要通过加锁才能解决并发环境下的原子性问题。Atomic原子类通过CAS方式来解决线程安全问题，CAS是一种无锁算法（乐观锁），乐观锁多用于“读多写少“的环境，避免频繁加锁影响性能；而悲观锁多用于”写多读少“的环境，避免频繁失败和重试影响性能。 Atomic原子类分为以下几类：  基本类型：Atomic">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Java原子类的使用与实现">
+<meta property="og:url" content="https://l1n.wang/2020/Java%E5%B9%B6%E5%8F%91/Java%E5%8E%9F%E5%AD%90%E7%B1%BB%E7%9A%84%E4%BD%BF%E7%94%A8%E4%B8%8E%E5%AE%9E%E7%8E%B0/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="简介通常情况下，在Java中，++i这类自增&#x2F;自减运算符在并发环境中不能保证并发安全。需要通过加锁才能解决并发环境下的原子性问题。Atomic原子类通过CAS方式来解决线程安全问题，CAS是一种无锁算法（乐观锁），乐观锁多用于“读多写少“的环境，避免频繁加锁影响性能；而悲观锁多用于”写多读少“的环境，避免频繁失败和重试影响性能。 Atomic原子类分为以下几类：  基本类型：Atomic">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-10-29T11:39:23.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.366Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="并发">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  
+  <title>Java原子类的使用与实现 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Java原子类的使用与实现"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2020-10-29 19:39" pubdate>
+          2020年10月29日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          1.7k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          15 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Java原子类的使用与实现</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h2 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h2><p>通常情况下，在Java中，<code>++i</code>这类自增&#x2F;自减运算符在并发环境中不能保证并发安全。需要通过加锁才能解决并发环境下的原子性问题。Atomic原子类通过CAS方式来解决线程安全问题，CAS是一种无锁算法（乐观锁），乐观锁多用于“读多写少“的环境，避免频繁加锁影响性能；而悲观锁多用于”写多读少“的环境，避免频繁失败和重试影响性能。</p>
+<p>Atomic原子类分为以下几类：</p>
+<ul>
+<li>基本类型：AtomicInteger，AtomicLong，AtomicBoolean</li>
+<li>数组类型：AtomicIntegerArray，AtomicLongArray，AtomicReferenceArray</li>
+<li>引用类型：AtomicReference，AtomicStampedRerence，AtomicMarkableReference</li>
+<li>更新字段类：AtomicIntegerFieldUpdater、AtomicLongFieldUpdater、AtomicReferenceFieldUpdater</li>
+<li>Java8 新增类：DoubleAccumulator，DoubleAdder，LongAccumulator，LongAdder</li>
+</ul>
+<h2 id="使用"><a href="#使用" class="headerlink" title="使用"></a>使用</h2><h3 id="原子基本类型"><a href="#原子基本类型" class="headerlink" title="原子基本类型"></a>原子基本类型</h3><p>使用原子的方式更新基本类型。</p>
+<ul>
+<li>AtomicBoolean: 原子布尔类型。</li>
+<li>AtomicInteger: 原子整型。</li>
+<li>AtomicLong: 原子长整型。</li>
+</ul>
+<p>以下以<code>AtomInteger</code>举例：</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-comment">//以原子方式将给定值与当前值相加，线程安全的i = i + delta</span>
+<span class="hljs-type">int</span> <span class="hljs-title function_">addAndGet</span><span class="hljs-params">(<span class="hljs-type">int</span> delta)</span>;
+<span class="hljs-comment">//如果当前值== except，则以原子方式将当前值设置为update，成功返回true</span>
+<span class="hljs-type">boolean</span> <span class="hljs-title function_">compareAndSet</span><span class="hljs-params">(<span class="hljs-type">int</span> expect, <span class="hljs-type">int</span> update)</span>;
+<span class="hljs-comment">//以原子方式将当前值减1，相当于线程安全的i--</span>
+<span class="hljs-type">int</span> <span class="hljs-title function_">decrementAndGet</span><span class="hljs-params">()</span>;
+<span class="hljs-comment">//以原子方式将当前值加1，相当于线程安全的i++</span>
+<span class="hljs-type">int</span> <span class="hljs-title function_">incrementAndGet</span><span class="hljs-params">()</span>
+
+
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Unsafe</span> <span class="hljs-variable">unsafe</span> <span class="hljs-operator">=</span> Unsafe.getUnsafe();
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> valueOffset;
+
+    <span class="hljs-keyword">static</span> &#123;
+        <span class="hljs-keyword">try</span> &#123;
+            valueOffset = unsafe.objectFieldOffset
+                (AtomicInteger.class.getDeclaredField(<span class="hljs-string">&quot;value&quot;</span>));
+        &#125; <span class="hljs-keyword">catch</span> (Exception ex) &#123; <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(ex); &#125;
+    &#125;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">volatile</span> <span class="hljs-type">int</span> value;
+
+<span class="hljs-comment">/**</span>
+<span class="hljs-comment">     * Atomically increments by one the current value.</span>
+<span class="hljs-comment">     *</span>
+<span class="hljs-comment">     * <span class="hljs-doctag">@return</span> the updated value</span>
+<span class="hljs-comment">     */</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> <span class="hljs-title function_">incrementAndGet</span><span class="hljs-params">()</span> &#123;
+        <span class="hljs-keyword">return</span> unsafe.getAndAddInt(<span class="hljs-built_in">this</span>, valueOffset, <span class="hljs-number">1</span>) + <span class="hljs-number">1</span>;
+    &#125;
+
+    <span class="hljs-comment">/**</span>
+<span class="hljs-comment">     * Atomically decrements by one the current value.</span>
+<span class="hljs-comment">     *</span>
+<span class="hljs-comment">     * <span class="hljs-doctag">@return</span> the updated value</span>
+<span class="hljs-comment">     */</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> <span class="hljs-title function_">decrementAndGet</span><span class="hljs-params">()</span> &#123;
+        <span class="hljs-keyword">return</span> unsafe.getAndAddInt(<span class="hljs-built_in">this</span>, valueOffset, -<span class="hljs-number">1</span>) - <span class="hljs-number">1</span>;
+    &#125;</code></pre></div>
+
+<p>从上面代码可以看出，AtomicInteger底层使用<code>volatile</code>关键字和CAS来保证线程安全。其中：</p>
+<ul>
+<li>volatile保证线程的可见性，让每次读取的变量都是最新值</li>
+<li>CAS保证原子性</li>
+</ul>
+<h3 id="原子数组"><a href="#原子数组" class="headerlink" title="原子数组"></a>原子数组</h3><p>以原子方式更新数组中的某个元素。</p>
+<ul>
+<li>AtomicIntegerArray: 原子更新整型数组里的元素。</li>
+<li>AtomicLongArray: 原子更新长整型数组里的元素。</li>
+<li>AtomicReferenceArray: 原子更新引用类型数组里的元素。</li>
+</ul>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> <span class="hljs-keyword">throws</span> InterruptedException &#123;
+        <span class="hljs-type">AtomicIntegerArray</span> <span class="hljs-variable">array</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AtomicIntegerArray</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">int</span>[] &#123; <span class="hljs-number">0</span>, <span class="hljs-number">0</span> &#125;);
+        System.out.println(array);
+        System.out.println(array.getAndAdd(<span class="hljs-number">1</span>, <span class="hljs-number">2</span>));
+        System.out.println(array);
+    &#125;</code></pre></div>
+
+
+
+<h3 id="原子引用类型"><a href="#原子引用类型" class="headerlink" title="原子引用类型"></a>原子引用类型</h3><ul>
+<li>AtomicReference：原子更新引用类型。</li>
+<li>AtomicStampedReference： 原子更新引用类型,内部使用Pair来存储元素值及其版本号。</li>
+<li>AtomicMarkableReferce：原子更新带有标记位的引用类型，标记是否被改过。</li>
+</ul>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-comment">// 创建两个Person对象，它们的id分别是101和102。</span>
+<span class="hljs-type">Person</span> <span class="hljs-variable">p1</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Person</span>(<span class="hljs-number">101</span>);
+<span class="hljs-type">Person</span> <span class="hljs-variable">p2</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Person</span>(<span class="hljs-number">102</span>);
+<span class="hljs-comment">// 新建AtomicReference对象，初始化它的值为p1对象</span>
+<span class="hljs-type">AtomicReference</span> <span class="hljs-variable">ar</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AtomicReference</span>(p1);
+<span class="hljs-comment">// 通过CAS设置ar。如果ar的值为p1的话，则将其设置为p2。</span>
+ar.compareAndSet(p1, p2);
+<span class="hljs-type">Person</span> <span class="hljs-variable">p3</span> <span class="hljs-operator">=</span> (Person)ar.get();
+System.out.println(<span class="hljs-string">&quot;p3 is &quot;</span>+p3);
+System.out.println(<span class="hljs-string">&quot;p3.equals(p1)=&quot;</span>+p3.equals(p1));
+
+
+<span class="hljs-comment">//output</span>
+
+p3 is id:<span class="hljs-number">102</span>
+p3.equals(p1)=<span class="hljs-literal">false</span></code></pre></div>
+
+
+
+<h3 id="原子字段类"><a href="#原子字段类" class="headerlink" title="原子字段类"></a>原子字段类</h3><ul>
+<li>AtomicIntegerFieldUpdater：原子更新Integer的字段的更新器。 </li>
+<li>AtomicLongFieldUpdater：原子更新Long字段的更新器。 </li>
+<li>AtomicStampedFieldUpdater： 原子更新带有版本号的引用类型。</li>
+<li>AtomicReferenceFieldUpdater： 原子更新引用的更新器。</li>
+</ul>
+<p>这四个类通过反射更新字段的值，使用字段类如下：</p>
+<ol>
+<li>使用静态方法<code>newUpdater()</code>创建一个更新器，并需要设置想要更新的类和属性。</li>
+<li>更新类的字段必须使用public volatile修饰。</li>
+</ol>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AtomicIntegerFieldUpdaterTest</span> &#123;
+
+
+     <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> Class&lt;Person&gt; cls;
+     
+     <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> &#123;
+        AtomicIntegerFieldUpdater&lt;Person&gt; mAtoLong = AtomicIntegerFieldUpdater.newUpdater(Person.class, <span class="hljs-string">&quot;id&quot;</span>);
+        <span class="hljs-type">Person</span> <span class="hljs-variable">person</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Person</span>(<span class="hljs-number">1000</span>);
+        mAtoLong.compareAndSet(person, <span class="hljs-number">1000</span>, <span class="hljs-number">1001</span>);
+        System.out.println(<span class="hljs-string">&quot;id=&quot;</span>+person.getId());
+     &#125;
+&#125;
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">Person</span> &#123;
+    <span class="hljs-keyword">volatile</span> <span class="hljs-type">int</span> id;
+    <span class="hljs-keyword">public</span> <span class="hljs-title function_">Person</span><span class="hljs-params">(<span class="hljs-type">int</span> id)</span> &#123;
+        <span class="hljs-built_in">this</span>.id = id;
+    &#125;
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">setId</span><span class="hljs-params">(<span class="hljs-type">int</span> id)</span> &#123;
+        <span class="hljs-built_in">this</span>.id = id;
+    &#125;
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">getId</span><span class="hljs-params">()</span> &#123;
+        <span class="hljs-keyword">return</span> id;
+    &#125;
+&#125;</code></pre></div>
+
+<p>使用该类有如下约束：</p>
+<ul>
+<li>字段必须由volatile修饰</li>
+<li>字段的访问修饰符能让调用方访问到。</li>
+<li>只能是实例变量，不能加static</li>
+<li>对于AtomicIntegerFieldUpdater和AtomicLongFieldUpdater只能修改int&#x2F;long类型的字段，不能修改其包装类型(Integer&#x2F;Long)。如果要修改包装类型就需要使用AtomicReferenceFieldUpdater。</li>
+</ul>
+<h2 id="CAS理论"><a href="#CAS理论" class="headerlink" title="CAS理论"></a>CAS理论</h2><p>CAS（Compare-And-Swap）：是一条CPU的原子指令，其作用是让CPU先进行比较两个值是否相等，然后原子地更新某个位置的值。一个当前内存值V、旧的预期值A、即将更新的值B，当且仅当预期值A和内存值V相同时，将内存值修改为B并返回true，否则返回false。CAS的基本思路就是循环进行CAS操作直到成功为止。</p>
+<p>CAS在X86架构下汇编指令是<code>lock cmpxchg</code>。需要和volatile配合使用，保证拿到的变量是最新值。</p>
+<p>虽然乐观锁通常情况下比悲观锁性能更优，但是还存在以下一些问题：</p>
+<h3 id="ABA问题"><a href="#ABA问题" class="headerlink" title="ABA问题"></a>ABA问题</h3><p>CAS自旋需要在操作值得时候检查是否发生变化，但是如果一个值是A，变成B，然后又变成A，CAS检查会发现没有变化。<strong>AtomicStampedReference</strong>来解决ABA问题：这个类的<code>compareAndSet</code>方法作用是首先检查当前引用是否等于预期引用，并且当前<code>stamp</code>是否等于预期<code>stamp</code>，这里的<code>stamp</code>类似于版本号功能。如果全部相等，则以原子方式将该引用和该标志的值设置为给定的更新值。</p>
+<h3 id="循环时间长开销大"><a href="#循环时间长开销大" class="headerlink" title="循环时间长开销大"></a>循环时间长开销大</h3><p>CAS自旋如果长时间不成功，会给CPU带来较大得执行开销。</p>
+<h3 id="只能保证一个共享变量的原子操作"><a href="#只能保证一个共享变量的原子操作" class="headerlink" title="只能保证一个共享变量的原子操作"></a>只能保证一个共享变量的原子操作</h3><p>对多个共享变量操作时，CAS无法保证多个操作的原子性，但是可以使用锁来解决。<br>当然可以将多个共享变量合并成一个共享变量来操作，比如<code>i = 2;j = a</code>，合并为<code>ij = 2a</code>，然后CAS操作<code>ij</code>，从Java 1.5开始，JDK提供了<code>AtomicReference</code>类来保证引用对象之间的原子性，可以把多个变量放在一个对象里来进行CAS操作。</p>
+<h2 id="Unsafe-CAS解析"><a href="#Unsafe-CAS解析" class="headerlink" title="Unsafe-CAS解析"></a>Unsafe-CAS解析</h2><p>Java中原子类中CAS操作通过调用<code>Unsafe</code>去实现，<code>Unsafe</code>是位于<code>sun.misc</code>下的一个类，提供的功能主要如下：</p>
+<ul>
+<li>数组相关<ul>
+<li>返回数组元素内存大小</li>
+<li>返回数组首元素偏移大小</li>
+</ul>
+</li>
+<li>内存屏障<ul>
+<li>禁止load, store重排序</li>
+</ul>
+</li>
+<li>系统相关<ul>
+<li>返回内存页的大小</li>
+<li>返回系统指针大小</li>
+</ul>
+</li>
+<li>线程调度<ul>
+<li>线程挂起, 恢复</li>
+<li>获取，释放锁</li>
+</ul>
+</li>
+<li>内存操作<ul>
+<li>分配、拷贝、扩充、释放堆外内存</li>
+</ul>
+</li>
+<li>CAS</li>
+<li>Class<ul>
+<li>动态创建类</li>
+<li>获取field的内存地址偏移量</li>
+<li>检测、确保类初始化</li>
+</ul>
+</li>
+<li>对象操作<ul>
+<li>获取对象成员属性的偏移量</li>
+<li>非常规对象实例化</li>
+<li>存储、获取指定偏移地址的变量值。</li>
+</ul>
+</li>
+</ul>
+<p>下文对<code>Unsafe</code>的CAS做简要分析。</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> <span class="hljs-title function_">getAndSetInt</span><span class="hljs-params">(Object var1, <span class="hljs-type">long</span> var2, <span class="hljs-type">int</span> var4)</span> &#123;
+        <span class="hljs-type">int</span> var5;
+        <span class="hljs-keyword">do</span> &#123;
+            var5 = <span class="hljs-built_in">this</span>.getIntVolatile(var1, var2);
+        &#125; <span class="hljs-keyword">while</span>(!<span class="hljs-built_in">this</span>.compareAndSwapInt(var1, var2, var5, var4));
+
+        <span class="hljs-keyword">return</span> var5;
+    &#125;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> <span class="hljs-title function_">getAndSetLong</span><span class="hljs-params">(Object var1, <span class="hljs-type">long</span> var2, <span class="hljs-type">long</span> var4)</span> &#123;
+        <span class="hljs-type">long</span> var6;
+        <span class="hljs-keyword">do</span> &#123;
+            var6 = <span class="hljs-built_in">this</span>.getLongVolatile(var1, var2);
+        &#125; <span class="hljs-keyword">while</span>(!<span class="hljs-built_in">this</span>.compareAndSwapLong(var1, var2, var6, var4));
+
+        <span class="hljs-keyword">return</span> var6;
+    &#125;</code></pre></div>
+
+
+
+<p><code>Unsafe</code>调用<code>compareAndSwapInt</code>进行CAS操作，使用while操作进行自旋。这是一个<code>native</code>方法，实现位于<a target="_blank" rel="noopener" href="http://hg.openjdk.java.net/jdk8/jdk8/hotspot/file/tip/src/share/vm/prims/unsafe.cpp">unsafe.cpp</a>，<code>cmpxchg</code>在不同平台上有不同的实现。</p>
+<div class="code-wrapper"><pre><code class="hljs C++"><span class="hljs-built_in">UNSAFE_ENTRY</span>(jboolean, <span class="hljs-built_in">Unsafe_CompareAndSwapInt</span>(JNIEnv *env, jobject unsafe, jobject obj, jlong offset, jint e, jint x))
+  <span class="hljs-built_in">UnsafeWrapper</span>(<span class="hljs-string">&quot;Unsafe_CompareAndSwapInt&quot;</span>);
+  oop p = JNIHandles::<span class="hljs-built_in">resolve</span>(obj);
+  jint* addr = (jint *) <span class="hljs-built_in">index_oop_from_field_offset_long</span>(p, offset);
+  <span class="hljs-keyword">return</span> (jint)(Atomic::<span class="hljs-built_in">cmpxchg</span>(x, addr, e)) == e;
+UNSAFE_END</code></pre></div>
+
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/Java/" class="category-chain-item">Java</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/Java/Java%E5%B9%B6%E5%8F%91/" class="category-chain-item">Java并发</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/Java/" class="print-no-link">#Java</a>
+      
+        <a href="/tags/%E5%B9%B6%E5%8F%91/" class="print-no-link">#并发</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Java原子类的使用与实现</div>
+      <div>https://l1n.wang/2020/Java并发/Java原子类的使用与实现/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2020年10月29日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/Java%E5%B9%B6%E5%8F%91/LockSupport%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" title="LockSupport源码分析">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">LockSupport源码分析</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/Java%E5%B9%B6%E5%8F%91/volatile%E5%85%B3%E9%94%AE%E5%AD%97%E5%89%96%E6%9E%90/" title="volatile关键字剖析">
+                        <span class="hidden-mobile">volatile关键字剖析</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

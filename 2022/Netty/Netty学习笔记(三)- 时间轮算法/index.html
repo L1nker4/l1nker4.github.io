@@ -1,0 +1,1035 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="定时器理论实际的业务场景会遇到许多使用定时任务的场景，定时器主要有三种表现形式：固定周期定时执行、延迟一定时间执行，指定某个时刻执行。再实现层面，定时器需要考虑存储和调度指定任务，内部通过轮询的方式检查任务是否到期并需要执行。 Java定时器Java提供了三种常用的定时器实现方式：  Timer DelayQueue ScheduledThreadPoolExecutor  TimerTimer使">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Netty学习笔记(三)- 时间轮算法">
+<meta property="og:url" content="https://l1n.wang/2022/Netty/Netty%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E4%B8%89)-%20%E6%97%B6%E9%97%B4%E8%BD%AE%E7%AE%97%E6%B3%95/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="定时器理论实际的业务场景会遇到许多使用定时任务的场景，定时器主要有三种表现形式：固定周期定时执行、延迟一定时间执行，指定某个时刻执行。再实现层面，定时器需要考虑存储和调度指定任务，内部通过轮询的方式检查任务是否到期并需要执行。 Java定时器Java提供了三种常用的定时器实现方式：  Timer DelayQueue ScheduledThreadPoolExecutor  TimerTimer使">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20221203230539952.png">
+<meta property="article:published_time" content="2022-12-03T02:12:54.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.355Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="l1nker4">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20221203230539952.png">
+  
+  
+  
+  <title>Netty学习笔记(三)- 时间轮算法 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Netty学习笔记(三)- 时间轮算法"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2022-12-03 10:12" pubdate>
+          2022年12月3日 上午
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          1.5k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          13 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Netty学习笔记(三)- 时间轮算法</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h2 id="定时器理论"><a href="#定时器理论" class="headerlink" title="定时器理论"></a>定时器理论</h2><p>实际的业务场景会遇到许多使用定时任务的场景，定时器主要有三种表现形式：固定周期定时执行、延迟一定时间执行，指定某个时刻执行。再实现层面，定时器需要考虑<strong>存储和调度</strong>指定任务，内部通过轮询的方式检查任务是否到期并需要执行。</p>
+<h2 id="Java定时器"><a href="#Java定时器" class="headerlink" title="Java定时器"></a>Java定时器</h2><p>Java提供了三种常用的定时器实现方式：</p>
+<ul>
+<li>Timer</li>
+<li>DelayQueue</li>
+<li>ScheduledThreadPoolExecutor</li>
+</ul>
+<h3 id="Timer"><a href="#Timer" class="headerlink" title="Timer"></a>Timer</h3><p>Timer使用的就是上述最原始的定时器实现方式：</p>
+<ul>
+<li><strong>存储</strong>：TaskQueue是数组实现的小根堆，deadline最近的任务位于堆顶端。</li>
+<li><strong>调度</strong>：TimerThread异步线程，定时轮询队列，如果堆顶任务的deadline已到，那么执行任务，如果是周期性任务，执行完计算下次deadline，并再次放入小根堆。</li>
+</ul>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Timer</span> &#123;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">TaskQueue</span> <span class="hljs-variable">queue</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">TaskQueue</span>();
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">TimerThread</span> <span class="hljs-variable">thread</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">TimerThread</span>(queue);
+    <span class="hljs-keyword">public</span> <span class="hljs-title function_">Timer</span><span class="hljs-params">(String name)</span> &#123;
+
+        thread.setName(name);
+
+        thread.start();
+
+    &#125;
+
+&#125;</code></pre></div>
+
+
+
+<p>Timer存在几个缺陷：</p>
+<ol>
+<li>单线程模式，某个TimeTask阻塞，会影响其他的任务调度。</li>
+<li>Timer的任务调度基于系统时间的，系统时间不正确，可能出现问题。</li>
+<li>TimeTask执行出现异常，Timer不会捕获，线程终止后，其他任务都不能执行。</li>
+</ol>
+<p>使用案例：</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-type">Timer</span> <span class="hljs-variable">timer</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Timer</span>();
+
+<span class="hljs-comment">//设置一个10s后调度一个周期为1s的定时任务</span>
+timer.scheduleAtFixedRate(<span class="hljs-keyword">new</span> <span class="hljs-title class_">TimerTask</span>() &#123;
+
+    <span class="hljs-meta">@Override</span>
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">run</span><span class="hljs-params">()</span> &#123;
+
+        <span class="hljs-comment">// do something</span>
+
+    &#125;
+
+&#125;, <span class="hljs-number">10000</span>, <span class="hljs-number">1000</span>);</code></pre></div>
+
+
+
+
+
+<h3 id="DelayQueue"><a href="#DelayQueue" class="headerlink" title="DelayQueue"></a>DelayQueue</h3><p>DelayQueue是一种可以延迟获取对象的阻塞队列，内部使用PriorityQueue存储任务，每个元素必须实现Delayed接口，并重写指定方法。DelayQueue提供了put和take两个阻塞方法。对象put进去后，通过compareTo进行优先级排序，getDelay计算出剩余时间，只有小于等于0时，对象才能从其中被取出。</p>
+<p>实际上只实现了存储定时任务的功能，还需要配合异步线程才能实现定时器。</p>
+<h3 id="ScheduledThreadPoolExecutor"><a href="#ScheduledThreadPoolExecutor" class="headerlink" title="ScheduledThreadPoolExecutor"></a>ScheduledThreadPoolExecutor</h3><p>该线程池继承于ThreadPoolExecutor，提供了周期执行和延迟执行的功能，在ThreadPoolExecutor的基础上，重新设计了任务ScheduledFutureTask和阻塞队列DelayedWorkQueue。</p>
+<ul>
+<li>ScheduledFutureTask：继承于FutureTask，重写run方法，使其具有周期执行任务的能力。</li>
+<li>DelayedWorkQueue：优先级队列，deadline最近的任务在头部，周期任务执行完重设事件，再次放入队列。</li>
+</ul>
+<p>以上三种定时器在面临海量任务的插入删除都存在性能瓶颈，时间轮算法可以解决相应的性能问题。</p>
+<h2 id="时间轮结构"><a href="#时间轮结构" class="headerlink" title="时间轮结构"></a>时间轮结构</h2><p>如下图所示，时间轮可以理解成环型队列，每个元素代表一个时间段（slot），并且能存放多个任务，同一个时间段中的任务通过链表保存，时间轮随着时间变化，时针指向一个个区间，并执行区间内所有任务。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20221203230539952.png" srcset="/img/loading.gif" lazyload alt="时间轮结构"></p>
+<p>- </p>
+<h2 id="HashedWheelTimer"><a href="#HashedWheelTimer" class="headerlink" title="HashedWheelTimer"></a>HashedWheelTimer</h2><h3 id="接口关系"><a href="#接口关系" class="headerlink" title="接口关系"></a>接口关系</h3><p>HashedWheelTimer是Netty中的时间轮算法的实现类。其实现了Timer接口，该接口提供了两个方法：</p>
+<ul>
+<li><strong>newTimeout</strong>：创建定时任务</li>
+<li><strong>stop</strong>：停止所有未执行的定时任务</li>
+</ul>
+<p>HashedWheelTimer类图如下所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20221204132943857.png" srcset="/img/loading.gif" lazyload alt="HashedWheelTimer类图结构"></p>
+<p>Timer中使用的TimerTask和Timeout是两个接口，分别定义如下：</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">TimerTask</span> &#123;
+
+    <span class="hljs-keyword">void</span> <span class="hljs-title function_">run</span><span class="hljs-params">(Timeout timeout)</span> <span class="hljs-keyword">throws</span> Exception;
+
+&#125;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">Timeout</span> &#123;
+
+    Timer <span class="hljs-title function_">timer</span><span class="hljs-params">()</span>;
+
+    TimerTask <span class="hljs-title function_">task</span><span class="hljs-params">()</span>;
+
+    <span class="hljs-type">boolean</span> <span class="hljs-title function_">isExpired</span><span class="hljs-params">()</span>;
+
+    <span class="hljs-type">boolean</span> <span class="hljs-title function_">isCancelled</span><span class="hljs-params">()</span>;
+
+    <span class="hljs-type">boolean</span> <span class="hljs-title function_">cancel</span><span class="hljs-params">()</span>;
+
+&#125;</code></pre></div>
+
+
+
+<h3 id="构造方法"><a href="#构造方法" class="headerlink" title="构造方法"></a>构造方法</h3><div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-title function_">HashedWheelTimer</span><span class="hljs-params">(</span>
+<span class="hljs-params">            ThreadFactory threadFactory,</span>
+<span class="hljs-params">            <span class="hljs-type">long</span> tickDuration, TimeUnit unit, <span class="hljs-type">int</span> ticksPerWheel, <span class="hljs-type">boolean</span> leakDetection,</span>
+<span class="hljs-params">            <span class="hljs-type">long</span> maxPendingTimeouts)</span></code></pre></div>
+
+<p>核心属性如下：</p>
+<ul>
+<li><strong>threadFactory</strong>：线程池，只创建了一个线程。</li>
+<li><strong>tickDuration</strong>：时针移动的单位，相当于时间段长度。</li>
+<li><strong>unit</strong>：tickDuration的时间单位。</li>
+<li><strong>ticksPerWheel</strong>：时间轮上的slot数量，默认为512个。</li>
+<li><strong>leakDetection</strong>：是否开启内存泄漏检测</li>
+<li><strong>maxPendingTimeouts</strong>：最大允许等待的任务数量。</li>
+</ul>
+<h3 id="createWheel-时间轮初始化"><a href="#createWheel-时间轮初始化" class="headerlink" title="createWheel-时间轮初始化"></a>createWheel-时间轮初始化</h3><p>createWheel方法是HashedWheelTimer构造方法中用来创建HashedWheelBucket数组，该数组就是时间轮，内部是一个双向链表，存储的元素为HashedWheelTimeout，这代表的是定时任务。</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> HashedWheelBucket[] createWheel(<span class="hljs-type">int</span> ticksPerWheel) &#123;
+
+    <span class="hljs-comment">// 省略其他代码</span>
+
+    ticksPerWheel = normalizeTicksPerWheel(ticksPerWheel);
+
+    HashedWheelBucket[] wheel = <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashedWheelBucket</span>[ticksPerWheel];
+
+    <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; wheel.length; i ++) &#123;
+
+        wheel[i] = <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashedWheelBucket</span>();
+
+    &#125;
+
+    <span class="hljs-keyword">return</span> wheel;
+
+&#125;
+
+<span class="hljs-comment">//找到不小于ticksPerWheel的最小2次幂</span>
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">normalizeTicksPerWheel</span><span class="hljs-params">(<span class="hljs-type">int</span> ticksPerWheel)</span> &#123;
+
+    <span class="hljs-type">int</span> <span class="hljs-variable">normalizedTicksPerWheel</span> <span class="hljs-operator">=</span> <span class="hljs-number">1</span>;
+
+    <span class="hljs-keyword">while</span> (normalizedTicksPerWheel &lt; ticksPerWheel) &#123;
+
+        normalizedTicksPerWheel &lt;&lt;= <span class="hljs-number">1</span>;
+
+    &#125;
+
+    <span class="hljs-keyword">return</span> normalizedTicksPerWheel;
+
+&#125;
+
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">HashedWheelBucket</span> &#123;
+
+    <span class="hljs-keyword">private</span> HashedWheelTimeout head;
+
+    <span class="hljs-keyword">private</span> HashedWheelTimeout tail;
+
+&#125;</code></pre></div>
+
+
+
+
+
+<h3 id="newTimeout-创建定时任务"><a href="#newTimeout-创建定时任务" class="headerlink" title="newTimeout-创建定时任务"></a>newTimeout-创建定时任务</h3><p>该方法用于往时间轮添加任务，主要有三个流程：</p>
+<ul>
+<li>启动工作线程</li>
+<li>创建定时任务</li>
+<li>把HashedWheelTimeout任务添加到Mpsc Queue<ul>
+<li>Mpsc Queue是线程安全的队列，借助该队列保证添加任务的线程安全性。</li>
+</ul>
+</li>
+</ul>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> Timeout <span class="hljs-title function_">newTimeout</span><span class="hljs-params">(TimerTask task, <span class="hljs-type">long</span> delay, TimeUnit unit)</span> &#123;
+        ObjectUtil.checkNotNull(task, <span class="hljs-string">&quot;task&quot;</span>);
+        ObjectUtil.checkNotNull(unit, <span class="hljs-string">&quot;unit&quot;</span>);
+
+        <span class="hljs-type">long</span> <span class="hljs-variable">pendingTimeoutsCount</span> <span class="hljs-operator">=</span> pendingTimeouts.incrementAndGet();
+
+        <span class="hljs-keyword">if</span> (maxPendingTimeouts &gt; <span class="hljs-number">0</span> &amp;&amp; pendingTimeoutsCount &gt; maxPendingTimeouts) &#123;
+            pendingTimeouts.decrementAndGet();
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">RejectedExecutionException</span>(<span class="hljs-string">&quot;Number of pending timeouts (&quot;</span>
+                + pendingTimeoutsCount + <span class="hljs-string">&quot;) is greater than or equal to maximum allowed pending &quot;</span>
+                + <span class="hljs-string">&quot;timeouts (&quot;</span> + maxPendingTimeouts + <span class="hljs-string">&quot;)&quot;</span>);
+        &#125;
+		<span class="hljs-comment">//启动工作线程</span>
+        start();
+
+        <span class="hljs-comment">// Add the timeout to the timeout queue which will be processed on the next tick.</span>
+        <span class="hljs-comment">// During processing all the queued HashedWheelTimeouts will be added to the correct HashedWheelBucket.</span>
+        <span class="hljs-type">long</span> <span class="hljs-variable">deadline</span> <span class="hljs-operator">=</span> System.nanoTime() + unit.toNanos(delay) - startTime;
+
+        <span class="hljs-comment">// Guard against overflow.</span>
+        <span class="hljs-keyword">if</span> (delay &gt; <span class="hljs-number">0</span> &amp;&amp; deadline &lt; <span class="hljs-number">0</span>) &#123;
+            deadline = Long.MAX_VALUE;
+        &#125;
+        <span class="hljs-type">HashedWheelTimeout</span> <span class="hljs-variable">timeout</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashedWheelTimeout</span>(<span class="hljs-built_in">this</span>, task, deadline);
+        timeouts.add(timeout);
+        <span class="hljs-keyword">return</span> timeout;
+    &#125;
+
+
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> AtomicIntegerFieldUpdater&lt;HashedWheelTimer&gt; WORKER_STATE_UPDATER =
+            AtomicIntegerFieldUpdater.newUpdater(HashedWheelTimer.class, <span class="hljs-string">&quot;workerState&quot;</span>);
+
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">start</span><span class="hljs-params">()</span> &#123;
+    	<span class="hljs-comment">//获取工作线程的状态</span>
+        <span class="hljs-keyword">switch</span> (WORKER_STATE_UPDATER.get(<span class="hljs-built_in">this</span>)) &#123;
+            <span class="hljs-keyword">case</span> WORKER_STATE_INIT:
+                <span class="hljs-keyword">if</span> (WORKER_STATE_UPDATER.compareAndSet(<span class="hljs-built_in">this</span>, WORKER_STATE_INIT, WORKER_STATE_STARTED)) &#123;
+                    workerThread.start();
+                &#125;
+                <span class="hljs-keyword">break</span>;
+            <span class="hljs-keyword">case</span> WORKER_STATE_STARTED:
+                <span class="hljs-keyword">break</span>;
+            <span class="hljs-keyword">case</span> WORKER_STATE_SHUTDOWN:
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;cannot be started once stopped&quot;</span>);
+            <span class="hljs-keyword">default</span>:
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&quot;Invalid WorkerState&quot;</span>);
+        &#125;
+
+        <span class="hljs-comment">// Wait until the startTime is initialized by the worker.</span>
+        <span class="hljs-keyword">while</span> (startTime == <span class="hljs-number">0</span>) &#123;
+            <span class="hljs-keyword">try</span> &#123;
+                startTimeInitialized.await();
+            &#125; <span class="hljs-keyword">catch</span> (InterruptedException ignore) &#123;
+                <span class="hljs-comment">// Ignore - it will be ready very soon.</span>
+            &#125;
+        &#125;
+    &#125;</code></pre></div>
+
+
+
+
+
+<h3 id="Worker-执行引擎"><a href="#Worker-执行引擎" class="headerlink" title="Worker-执行引擎"></a>Worker-执行引擎</h3><p>worker是负责执行任务的，实现了Runnable接口，工作线程通过<code>workerThread = threadFactory.newThread(worker);</code>来创建。执行流程如下：</p>
+<ol>
+<li>waitForNextTick计算出下次tick时间，sleep到下次tick</li>
+<li>计算当前tick在时间轮中的对应下标</li>
+<li>移除被取消的任务</li>
+<li>执行当前时间轮的到期任务</li>
+</ol>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Worker</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Runnable</span> &#123;
+        <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Set&lt;Timeout&gt; unprocessedTimeouts = <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashSet</span>&lt;Timeout&gt;();
+
+        <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> tick;
+
+        <span class="hljs-meta">@Override</span>
+        <span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">run</span><span class="hljs-params">()</span> &#123;
+            <span class="hljs-comment">// Initialize the startTime.</span>
+            startTime = System.nanoTime();
+            <span class="hljs-keyword">if</span> (startTime == <span class="hljs-number">0</span>) &#123;
+                <span class="hljs-comment">// We use 0 as an indicator for the uninitialized value here, so make sure it&#x27;s not 0 when initialized.</span>
+                startTime = <span class="hljs-number">1</span>;
+            &#125;
+
+            <span class="hljs-comment">// Notify the other threads waiting for the initialization at start().</span>
+            startTimeInitialized.countDown();
+
+            <span class="hljs-keyword">do</span> &#123;
+                <span class="hljs-comment">//计算下次tick时间</span>
+                <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> <span class="hljs-variable">deadline</span> <span class="hljs-operator">=</span> waitForNextTick();
+                <span class="hljs-keyword">if</span> (deadline &gt; <span class="hljs-number">0</span>) &#123;
+                    <span class="hljs-comment">//获取当前tick在时间轮中的下标</span>
+                    <span class="hljs-type">int</span> <span class="hljs-variable">idx</span> <span class="hljs-operator">=</span> (<span class="hljs-type">int</span>) (tick &amp; mask);
+                    <span class="hljs-comment">//移除被取消的任务</span>
+                    processCancelledTasks();
+                    <span class="hljs-type">HashedWheelBucket</span> <span class="hljs-variable">bucket</span> <span class="hljs-operator">=</span>
+                            wheel[idx];
+                    <span class="hljs-comment">//从Mpsc Queue取出任务，加入slot</span>
+                    transferTimeoutsToBuckets();
+                    <span class="hljs-comment">//执行所有到期的任务</span>
+                    bucket.expireTimeouts(deadline);
+                    tick++;
+                &#125;
+            &#125; <span class="hljs-keyword">while</span> (WORKER_STATE_UPDATER.get(HashedWheelTimer.<span class="hljs-built_in">this</span>) == WORKER_STATE_STARTED);
+
+            <span class="hljs-comment">// Fill the unprocessedTimeouts so we can return them from stop() method.</span>
+            <span class="hljs-keyword">for</span> (HashedWheelBucket bucket: wheel) &#123;
+                bucket.clearTimeouts(unprocessedTimeouts);
+            &#125;
+            <span class="hljs-keyword">for</span> (;;) &#123;
+                <span class="hljs-type">HashedWheelTimeout</span> <span class="hljs-variable">timeout</span> <span class="hljs-operator">=</span> timeouts.poll();
+                <span class="hljs-keyword">if</span> (timeout == <span class="hljs-literal">null</span>) &#123;
+                    <span class="hljs-keyword">break</span>;
+                &#125;
+                <span class="hljs-keyword">if</span> (!timeout.isCancelled()) &#123;
+                    unprocessedTimeouts.add(timeout);
+                &#125;
+            &#125;
+            processCancelledTasks();
+        &#125;</code></pre></div>
+
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/" class="category-chain-item">中间件</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/Netty/" class="category-chain-item">Netty</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Netty学习笔记(三)- 时间轮算法</div>
+      <div>https://l1n.wang/2022/Netty/Netty学习笔记(三)- 时间轮算法/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2022年12月3日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2023/%E4%B8%AD%E9%97%B4%E4%BB%B6/ShardingSphere-JDBC%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0/" title="ShardingSphere-JDBC学习笔记">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">ShardingSphere-JDBC学习笔记</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2022/Netty/Netty%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E4%BA%8C)-%20%E5%86%85%E9%83%A8%E6%9C%BA%E5%88%B6/" title="Netty学习笔记(二)- 内部机制">
+                        <span class="hidden-mobile">Netty学习笔记(二)- 内部机制</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

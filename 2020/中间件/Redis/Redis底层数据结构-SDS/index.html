@@ -1,0 +1,1029 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介简单动态字符串(Simple Dynamic Strings)是Redis的基本数据结构之一，主要用于存储字符串和整型数据。SDS兼容C语言标准字符串处理函数，同时保证了二进制安全。 数据结构原始版本在Redis 3.2之前，SDS基本结构如下： struct &#123;     &#x2F;&#x2F;buf中已使用字节数     int len;     &#x2F;&#x2F;buf中剩余字节数     int free;">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Redis底层数据结构-SDS">
+<meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/Redis%E5%BA%95%E5%B1%82%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84-SDS/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="简介简单动态字符串(Simple Dynamic Strings)是Redis的基本数据结构之一，主要用于存储字符串和整型数据。SDS兼容C语言标准字符串处理函数，同时保证了二进制安全。 数据结构原始版本在Redis 3.2之前，SDS基本结构如下： struct &#123;     &#x2F;&#x2F;buf中已使用字节数     int len;     &#x2F;&#x2F;buf中剩余字节数     int free;">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-05-24T10:59:27.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.358Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="数据结构">
+<meta property="article:tag" content="源码分析">
+<meta property="article:tag" content="Redis">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  
+  <title>Redis底层数据结构-SDS - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Redis底层数据结构-SDS"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2020-05-24 18:59" pubdate>
+          2020年5月24日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          1.5k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          13 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Redis底层数据结构-SDS</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><p>简单动态字符串(Simple Dynamic Strings)是Redis的基本数据结构之一，主要用于存储字符串和整型数据。SDS兼容C语言标准字符串处理函数，同时保证了二进制安全。</p>
+<h1 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h1><h2 id="原始版本"><a href="#原始版本" class="headerlink" title="原始版本"></a>原始版本</h2><p>在Redis 3.2之前，SDS基本结构如下：</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-class"><span class="hljs-keyword">struct</span> &#123;</span>
+    <span class="hljs-comment">//buf中已使用字节数</span>
+    <span class="hljs-type">int</span> len;
+    <span class="hljs-comment">//buf中剩余字节数</span>
+    <span class="hljs-type">int</span> <span class="hljs-built_in">free</span>;
+    <span class="hljs-comment">//数据</span>
+    <span class="hljs-type">char</span> buf[];
+&#125;</code></pre></div>
+
+<p>该结构有如下几个优点：</p>
+<ul>
+<li>有单独的变量存储字符串长度，由于有长度，不会依赖于<code>\0</code>终止符，保证二进制安全。</li>
+<li>杜绝了缓冲区溢出问题。</li>
+<li>获取字符串长度为O(1)</li>
+<li>字符串存储在buf数组中，兼容C处理字符串的函数。</li>
+<li>减少修改字符串时带来的内存分配次数。<ul>
+<li>SDS的空间是预先分配的</li>
+<li>惰性空间释放：当SDS保存的字符串缩短后，并不会立即将内存空间free</li>
+</ul>
+</li>
+</ul>
+<h2 id="改进"><a href="#改进" class="headerlink" title="改进"></a>改进</h2><p>Redis 3.2之后，采用如下结构进行存储。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">attribute__</span> ((__<span class="hljs-title">packed__</span>)) <span class="hljs-title">sdshdr5</span> &#123;</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> flags; <span class="hljs-comment">/* 3 lsb of type, and 5 msb of string length */</span>
+    <span class="hljs-type">char</span> buf[];
+&#125;;
+<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">attribute__</span> ((__<span class="hljs-title">packed__</span>)) <span class="hljs-title">sdshdr8</span> &#123;</span>
+    <span class="hljs-type">uint8_t</span> len; <span class="hljs-comment">/* used */</span>
+    <span class="hljs-type">uint8_t</span> alloc; <span class="hljs-comment">/* excluding the header and null terminator */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> flags; <span class="hljs-comment">/* 3 lsb of type, 5 unused bits */</span>
+    <span class="hljs-type">char</span> buf[];
+&#125;;
+<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">attribute__</span> ((__<span class="hljs-title">packed__</span>)) <span class="hljs-title">sdshdr16</span> &#123;</span>
+    <span class="hljs-type">uint16_t</span> len; <span class="hljs-comment">/* used */</span>
+    <span class="hljs-type">uint16_t</span> alloc; <span class="hljs-comment">/* excluding the header and null terminator */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> flags; <span class="hljs-comment">/* 3 lsb of type, 5 unused bits */</span>
+    <span class="hljs-type">char</span> buf[];
+&#125;;
+<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">attribute__</span> ((__<span class="hljs-title">packed__</span>)) <span class="hljs-title">sdshdr32</span> &#123;</span>
+    <span class="hljs-type">uint32_t</span> len; <span class="hljs-comment">/* used */</span>
+    <span class="hljs-type">uint32_t</span> alloc; <span class="hljs-comment">/* excluding the header and null terminator */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> flags; <span class="hljs-comment">/* 3 lsb of type, 5 unused bits */</span>
+    <span class="hljs-type">char</span> buf[];
+&#125;;
+<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">attribute__</span> ((__<span class="hljs-title">packed__</span>)) <span class="hljs-title">sdshdr64</span> &#123;</span>
+    <span class="hljs-type">uint64_t</span> len; <span class="hljs-comment">/* used */</span>
+    <span class="hljs-type">uint64_t</span> alloc; <span class="hljs-comment">/* excluding the header and null terminator */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> flags; <span class="hljs-comment">/* 3 lsb of type, 5 unused bits */</span>
+    <span class="hljs-type">char</span> buf[];
+&#125;;
+</code></pre></div>
+<p>sdshdr5中采用位来存储相关信息，其中flags占1字节，其中低3位用来表示type，高5位表示长度，所以长度区间为（0 ~ 31），所以长度大于31的字符串需要采用sdshdr8及以上存储。sdshdr8中flags低3位存储类型，剩余5位闲置。以下是字符串类型的宏定义：</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_TYPE_5  0</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_TYPE_8  1</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_TYPE_16 2</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_TYPE_32 3</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_TYPE_64 4</span></code></pre></div>
+
+<h3 id="对齐"><a href="#对齐" class="headerlink" title="对齐"></a>对齐</h3><p>GCC支持用<code>__attribute__</code>为变量、类型、函数、标签指定特殊属性。这些不是编程语言标准里的内容，而属于编译器对语言的扩展。在声明SDS结构时，采用了<code>__attribute__ ((__packed__))</code>，它告诉编译器结构体使用1字节对齐。使用<code>packed</code>属性可以节省内存，同时统一多个结构的指针访问。</p>
+<h1 id="接口"><a href="#接口" class="headerlink" title="接口"></a>接口</h1><h2 id="sdsnewlen"><a href="#sdsnewlen" class="headerlink" title="sdsnewlen"></a>sdsnewlen</h2><div class="code-wrapper"><pre><code class="hljs C">sds <span class="hljs-title function_">sdsnewlen</span><span class="hljs-params">(<span class="hljs-type">const</span> <span class="hljs-type">void</span> *init, <span class="hljs-type">size_t</span> initlen)</span> &#123;
+    <span class="hljs-type">void</span> *sh;
+    sds s;
+    <span class="hljs-comment">//根据字符串长度获取对应的类型</span>
+    <span class="hljs-type">char</span> type = sdsReqType(initlen);
+    <span class="hljs-comment">/* Empty strings are usually created in order to append. Use type 8</span>
+<span class="hljs-comment">     * since type 5 is not good at this. */</span>
+     <span class="hljs-comment">//将SDS_TYPE_5转成SDS_TYPE_5</span>
+    <span class="hljs-keyword">if</span> (type == SDS_TYPE_5 &amp;&amp; initlen == <span class="hljs-number">0</span>) type = SDS_TYPE_8;
+    <span class="hljs-comment">//计算对应结构体头部所需字节数</span>
+    <span class="hljs-type">int</span> hdrlen = sdsHdrSize(type);
+    <span class="hljs-comment">//指向flags的指针</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *fp; <span class="hljs-comment">/* flags pointer. */</span>
+    <span class="hljs-comment">//分配内存空间</span>
+    sh = s_malloc(hdrlen+initlen+<span class="hljs-number">1</span>);
+    <span class="hljs-comment">//判断是否为&quot;SDS_NOINIT&quot;</span>
+    <span class="hljs-keyword">if</span> (init==SDS_NOINIT)
+        init = <span class="hljs-literal">NULL</span>;
+    <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!init)
+        <span class="hljs-comment">//初始化结构体空间数据</span>
+        <span class="hljs-built_in">memset</span>(sh, <span class="hljs-number">0</span>, hdrlen+initlen+<span class="hljs-number">1</span>);
+    <span class="hljs-keyword">if</span> (sh == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+    <span class="hljs-comment">//s是指向buf的指针</span>
+    s = (<span class="hljs-type">char</span>*)sh+hdrlen;
+    <span class="hljs-comment">//指向flags</span>
+    fp = ((<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span>*)s)<span class="hljs-number">-1</span>;
+    <span class="hljs-comment">//针对不同结构体类型进行初始化操作</span>
+    <span class="hljs-keyword">switch</span>(type) &#123;
+        <span class="hljs-keyword">case</span> SDS_TYPE_5: &#123;
+            *fp = type | (initlen &lt;&lt; SDS_TYPE_BITS);
+            <span class="hljs-keyword">break</span>;
+        &#125;
+        <span class="hljs-keyword">case</span> SDS_TYPE_8: &#123;
+            SDS_HDR_VAR(<span class="hljs-number">8</span>,s);
+            sh-&gt;len = initlen;
+            sh-&gt;alloc = initlen;
+            *fp = type;
+            <span class="hljs-keyword">break</span>;
+        &#125;
+        <span class="hljs-keyword">case</span> SDS_TYPE_16: &#123;
+            SDS_HDR_VAR(<span class="hljs-number">16</span>,s);
+            sh-&gt;len = initlen;
+            sh-&gt;alloc = initlen;
+            *fp = type;
+            <span class="hljs-keyword">break</span>;
+        &#125;
+        <span class="hljs-keyword">case</span> SDS_TYPE_32: &#123;
+            SDS_HDR_VAR(<span class="hljs-number">32</span>,s);
+            sh-&gt;len = initlen;
+            sh-&gt;alloc = initlen;
+            *fp = type;
+            <span class="hljs-keyword">break</span>;
+        &#125;
+        <span class="hljs-keyword">case</span> SDS_TYPE_64: &#123;
+            SDS_HDR_VAR(<span class="hljs-number">64</span>,s);
+            sh-&gt;len = initlen;
+            sh-&gt;alloc = initlen;
+            *fp = type;
+            <span class="hljs-keyword">break</span>;
+        &#125;
+    &#125;
+    <span class="hljs-comment">//如果两个参数不为0，将字符串数据复制到buf数组</span>
+    <span class="hljs-keyword">if</span> (initlen &amp;&amp; init)
+        <span class="hljs-built_in">memcpy</span>(s, init, initlen);
+    s[initlen] = <span class="hljs-string">&#x27;\0&#x27;</span>;
+    <span class="hljs-keyword">return</span> s;
+&#125;</code></pre></div>
+
+<h2 id="sdsfree"><a href="#sdsfree" class="headerlink" title="sdsfree"></a>sdsfree</h2><p>通过定位SDS的头部，调用<code>s_free</code>释放内存。为了减少申请内存的开销，SDS可以提供<code>sdsclear</code>进行重置达到清空的目的。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-comment">/* Free an sds string. No operation is performed if &#x27;s&#x27; is NULL. */</span>
+<span class="hljs-type">void</span> <span class="hljs-title function_">sdsfree</span><span class="hljs-params">(sds s)</span> &#123;
+    <span class="hljs-keyword">if</span> (s == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span>;
+    s_free((<span class="hljs-type">char</span>*)s-sdsHdrSize(s[<span class="hljs-number">-1</span>]));</code></pre></div>
+
+<h2 id="sdsclear"><a href="#sdsclear" class="headerlink" title="sdsclear"></a>sdsclear</h2><p>该方法将字符串长度设置为0，同时将数组第一个元素置为终止符。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-type">void</span> <span class="hljs-title function_">sdsclear</span><span class="hljs-params">(sds s)</span> &#123;
+    sdssetlen(s, <span class="hljs-number">0</span>);
+    s[<span class="hljs-number">0</span>] = <span class="hljs-string">&#x27;\0&#x27;</span>;
+&#125;</code></pre></div>
+
+<h2 id="sdscatsds"><a href="#sdscatsds" class="headerlink" title="sdscatsds"></a>sdscatsds</h2><p>通过调用<code>sdscatlen</code>实现拼接逻辑。</p>
+<div class="code-wrapper"><pre><code class="hljs C">sds <span class="hljs-title function_">sdscatsds</span><span class="hljs-params">(sds s, <span class="hljs-type">const</span> sds t)</span> &#123;
+    <span class="hljs-keyword">return</span> sdscatlen(s, t, sdslen(t));
+&#125;
+
+sds <span class="hljs-title function_">sdscatlen</span><span class="hljs-params">(sds s, <span class="hljs-type">const</span> <span class="hljs-type">void</span> *t, <span class="hljs-type">size_t</span> len)</span> &#123;
+    <span class="hljs-type">size_t</span> curlen = sdslen(s);
+    <span class="hljs-comment">//对buf进行扩容，会进行扩容检测</span>
+    s = sdsMakeRoomFor(s,len);
+    <span class="hljs-keyword">if</span> (s == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+    <span class="hljs-comment">//调用memcpy实现拼接</span>
+    <span class="hljs-built_in">memcpy</span>(s+curlen, t, len);
+    <span class="hljs-comment">//更新长度</span>
+    sdssetlen(s, curlen+len);
+    <span class="hljs-comment">//设置终止符</span>
+    s[curlen+len] = <span class="hljs-string">&#x27;\0&#x27;</span>;
+    <span class="hljs-keyword">return</span> s;
+&#125;</code></pre></div>
+
+<h2 id="sdsMakeRoomFor"><a href="#sdsMakeRoomFor" class="headerlink" title="sdsMakeRoomFor"></a>sdsMakeRoomFor</h2><p>SDS扩容操作：</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-meta">#<span class="hljs-keyword">define</span> SDS_MAX_PREALLOC (1024*1024)</span>
+
+sds <span class="hljs-title function_">sdsMakeRoomFor</span><span class="hljs-params">(sds s, <span class="hljs-type">size_t</span> addlen)</span> &#123;
+    <span class="hljs-type">void</span> *sh, *newsh;
+    <span class="hljs-comment">//剩余有效空间</span>
+    <span class="hljs-type">size_t</span> avail = sdsavail(s);
+    <span class="hljs-type">size_t</span> len, newlen;
+    <span class="hljs-type">char</span> type, oldtype = s[<span class="hljs-number">-1</span>] &amp; SDS_TYPE_MASK;
+    <span class="hljs-type">int</span> hdrlen;
+
+    <span class="hljs-comment">//判断有效空间是否大于需要增加的空间大小</span>
+    <span class="hljs-keyword">if</span> (avail &gt;= addlen) <span class="hljs-keyword">return</span> s;
+    <span class="hljs-comment">//sds已使用长度</span>
+    len = sdslen(s);
+    sh = (<span class="hljs-type">char</span>*)s-sdsHdrSize(oldtype);
+    <span class="hljs-comment">//新长度</span>
+    newlen = (len+addlen);
+    <span class="hljs-comment">//define SDS_MAX_PREALLOC (1024*1024)</span>
+    <span class="hljs-comment">//如果新长度 &lt; 1MB，扩大两倍</span>
+    <span class="hljs-keyword">if</span> (newlen &lt; SDS_MAX_PREALLOC)
+        newlen *= <span class="hljs-number">2</span>;
+    <span class="hljs-keyword">else</span>
+        <span class="hljs-comment">//否则扩大1MB</span>
+        newlen += SDS_MAX_PREALLOC;
+
+    <span class="hljs-comment">//根据新长度获取对应type</span>
+    type = sdsReqType(newlen);
+
+    <span class="hljs-comment">/* Don&#x27;t use type 5: the user is appending to the string and type 5 is</span>
+<span class="hljs-comment">     * not able to remember empty space, so sdsMakeRoomFor() must be called</span>
+<span class="hljs-comment">     * at every appending operation. */</span>
+    <span class="hljs-keyword">if</span> (type == SDS_TYPE_5) type = SDS_TYPE_8;
+    <span class="hljs-comment">//</span>
+    hdrlen = sdsHdrSize(type);
+    <span class="hljs-keyword">if</span> (oldtype==type) &#123;
+        <span class="hljs-comment">//无需更改type，通过s_realloc扩大buf数组即可</span>
+        newsh = s_realloc(sh, hdrlen+newlen+<span class="hljs-number">1</span>);
+        <span class="hljs-keyword">if</span> (newsh == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+        s = (<span class="hljs-type">char</span>*)newsh+hdrlen;
+    &#125; <span class="hljs-keyword">else</span> &#123;
+        <span class="hljs-comment">/* Since the header size changes, need to move the string forward,</span>
+<span class="hljs-comment">         * and can&#x27;t use realloc */</span>
+         <span class="hljs-comment">//按新的数组长度申请内存</span>
+        newsh = s_malloc(hdrlen+newlen+<span class="hljs-number">1</span>);
+        <span class="hljs-keyword">if</span> (newsh == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+        <span class="hljs-comment">//将buf移动到新位置</span>
+        <span class="hljs-built_in">memcpy</span>((<span class="hljs-type">char</span>*)newsh+hdrlen, s, len+<span class="hljs-number">1</span>);
+        <span class="hljs-comment">//释放原来的指针</span>
+        s_free(sh);
+        <span class="hljs-comment">//s是指向buf起始位置的指针</span>
+        s = (<span class="hljs-type">char</span>*)newsh+hdrlen;
+        <span class="hljs-comment">//赋值flags</span>
+        s[<span class="hljs-number">-1</span>] = type;
+        <span class="hljs-comment">//设置新的字符串长度</span>
+        sdssetlen(s, len);
+    &#125;
+    <span class="hljs-comment">//设置新的数组长度</span>
+    sdssetalloc(s, newlen);
+    <span class="hljs-keyword">return</span> s;
+&#125;</code></pre></div>
+
+<h2 id="sdsRemoveFreeSpace"><a href="#sdsRemoveFreeSpace" class="headerlink" title="sdsRemoveFreeSpace"></a>sdsRemoveFreeSpace</h2><p>缩容操作：</p>
+<div class="code-wrapper"><pre><code class="hljs C">sds <span class="hljs-title function_">sdsRemoveFreeSpace</span><span class="hljs-params">(sds s)</span> &#123;
+    <span class="hljs-type">void</span> *sh, *newsh;
+    <span class="hljs-type">char</span> type, oldtype = s[<span class="hljs-number">-1</span>] &amp; SDS_TYPE_MASK;
+    <span class="hljs-type">int</span> hdrlen, oldhdrlen = sdsHdrSize(oldtype);
+    <span class="hljs-comment">//字符串长度</span>
+    <span class="hljs-type">size_t</span> len = sdslen(s);
+    <span class="hljs-comment">//剩余有效长度</span>
+    <span class="hljs-type">size_t</span> avail = sdsavail(s);
+    sh = (<span class="hljs-type">char</span>*)s-oldhdrlen;
+
+    如果不需要缩容直接返回
+    <span class="hljs-keyword">if</span> (avail == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> s;
+
+    <span class="hljs-comment">//根据长度获取类型</span>
+    type = sdsReqType(len);
+    <span class="hljs-comment">//获取头部长度</span>
+    hdrlen = sdsHdrSize(type);
+
+    <span class="hljs-comment">/* If the type is the same, or at least a large enough type is still</span>
+<span class="hljs-comment">     * required, we just realloc(), letting the allocator to do the copy</span>
+<span class="hljs-comment">     * only if really needed. Otherwise if the change is huge, we manually</span>
+<span class="hljs-comment">     * reallocate the string to use the different header type. */</span>
+     <span class="hljs-comment">//如果原始类型和更新类型相似，或者type &gt; SDS_TYPE_8</span>
+    <span class="hljs-keyword">if</span> (oldtype==type || type &gt; SDS_TYPE_8) &#123;
+    <span class="hljs-comment">//重分配</span>
+        newsh = s_realloc(sh, oldhdrlen+len+<span class="hljs-number">1</span>);
+        <span class="hljs-keyword">if</span> (newsh == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+        s = (<span class="hljs-type">char</span>*)newsh+oldhdrlen;
+    &#125; <span class="hljs-keyword">else</span> &#123;
+    <span class="hljs-comment">//申请内存空间</span>
+        newsh = s_malloc(hdrlen+len+<span class="hljs-number">1</span>);
+        <span class="hljs-keyword">if</span> (newsh == <span class="hljs-literal">NULL</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+        <span class="hljs-comment">//复制</span>
+        <span class="hljs-built_in">memcpy</span>((<span class="hljs-type">char</span>*)newsh+hdrlen, s, len+<span class="hljs-number">1</span>);
+        <span class="hljs-comment">//释放指针</span>
+        s_free(sh);
+        s = (<span class="hljs-type">char</span>*)newsh+hdrlen;
+        <span class="hljs-comment">//设置类型</span>
+        s[<span class="hljs-number">-1</span>] = type;
+        sdssetlen(s, len);
+    &#125;
+    sdssetalloc(s, len);
+    <span class="hljs-keyword">return</span> s;
+&#125;</code></pre></div>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文主要对Redis中的简单动态字符串的数据结构与基本API实现做了简要分析，基本了解了SDS如何保证二进制安全与SDS的缩容扩容策略的实现。</p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/Redis/" class="category-chain-item">Redis</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/Redis/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" class="category-chain-item">源码分析</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/" class="print-no-link">#数据结构</a>
+      
+        <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" class="print-no-link">#源码分析</a>
+      
+        <a href="/tags/Redis/" class="print-no-link">#Redis</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Redis底层数据结构-SDS</div>
+      <div>https://l1n.wang/2020/中间件/Redis/Redis底层数据结构-SDS/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2020年5月24日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-zskiplist/" title="Redis底层数据结构-SkipList源码分析">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">Redis底层数据结构-SkipList源码分析</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/design-pattern-behavior/" title="设计模式之行为型模式（四）">
+                        <span class="hidden-mobile">设计模式之行为型模式（四）</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

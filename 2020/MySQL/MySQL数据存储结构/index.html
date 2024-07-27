@@ -1,0 +1,844 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="索引组织表在InnoDB存储引擎中，表是根据主键顺序组织存放的，这种存储方式的表称为索引组织表，每张表都有一个主键，如果创建时没有显式定义主键，InnoDB存储引擎会按照如下方式进行创建主键：  判断表中是否有非空的唯一索引，如果有，则该列为主键。 如果不符合上列条件，InnoDB存储引擎会自动创建一个6字节大小的指针。 当表中有多个非空唯一索引，InnoDB会选择第一个定义的非空唯一索引作为主键">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MySQL数据存储结构">
+<meta property="og:url" content="https://l1n.wang/2020/MySQL/MySQL%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8%E7%BB%93%E6%9E%84/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="索引组织表在InnoDB存储引擎中，表是根据主键顺序组织存放的，这种存储方式的表称为索引组织表，每张表都有一个主键，如果创建时没有显式定义主键，InnoDB存储引擎会按照如下方式进行创建主键：  判断表中是否有非空的唯一索引，如果有，则该列为主键。 如果不符合上列条件，InnoDB存储引擎会自动创建一个6字节大小的指针。 当表中有多个非空唯一索引，InnoDB会选择第一个定义的非空唯一索引作为主键">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0064.PNG">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0065%2820200416-174412%29.PNG">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0066.PNG">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0067.PNG">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0068.PNG">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0069.PNG">
+<meta property="article:published_time" content="2020-04-17T05:25:04.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.365Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="MySQL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0064.PNG">
+  
+  
+  
+  <title>MySQL数据存储结构 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="MySQL数据存储结构"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2020-04-17 13:25" pubdate>
+          2020年4月17日 下午
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          2.4k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          21 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">MySQL数据存储结构</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h2 id="索引组织表"><a href="#索引组织表" class="headerlink" title="索引组织表"></a>索引组织表</h2><p>在InnoDB存储引擎中，表是根据主键顺序组织存放的，这种存储方式的表称为索引组织表，每张表都有一个主键，如果创建时没有显式定义主键，InnoDB存储引擎会按照如下方式进行创建主键：</p>
+<ul>
+<li>判断表中是否有非空的唯一索引，如果有，则该列为主键。</li>
+<li>如果不符合上列条件，InnoDB存储引擎会自动创建一个6字节大小的指针。</li>
+<li>当表中有多个非空唯一索引，InnoDB会选择第一个定义的非空唯一索引作为主键。</li>
+</ul>
+<h2 id="InnoDB逻辑存储结构"><a href="#InnoDB逻辑存储结构" class="headerlink" title="InnoDB逻辑存储结构"></a>InnoDB逻辑存储结构</h2><p>所有的数据被逻辑存放在表空间，表空间又由段，区，页（块）组成。存储结构如图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0064.PNG" srcset="/img/loading.gif" lazyload alt="InnoDB逻辑存储结构"></p>
+<h3 id="表空间"><a href="#表空间" class="headerlink" title="表空间"></a>表空间</h3><p>表空间是InnoDB存储引擎逻辑结构的最高层，所有的数据都存放在表空间中。如果开启了<code>innodb_file_per_table</code>，每张表的数据可以单独放到一个表空间中。但是每张表的表空间存放的只是数据、索引和插入缓冲Bitmap页。其他类的数据，例如回滚信息，插入缓冲索引页，系统事务信息，二次写缓冲等还是存放在原来的共享表空间中。</p>
+<h3 id="段"><a href="#段" class="headerlink" title="段"></a>段</h3><p>表空间由各个段构成，常见的段有：数据段、索引段、回滚段等。InnoDB存储引擎表是索引组织的，因此数据即索引，索引即数据，数据段即为B+树的叶子节点，索引段即为B+树的非索引节点。在InnoDB存储引擎中，对段的管理都是由引擎自身完成，DBA不能也没有必要对其进行控制。</p>
+<p><strong>引入段的目的</strong>：对于范围查询，会对B+ Tree节点进行顺序扫描，如果不区分叶子节点和非叶子节点，如果将两者放到同一个区当中，查询效率大打折扣，因此引入段来区分不同类型的页面。</p>
+<h3 id="区"><a href="#区" class="headerlink" title="区"></a>区</h3><p>区是由连续页组成的空间，在任何情况下每个区的大小都为1MB，为了保证区的连续性，InnoDB一次从磁盘申请4~5个区，在默认情况下，页的大小为16KB，即一个区中共有64个连续页。</p>
+<p><strong>引入区的目的</strong>：B+ Tree底层通过页存储数据，相邻的两个页物理地址可能离得非常远（产生随机IO），因此分配空间时，直接按区进行分配，这样会将相邻的页在物理上也是连续的，可以消除很多次随机IO，同时会造成空间浪费，整体利远大于弊。</p>
+<p>为了考虑以完整的区为单位分配给某个段对于<strong>数据量较小</strong>的表而浪费存储空间的情况，InnoDB提出了<strong>碎片区</strong>的概念，碎片区中的页属于不同段。</p>
+<h3 id="页"><a href="#页" class="headerlink" title="页"></a>页</h3><p>页是InnoDB磁盘管理的最小单位，默认每个页大小为16KB，可以通过参数<code>innodb_page_size</code>将页的大小设置为4K，8K、16K。</p>
+<p>常见的页类型有：</p>
+<ul>
+<li>数据页</li>
+<li>undo页</li>
+<li>系统页</li>
+<li>事务数据页</li>
+<li>插入缓冲位图页</li>
+<li>插入缓冲空闲列表页</li>
+<li>未压缩的二进制大对象页</li>
+<li>压缩的二进制大对象页</li>
+</ul>
+<h3 id="行"><a href="#行" class="headerlink" title="行"></a>行</h3><p>InnoDB存储引擎是面向行（row-oriented）的，每个页最多存放16K&#x2F;2~200行的记录（7992行）。</p>
+<h2 id="InnoDB行记录格式"><a href="#InnoDB行记录格式" class="headerlink" title="InnoDB行记录格式"></a>InnoDB行记录格式</h2><h3 id="Compact行记录格式"><a href="#Compact行记录格式" class="headerlink" title="Compact行记录格式"></a>Compact行记录格式</h3><p>该格式在MySQL5.0中引入，其设计目的是高效地存储数据。简单说，一个页存放的行数据越多，其性能就越高。它的存储方式如图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0065%2820200416-174412%29.PNG" srcset="/img/loading.gif" lazyload alt="Compact行记录格式"></p>
+<ul>
+<li><p>变长字段长度列表：对于变长字段的真实数据占用的字节长度都存放这里。</p>
+<ul>
+<li>逆序排放，非NULL</li>
+<li>如果变长列的长度小于255 bytes，则用1 byte表示，否则用2 byte表示。</li>
+</ul>
+</li>
+<li><p>NULL标志位：如果该数据行存在NULL值，使用1表示，该部分占用1 byte。</p>
+</li>
+<li><p>头信息固定5字节（40位），每位的含义如下：</p>
+</li>
+</ul>
+<p>设置<code>deleted_flag</code>的原因：如果物理删除的话，记录在磁盘上需要重新排列，导致性能消耗，被删除掉的记录会形成一个<strong>垃圾链表（可重用空间）</strong>，如果之后有新纪录插入到表中，这部分空间将被覆盖掉。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0066.PNG" srcset="/img/loading.gif" lazyload alt="Compact记录头信息"></p>
+<p>最后的部分就是实际存储每个列的数据，<strong>NULL不占用任何空间</strong>，除了之前的标志位，每行数据除了用户定义的列之外，还有两个隐藏列，<strong>事务ID列（6字节）</strong>和<strong>回滚指针列（7字节）</strong>。如果没有定义主键，还会增加一个<strong>rowid</strong>列做为主键（6字节）。</p>
+<h3 id="行溢出"><a href="#行溢出" class="headerlink" title="行溢出"></a>行溢出</h3><p>行溢出概念：在Compact行格式中，当列长度（例如varchar、BLOB等）达到768 byte后，会将该列的前768byte当作prefix存放在行中，多出来的数据溢出存放到溢出页中，然后通过一个偏移量指针将两者关联起来。</p>
+<p>Dynamic和Compressed行格式不会存储prefix数据，直接全部溢出，只存储页地址。</p>
+<h2 id="InnoDB数据页结构"><a href="#InnoDB数据页结构" class="headerlink" title="InnoDB数据页结构"></a>InnoDB数据页结构</h2><p>InnoDB数据页由以下七个部分构成，如图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0067.PNG" srcset="/img/loading.gif" lazyload alt="数据页结构"></p>
+<p>其中<code>File Header、Page Header、File Trailer</code>的大小是固定的，这些空间是用来标记该页的一些信息，如Checksum，数据页所在的B+树索引的层数。</p>
+<h3 id="File-Header"><a href="#File-Header" class="headerlink" title="File Header"></a>File Header</h3><p>该部分用来记录各种页的通用信息，共由八个部分组成，占用38字节。<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0068.PNG" srcset="/img/loading.gif" lazyload alt="File Header组成部分"></p>
+<h3 id="Page-Header"><a href="#Page-Header" class="headerlink" title="Page Header"></a>Page Header</h3><p>该部分用来记录数据页的状态信息，由14个部分组成，占用56字节，如图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/table/IMG_0069.PNG" srcset="/img/loading.gif" lazyload alt="Page Header组成部分"></p>
+<h3 id="Infimun和Supremum-Records"><a href="#Infimun和Supremum-Records" class="headerlink" title="Infimun和Supremum Records"></a>Infimun和Supremum Records</h3><p>Infimun用来记录是比该页中任何主键值都要小的值，Supremum Records指比任何值都大的值。这两个值在页创建时被建立。</p>
+<h3 id="User-Record和Free-Space"><a href="#User-Record和Free-Space" class="headerlink" title="User Record和Free Space"></a>User Record和Free Space</h3><p>User Record是实际存储行记录的内容。Free Space指的是空闲空间（暂未被使用的空间），是一个链表数据结构，在一条记录被删除后，该空间会被加入到空闲链表中。</p>
+<h3 id="Page-Directory"><a href="#Page-Directory" class="headerlink" title="Page Directory"></a>Page Directory</h3><p>该部分存放了<strong>记录的相对位置</strong>，有时这些记录指针称为<strong>Slots</strong>或Directory Slots，一个槽可能包含多个记录。B+树索引本身并不能找到具体的一条记录，只能找到该记录所在的页，数据库把页载入内存，通过Page Directory进行二分查找。</p>
+<h3 id="File-Trailer"><a href="#File-Trailer" class="headerlink" title="File Trailer"></a>File Trailer</h3><p>该部分是为了检测页是否已经完整地写入磁盘，File Trailer只有一个<code>FIL_PAGE_END_LSN</code>部分，占用8字节，前四个字节代表该页地checksum值，最后四个字节和File Header中的<code>FIL_PAGE_LSN</code>相同。将这两个值与File Header中的<code>FIL_PAGE_SPACE_OR_CHKSUM</code>和<code>FIL_PAGE_LSN</code>的值进行比较，看是否一致，以此来保证页的完整性。</p>
+<h2 id="约束"><a href="#约束" class="headerlink" title="约束"></a>约束</h2><p>约束机制用来保证数据库中数据的完整性。<br>完整性有以下三种形式：</p>
+<ol>
+<li>实体完整性保证表中有一个主键。</li>
+<li>域完整性保证数据每列的值满足特定的条件，域完整性通过以下几种方式来保证：<ul>
+<li>选择合适的数据类型确保一个数据值满足特定条i教案</li>
+<li>外键约束</li>
+<li>编写触发器</li>
+</ul>
+</li>
+<li>参照完整性保证两张表之间的关系。</li>
+</ol>
+<p>对于InnoDB存储引擎，提供了以下几种约束：</p>
+<ul>
+<li>Primary Key</li>
+<li>Unique Key</li>
+<li>Foreign Key</li>
+<li>Default</li>
+<li>NOT NULL</li>
+</ul>
+<p>约束和索引的区别：约束是一个逻辑上的概念，用来保证数据的完整性，而索引是一个数据结构，既有逻辑上的概念，在数据库上还代表着物理存储的方式。</p>
+<h2 id="分区表"><a href="#分区表" class="headerlink" title="分区表"></a>分区表</h2><p>分区功能并不是在存储引擎层完成的，不是只有InnoDB存储引擎支持分区，MySQL5.1添加了对分区的支持，分区的过程就是将一个表或索引分解为多个更小的、更可管理的部分。从逻辑上讲，只有一个表或一个索引，但是物理上这个表或索引可能由数十个物理分区组成，每个分区都是独立的对象。</p>
+<p>MySQL支持的分区类型为水平分（将同一表中不同行的记录分配到不同的物理文件中），不支持垂直分（将同一表中不同列的记录分配到不同的物理文件中）。MySQL的分区是局部分区索引，一个分区既存放了数据又存放了索引，而全局分区是指，数据存放在各个分区中，数据的索引放在一个对象中。</p>
+<p>MySQL支持以下几种类型的分区：</p>
+<ul>
+<li>RANGE分区：行数据基于属于一个给定连续区间的列值被放入分区。</li>
+<li>LIST分区：面向离散值的分区。</li>
+<li>HASH分区：根据用户自定义的表达式的返回值来进行分区，返回值不能为负数。</li>
+<li>KEY分区：根据MySQL数据库提供的Hash函数进行分区。</li>
+</ul>
+<p>无论哪种分区方式，如果表中存在主键或唯一索引时，分区列必须是唯一索引的一个组成部分。</p>
+<h3 id="子分区"><a href="#子分区" class="headerlink" title="子分区"></a>子分区</h3><p>子分区是在分区的基础上再进行分区，也成为复合分区，MySQL允许在RANGE和LIST分区上再进行HASH和KEY的子分区。<br>子分区需要注意以下几个问题：</p>
+<ul>
+<li>每个子分区的数量必须相同。</li>
+<li>要在一个分区表的任何分区上使用SUBPARTITION来明确定义任何子分区，就必须定义所有的子分区。</li>
+<li>每个SUBPARTITION子句必须包括子分区的一个名字。</li>
+<li>子分区的名字必须是唯一的。</li>
+</ul>
+<h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p>《MySQL技术内幕：InnoDB存储引擎(第二版)》</p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/MySQL/" class="category-chain-item">MySQL</a>
+  
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/MySQL/" class="print-no-link">#MySQL</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>MySQL数据存储结构</div>
+      <div>https://l1n.wang/2020/MySQL/MySQL数据存储结构/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2020年4月17日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/Java%E5%B9%B6%E5%8F%91/threadlocal-rondom/" title="ThreadLocalRondom原理剖析">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">ThreadLocalRondom原理剖析</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/MySQL/mysql-file/" title="MySQL文件种类分析">
+                        <span class="hidden-mobile">MySQL文件种类分析</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

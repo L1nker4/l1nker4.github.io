@@ -1,0 +1,960 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="Controller机制Controller主要作用是在Zookeeper的帮助下管理和协调整个Kafka集群（在zk中存储集群元数据）。Kafka集群中会有一个或多个Broker，其中一个Broker会被选举为Controller，它负责管理整个集群中所有分区和副本的状态，其工作职责包括以下内容：  Topic管理：完成对Kafka的Topic的创建删除、分区增加等操作。 分区重分配：新的Bro">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Kafka学习笔记(四)-集群工作机制">
+<meta property="og:url" content="https://l1n.wang/2022/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/Kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E5%9B%9B)-%E9%9B%86%E7%BE%A4%E5%B7%A5%E4%BD%9C%E6%9C%BA%E5%88%B6/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="Controller机制Controller主要作用是在Zookeeper的帮助下管理和协调整个Kafka集群（在zk中存储集群元数据）。Kafka集群中会有一个或多个Broker，其中一个Broker会被选举为Controller，它负责管理整个集群中所有分区和副本的状态，其工作职责包括以下内容：  Topic管理：完成对Kafka的Topic的创建删除、分区增加等操作。 分区重分配：新的Bro">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2022-07-06T10:49:22.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.362Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="l1nker4">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  
+  <title>Kafka学习笔记(四)-集群工作机制 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Kafka学习笔记(四)-集群工作机制"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2022-07-06 18:49" pubdate>
+          2022年7月6日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          2.8k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          24 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Kafka学习笔记(四)-集群工作机制</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h2 id="Controller机制"><a href="#Controller机制" class="headerlink" title="Controller机制"></a>Controller机制</h2><p>Controller主要作用是在Zookeeper的帮助下管理和协调整个Kafka集群（在zk中存储集群元数据）。Kafka集群中会有一个或多个Broker，其中一个Broker会被选举为Controller，它负责管理整个集群中所有分区和副本的状态，其工作职责包括以下内容：</p>
+<ul>
+<li><strong>Topic管理</strong>：完成对Kafka的Topic的创建删除、分区增加等操作。</li>
+<li><strong>分区重分配</strong>：新的Broker加入集群时，不会自动分担已有的topic负载，只会对后续的topic生效，此时如果需要对已有topic负载，需要用户手动进行<strong>分区重分配</strong>。</li>
+<li><strong>Leader选举</strong>：负责Partition Leader选举的工作</li>
+<li>集群成员管理：<ul>
+<li>Kafka 使用Zookeeper的临时节点来选举Controller</li>
+<li>Zookeeper在Broker加入集群或退出集群时通知Controller</li>
+<li>Controller负责在Broker加入或离开集群时进行分区Leader选举</li>
+</ul>
+</li>
+<li>元数据管理：Controller负责管理集群中所有的元数据</li>
+</ul>
+<p>Controller选举流程：</p>
+<ul>
+<li>每个Broker启动时，都会尝试读取<code>/controller</code>节点的brokerid的值，如果值不为-1，则表明已经有其他broker节点成为Controller，当前broker放弃选举</li>
+<li>如果不存在<code>/controller</code>节点或节点数据异常，则主动创建节点并存储brokerid</li>
+<li>其他broker会将选举成功的Brokerid都在内存保存下来</li>
+<li>同时使用<code>/controller_epoch</code>持久性节点来记录任期号，记录Controller发生变化的次数，类似于Raft中的任期。<ul>
+<li>初始值为1，每个与Controller交互的请求都会携带<code>controller_epoch</code>，如果请求的<code>controller_epoch</code>大于内存中<code>controller_epoch</code>，说明内存中的值过期了，目前已有新的Controller当选。</li>
+<li>由两部分组成：<ul>
+<li>epoch：单调递增的版本号，leader发生变更，进行自增</li>
+<li>start offset：Leader副本在该Epoch值上写入的首条消息的位移。</li>
+</ul>
+</li>
+<li>每个分区都缓存该值，并定期持久化到<code>checkpoint</code>文件中</li>
+</ul>
+</li>
+</ul>
+<h3 id="Partition-Leader选举"><a href="#Partition-Leader选举" class="headerlink" title="Partition Leader选举"></a>Partition Leader选举</h3><p>Controller拥有选举分区Leader的功能，每个分区都会有一个Broker作为Leader，处理所有的读写请求，选举流程由Controller负责：</p>
+<ol>
+<li>Controller从ZK中读取当前分区所有的ISR集合</li>
+<li>调用配置的分区选择算法选举分区的Leader</li>
+</ol>
+<p><code>Partition Leader</code>的定义如下：</p>
+<blockquote>
+<p>Each partition has one server which acts as the “leader” and zero or more servers which act as “followers”. The leader handles all read and write requests for the partition while the followers passively replicate the leader. If the leader fails, one of the followers will automatically become the new leader. Each server acts as a leader for some of its partitions and a follower for others so load is well balanced within the cluster.</p>
+</blockquote>
+<p>触发Partition Leader选举的时机如下：</p>
+<ul>
+<li>Offline：创建新分区或现有分区Leader离线</li>
+<li>Reassign：用户执行重分配操作</li>
+<li>PreferredReplica：leader迁移回首选副本</li>
+<li>分区的现有leader即将下线</li>
+</ul>
+<h3 id="故障转移"><a href="#故障转移" class="headerlink" title="故障转移"></a>故障转移</h3><p>如果Controller发生故障（宕机或网络超时等），Kafka能够立即启用备用Controller来代替之前的，这个过程称为<code>Failover</code>。其基本流程如下：</p>
+<ol>
+<li>ZK检测到当前controller宕机（ZK的watch机制），删除<code>/controller</code>临时节点。</li>
+<li>某个Broker抢先注册了<code>/controller</code>临时节点，成为新的controller</li>
+<li>该Broker从ZK拉取元数据，并执行初始化。</li>
+</ol>
+<h2 id="分区副本机制"><a href="#分区副本机制" class="headerlink" title="分区副本机制"></a>分区副本机制</h2><p>副本对分区数据进行冗余存储，以保证系统的高可用和数据一致性，当分区Leader发生宕机或数据丢失，可以从其他副本获取分区数据。分区Leader负责处理分区所有的读写请求。</p>
+<p>每个分区都有一个ISR集合，用于维护所有同步并可用的副本，ISR最少拥有Leader副本这一个元素，对于Follower来说，必须满足以下条件才是ISR：</p>
+<ul>
+<li>必须定时向Zookeeper发送心跳</li>
+<li>在规定时间内从Leader获取过消息</li>
+</ul>
+<p>若副本不满足以上两条件，就会从ISR列表移除。</p>
+<p><code>replica.lag.time.max.ms</code>：Follower能落后Leader的最长时间间隔，默认为10s</p>
+<p>使用Zookeeper来管理ISR，节点位置为<code>/brokers/topics/[topic]/partitions/[partition]/state</code></p>
+<h3 id="HW和LEO机制"><a href="#HW和LEO机制" class="headerlink" title="HW和LEO机制"></a>HW和LEO机制</h3><p>几个offset概念：</p>
+<ul>
+<li>base offset：副本中第一条消息的offset</li>
+<li>HW：high watermark，副本中最新一条已提交消息的offset<ul>
+<li>用来标识分区中哪些消息可以消费，HW之后的数据对消费者不可见</li>
+<li>完成副本数据同步的任务</li>
+<li>HW永远小于LEO</li>
+</ul>
+</li>
+<li>LEO：log end offset，副本中下一条待写入消息的offset<ul>
+<li>用于更新HW：follower和Leader的LEO同步后，两者HW就可以更新</li>
+</ul>
+</li>
+</ul>
+<p>Leader除了保存自己的一组HW和LEO，也会保存其他Follower的值，目的是帮助Leader副本确定分区高水位。</p>
+<h3 id="更新机制"><a href="#更新机制" class="headerlink" title="更新机制"></a>更新机制</h3><ul>
+<li>Follower从Leader同步数据时，会携带自己的LEO值，Leader将Follower中最小的LEO作为HW值，这是为了保证Leader宕机后，新选举的节点拥有所有HW之前的数据，保证了数据安全性。</li>
+<li>Follower获取数据时，请求Leader的HW，然后follower.HW &#x3D; min(follower.LEO, leader.HW)</li>
+</ul>
+<h2 id="Consumer-Group"><a href="#Consumer-Group" class="headerlink" title="Consumer Group"></a>Consumer Group</h2><ul>
+<li>每个Group有一个或多个Consumer</li>
+<li>每个Group可以管理0、1、多个Topic</li>
+<li>每个Group拥有一个全局唯一的id</li>
+<li>Group下的每个Consumer Client可以同时订阅Topic的一个或多个Partition</li>
+<li>Group下同一个Partition只能被一个Consumer订阅</li>
+</ul>
+<h4 id="Group分配策略"><a href="#Group分配策略" class="headerlink" title="Group分配策略"></a>Group分配策略</h4><p>一个Group中有多个Consumer，一个Topic有多个Partition，Group存在一个分配的情况：<strong>确定某个Partition由哪个Consumer来消费</strong>。</p>
+<p>Kafka提供了三种分区分配策略，也支持用户自定义分配策略：</p>
+<ul>
+<li><strong>RangeAssignor</strong>：默认分区分配算法，按照Topic的维度进行分配，Partition按照分区ID进行排序，然后对订阅此Topic的Group内Consumer及逆行排序，之后均衡的按照范围区段将分区分配给Consumer。<ul>
+<li>缺点：当Consumer增加，不均衡的问题就会越来越严重。</li>
+</ul>
+</li>
+<li><strong>RoundRobinAssignor</strong>：将Group内订阅的Topic所有Partition以及所有Consumer进行排序后按照顺序尽量均衡的一个个分配</li>
+<li><strong>StickyAssignor</strong>：发生rebalance时，分配结果尽量与上次分配保持一致。</li>
+</ul>
+<h4 id="心跳保活机制"><a href="#心跳保活机制" class="headerlink" title="心跳保活机制"></a>心跳保活机制</h4><p>Consumer加入到Group中之后，维持状态通过两种方式实现：</p>
+<ol>
+<li>consumer会判断两次poll的时间间隔是否超出max.poll.interval.ms设定的值，超过则主动退出Group。</li>
+<li>异步线程定时发送心跳包，间隔超出session.timeout.ms则broker判定consumer离线，主动将其退出Group。</li>
+</ol>
+<p>若consumer被移出Group，会触发Rebalance。</p>
+<h3 id="Coordinator"><a href="#Coordinator" class="headerlink" title="Coordinator"></a>Coordinator</h3><p>Coordinator用于存储Group的相关Meta信息，主要负责：</p>
+<ol>
+<li>Group Rebalance</li>
+<li>offset管理：将对应Partition的Offset信息记录到__consumer_offsets中</li>
+<li>Group Consumer管理</li>
+</ol>
+<p>Broker启动时，都会创建对应的Coordinator组件，每一个Consumer Group，Kafka集群都会给它选一个broker作为其Coordinator</p>
+<h3 id="Rebalance"><a href="#Rebalance" class="headerlink" title="Rebalance"></a>Rebalance</h3><p>基于给定的分配策略，为Group下所有的Consumer重新分配所订阅的Partition。</p>
+<p>目的：重新均衡消费者，尽量达到最公平的分配</p>
+<p>触发时机：</p>
+<ol>
+<li>组成员数量发生变化<ul>
+<li>新加入consumer</li>
+<li>已有consumer退出（挂掉、调用unsubscribe）</li>
+</ul>
+</li>
+<li>订阅topic数量发生变化</li>
+<li>订阅topic的分区数发生变化</li>
+</ol>
+<p>影响：</p>
+<ul>
+<li>可能重复消费，consumer还未提交offset，被rebalance</li>
+<li>Rebalance期间，整个Group内的Consumer无法消费消息</li>
+<li>集群不稳定：只要做变动，就发生一次rebalance</li>
+<li>影响消费速度：频繁的rebalance</li>
+</ul>
+<p>如何避免频繁rebalance？</p>
+<ol>
+<li>session.timeout.ms：超时时间，默认10s</li>
+<li>heartbeat.interval.ms：心跳间隔，默认3s</li>
+<li>max.poll.interval.ms：每隔多长时间去拉取消息，超过阈值则被coordinator</li>
+</ol>
+<h2 id="消息投递的三种语义"><a href="#消息投递的三种语义" class="headerlink" title="消息投递的三种语义"></a>消息投递的三种语义</h2><ul>
+<li>At most once：消息发送或消费至多一次<ul>
+<li>Producer：发送完消息，不会确认消息是否发送成功，存在丢失消息的可能性。</li>
+<li>Consumer：对一条消息最多消费一次，可能存在消费失败依旧提交offset的情况 。</li>
+</ul>
+</li>
+<li>at least once：消息发送或消费至少一次<ul>
+<li>Producer：发送完消息会确认是否发送成功，如果没有收到ACK，会不断重复发送</li>
+<li>Consumer：对一条消息可能消费多次。</li>
+</ul>
+</li>
+<li>exactly once：消息恰好只发送或消费一次<ul>
+<li>Producer：消息的发送是幂等的，broker不会有重复的消息。</li>
+<li>Consumer：消费和提交offset的动作是原子性的。</li>
+</ul>
+</li>
+</ul>
+<h2 id="幂等性Producer"><a href="#幂等性Producer" class="headerlink" title="幂等性Producer"></a>幂等性Producer</h2><p>现象：producer在进行重试的时候可能会重复写入消息，使用幂等性可以避免这种情况。</p>
+<p>配置项：enable.idempotence&#x3D;true</p>
+<p>每个producer初始化时，会设置唯一的ProducerID，broker发送消息时会带上ProducerID并为每个消息分配一个seq number，broker端根据pid和seq number去重</p>
+<p>特点：</p>
+<ol>
+<li>只能保证单分区上的幂等性</li>
+<li>只能实现单会话的幂等性，producer重启后，幂等失效。</li>
+</ol>
+<h2 id="事务"><a href="#事务" class="headerlink" title="事务"></a>事务</h2><p>Kafka中事务特性用于以下两种场景：</p>
+<ol>
+<li>producer生产消息和consumer消费消息并提交offset在一个事务中，要么同时成功，要么同时失败。</li>
+<li>producer将多条消息封装在一个事务中，要么同时发送成功、要么同时发送失败。</li>
+</ol>
+<h2 id="Ops问题"><a href="#Ops问题" class="headerlink" title="Ops问题"></a>Ops问题</h2><h3 id="PageCache竞争"><a href="#PageCache竞争" class="headerlink" title="PageCache竞争"></a>PageCache竞争</h3><p>现象：同一台broker上的不同partition间竞争PageCache资源，相互影响，导致整个Broker处理延迟上升。</p>
+<ul>
+<li>Producer：Server端的IO线程统一将请求的消息数据写入到PageCache之后立即返回，当达到指定大小后，会刷回到硬盘中。</li>
+<li>Consumer：利用OS的ZeroCopy机制，Broker接收到读请求时，向OS发生sendfile系统调用，OS接收后尝试从PageCache中获取数据，如果数据不存在，触发缺页中断从硬盘中读取数据到buffer，随后DMA操作直接将数据拷贝到网卡Buffer中等待后续TCP传输。</li>
+</ul>
+<h2 id="常见问题"><a href="#常见问题" class="headerlink" title="常见问题"></a>常见问题</h2><h3 id="Kafka如何保证消息有序"><a href="#Kafka如何保证消息有序" class="headerlink" title="Kafka如何保证消息有序"></a>Kafka如何保证消息有序</h3><p>Kafka中并不保证消息全局有序，只能保证<strong>分区有序</strong>。</p>
+<ul>
+<li>生产者：使用同步方式发送，设置<code>acks = all &amp;  max.in.flight.requests.per.connection = 1</code>，存在下面的问题：<ul>
+<li>重发问题：发送失败，需要判断是否自动重试，设置<code>retries &gt; 0</code></li>
+<li>幂等问题：设置<code>enable.idempotence = true</code>，设置后生产者客户端会给消息添加序列号，每次发送把序列号递增1</li>
+</ul>
+</li>
+<li>服务端Broder：Kafka只能保证单个Partition内消息有序，若要Topic全局有序，需要设置单分区。</li>
+<li>消费者：根据Group机制，Topic下的分区只能从属group下的某一个消费者，若Consumer单线程消费没有问题，多线程并发消费顺序会乱。</li>
+</ul>
+<h3 id="如何处理Kafka大量消息积压"><a href="#如何处理Kafka大量消息积压" class="headerlink" title="如何处理Kafka大量消息积压"></a>如何处理Kafka大量消息积压</h3><p>出现消息积压的原因：Kafka集群中出现了<strong>性能问题</strong>，来不及消费消息。</p>
+<p>解决：</p>
+<ul>
+<li><p>生产端性能优化</p>
+<ul>
+<li>检查发送消息的业务逻辑，合理设置并发数量和批量大小，注意消息体大小。</li>
+<li>可以动态配置开关，关闭MQ生产，并在解决积压问题后，通过<strong>消息补偿机制</strong>进行补偿，<strong>消费端需要支持幂等</strong>。</li>
+</ul>
+</li>
+<li><p>消费端性能优化</p>
+<ul>
+<li>自动提交改为手动提交</li>
+<li>单条消息消费改为批量消费</li>
+<li>涉及DB操作，一定要检查是否存在慢SQL</li>
+<li>一定要保证消费端速度大于生产端的生产速度，扩容消费端实例来提升总体的消费能力。要注意在扩大Consumer实例的同时，必须扩容Topic的Partition数量，确保两者数量大致相等。</li>
+</ul>
+</li>
+<li><p>查看Broker端日志、监控系统等情况，是否存在硬件层面的问题：磁盘空间等。</p>
+<ul>
+<li>partition分区数 &gt; 应用消费节点时，可以扩大Broker分区数量，否则扩broker分区没用。</li>
+</ul>
+</li>
+</ul>
+<h3 id="Kafka性能瓶颈"><a href="#Kafka性能瓶颈" class="headerlink" title="Kafka性能瓶颈"></a>Kafka性能瓶颈</h3><p>常见问题：</p>
+<ol>
+<li>Kafka单机topic超过64个分区<ul>
+<li>load负载加大</li>
+<li>消息延迟加大</li>
+</ul>
+</li>
+<li>一个分区一个文件</li>
+<li>单个文件按照append写是顺序IO</li>
+<li>分区多文件多，局部的顺序IO会退化到随机IO</li>
+</ol>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/" class="category-chain-item">中间件</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/" class="category-chain-item">Kafka</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Kafka学习笔记(四)-集群工作机制</div>
+      <div>https://l1n.wang/2022/中间件/Kafka/Kafka学习笔记(四)-集群工作机制/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2022年7月6日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2022/%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/%E7%9F%AD%E7%BD%91%E5%9D%80%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E6%80%BB%E7%BB%93/" title="短网址系统设计总结">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">短网址系统设计总结</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2022/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/Kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E4%B8%89)-%E9%80%9A%E4%BF%A1%E5%8D%8F%E8%AE%AE/" title="Kafka学习笔记(三)-通信协议">
+                        <span class="hidden-mobile">Kafka学习笔记(三)-通信协议</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

@@ -1,0 +1,944 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介Redis在5.0.0版本中引进了消息队列的功能，该功能由Stream实现，本文主要介绍Stream的相关实现。 数据结构streamStream的实现依赖于Rax树与listpack结构，每个消息流都包含一个Rax树，以消息ID为key，listpack为value存储在Rax树中。其基本结构如下：  rax：rax存储生产者生产的具体消息，每个消息有唯一ID为键 length：代表当前st">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Redis底层数据结构-Stream源码分析">
+<meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-stream/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="简介Redis在5.0.0版本中引进了消息队列的功能，该功能由Stream实现，本文主要介绍Stream的相关实现。 数据结构streamStream的实现依赖于Rax树与listpack结构，每个消息流都包含一个Rax树，以消息ID为key，listpack为value存储在Rax树中。其基本结构如下：  rax：rax存储生产者生产的具体消息，每个消息有唯一ID为键 length：代表当前st">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/structure.PNG">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/listpack.PNG">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/encode.PNG">
+<meta property="article:published_time" content="2020-06-27T06:21:30.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.358Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="数据结构">
+<meta property="article:tag" content="源码分析">
+<meta property="article:tag" content="Redis">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/structure.PNG">
+  
+  
+  
+  <title>Redis底层数据结构-Stream源码分析 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Redis底层数据结构-Stream源码分析"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2020-06-27 14:21" pubdate>
+          2020年6月27日 下午
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          1.8k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          15 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Redis底层数据结构-Stream源码分析</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><p>Redis在5.0.0版本中引进了消息队列的功能，该功能由Stream实现，本文主要介绍Stream的相关实现。</p>
+<h1 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h1><h2 id="stream"><a href="#stream" class="headerlink" title="stream"></a>stream</h2><p>Stream的实现依赖于Rax树与<code>listpack</code>结构，每个消息流都包含一个Rax树，以消息ID为key，listpack为value存储在Rax树中。其基本结构如下：</p>
+<ul>
+<li>rax：rax存储生产者生产的具体消息，每个消息有唯一ID为键</li>
+<li>length：代表当前stream中消息个数。</li>
+<li>last_id：为当前stream中最后插入的消息ID，stream为空时，该值为0。</li>
+<li>cgroups：存储了当前stream相关的消费组，以消费组组名为键，streamCG为值存储在rax中。<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stream</span> &#123;</span>
+    rax *rax;               <span class="hljs-comment">/* The radix tree holding the stream. */</span>
+    <span class="hljs-type">uint64_t</span> length;        <span class="hljs-comment">/* Number of elements inside this stream. */</span>
+    streamID last_id;       <span class="hljs-comment">/* Zero if there are yet no items. */</span>
+    rax *cgroups;           <span class="hljs-comment">/* Consumer groups dictionary: name -&gt; streamCG */</span>
+&#125; stream;</code></pre></div></li>
+</ul>
+<p>一个Stream的基本结构如图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/structure.PNG" srcset="/img/loading.gif" lazyload alt="Stream结构"></p>
+<p>每一个listpack都有一个master entry，该结构存储了该listpack待插入消息的所有field。</p>
+<h3 id="streamID"><a href="#streamID" class="headerlink" title="streamID"></a>streamID</h3><p>消息ID的基本结构如下：</p>
+<ul>
+<li>ms：消息创建时的时间</li>
+<li>seq：序号<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamID</span> &#123;</span>
+    <span class="hljs-type">uint64_t</span> ms;        <span class="hljs-comment">/* Unix time in milliseconds. */</span>
+    <span class="hljs-type">uint64_t</span> seq;       <span class="hljs-comment">/* Sequence number. */</span>
+&#125; streamID;</code></pre></div></li>
+</ul>
+<h3 id="streamCG"><a href="#streamCG" class="headerlink" title="streamCG"></a>streamCG</h3><p>每个stream会有多个消费组，每个消费组通过组名称进行唯一标识，同时关联一个streamCG结构。该结构如下：</p>
+<ul>
+<li>last_id：该消费组已经确认的最后一个消息ID</li>
+<li>pel：为该消费组尚未确认的消息，消息ID为键，streamNACK为值，存储在rax树中</li>
+<li>consumers：消费组中的所有消费者，消费者名称为键，streamConsumer为值。<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamCG</span> &#123;</span>
+    streamID last_id;
+    rax *pel;
+    rax *consumers;
+&#125; streamCG;</code></pre></div></li>
+</ul>
+<h3 id="streamConsumer"><a href="#streamConsumer" class="headerlink" title="streamConsumer"></a>streamConsumer</h3><p>消费者结构如下：</p>
+<ul>
+<li>seen_time：为该消费者最后一次活跃的时间</li>
+<li>name：消费者名称，为sds结构</li>
+<li>pel：为该消费者尚未确认的消息，消息ID为键，streamNACK为值，存储在rax树中<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamConsumer</span> &#123;</span>
+    <span class="hljs-type">mstime_t</span> seen_time;
+    sds name;
+    rax *pel;
+&#125; streamConsumer;</code></pre></div></li>
+</ul>
+<h3 id="streamNACK"><a href="#streamNACK" class="headerlink" title="streamNACK"></a>streamNACK</h3><p>该结构为未确认消息，streamNACK维护了消费组或消费者尚未确认的消息，消费组中的pel的元素与消费者的pel元素是共享的。该结构如下：</p>
+<ul>
+<li>delivery_time：为该消息最后发送给消费方的时间</li>
+<li>delivery_count：该消息已发送的次数</li>
+<li>consumer：当前归属的消费者<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamNACK</span> &#123;</span>
+    <span class="hljs-type">mstime_t</span> delivery_time;
+    <span class="hljs-type">uint64_t</span> delivery_count;
+    streamConsumer *consumer;
+&#125; streamNACK;</code></pre></div></li>
+</ul>
+<h3 id="streamIterator"><a href="#streamIterator" class="headerlink" title="streamIterator"></a>streamIterator</h3><p>该结构主要提供遍历功能，基本结构如下：</p>
+<ul>
+<li>stream：当前迭代器正在遍历的消息流</li>
+<li>master_id：为listpack中第一个插入的消息ID（master entry）</li>
+<li>master_fields_count：第一个entry的field个数</li>
+<li>master_fields_start：master entry的field首地址</li>
+<li>master_fields_ptr：记录field的位置</li>
+<li>entry_flags：当前遍历的消息的标志位</li>
+<li>rev：迭代器方向</li>
+<li>start_key,end_key：遍历范围</li>
+<li>ri：rax迭代器，用于遍历rax树中的所有key</li>
+<li>lp：当前的listpack指针</li>
+<li>lp_ele：当前正在遍历的listpack中的元素</li>
+<li>lp_flags：指向翻墙消息的flag域</li>
+<li>field_buf,value_buf：从listpack读取数据的缓存<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">streamIterator</span> &#123;</span>
+    stream *stream;         <span class="hljs-comment">/* The stream we are iterating. */</span>
+    streamID master_id;     <span class="hljs-comment">/* ID of the master entry at listpack head. */</span>
+    <span class="hljs-type">uint64_t</span> master_fields_count;       <span class="hljs-comment">/* Master entries # of fields. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *master_fields_start; <span class="hljs-comment">/* Master entries start in listpack. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *master_fields_ptr;   <span class="hljs-comment">/* Master field to emit next. */</span>
+    <span class="hljs-type">int</span> entry_flags;                    <span class="hljs-comment">/* Flags of entry we are emitting. */</span>
+    <span class="hljs-type">int</span> rev;                <span class="hljs-comment">/* True if iterating end to start (reverse). */</span>
+    <span class="hljs-type">uint64_t</span> start_key[<span class="hljs-number">2</span>];  <span class="hljs-comment">/* Start key as 128 bit big endian. */</span>
+    <span class="hljs-type">uint64_t</span> end_key[<span class="hljs-number">2</span>];    <span class="hljs-comment">/* End key as 128 bit big endian. */</span>
+    raxIterator ri;         <span class="hljs-comment">/* Rax iterator. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *lp;      <span class="hljs-comment">/* Current listpack. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *lp_ele;  <span class="hljs-comment">/* Current listpack cursor. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *lp_flags; <span class="hljs-comment">/* Current entry flags pointer. */</span>
+    <span class="hljs-comment">/* Buffers used to hold the string of lpGet() when the element is</span>
+<span class="hljs-comment">     * integer encoded, so that there is no string representation of the</span>
+<span class="hljs-comment">     * element inside the listpack itself. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> field_buf[LP_INTBUF_SIZE];
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> value_buf[LP_INTBUF_SIZE];
+&#125; streamIterator;</code></pre></div></li>
+</ul>
+<h2 id="listpack"><a href="#listpack" class="headerlink" title="listpack"></a>listpack</h2><p>listpack是一个字符串列表的序列化格式，该结构可用于存储字符串或整型。其主要结构如下图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/listpack.PNG" srcset="/img/loading.gif" lazyload alt="listpack基本结构"><br>listpack主要由四部分构成，分别是：</p>
+<ul>
+<li>Total Bytes为整个listpack的空间大小</li>
+<li>Num Elem：listpack的Entry个数，占用两个字节，但是Entry个数大于等于65535时，该值为65535，所以这种情况下获取元素个数，需要遍历整个listpack</li>
+<li>Entry：为每个具体的元素</li>
+<li>End：为listpack的结束标志，占用一个字节，内容为0xFF</li>
+</ul>
+<p>Entry由三部分构成，基本如下：</p>
+<ul>
+<li>Encode：元素的编码方式，占用一个字节</li>
+<li>content：内容</li>
+<li>backlen：记录entry的长度（不包括该字段本身）</li>
+</ul>
+<p>其中编码方式取值如下图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/encode.PNG" srcset="/img/loading.gif" lazyload alt="编码取值"></p>
+<p>Stream的消息内容存储在listpack中，消息存储格式是每个字段都是一个entry，而不是键整个消息作为字符串存储的，每个listpack会存储多个消息，具体存储个数由<code>stream-node-max-bytes</code>（listpack节点最大占用字节数，默认4096）和<code>stream-node-max-entries</code>（最大存储元素个数，默认100）决定.</p>
+<p>每个listpack在创建时，会将第一个插入的entry构建成master entry，其基本结构如下所示：</p>
+<div class="code-wrapper"><pre><code class="hljs coq">count   |   <span class="hljs-type">deleted</span>  |  <span class="hljs-type">num</span>-fields  |   <span class="hljs-type">field</span><span class="hljs-number">-1</span> |   <span class="hljs-type">field</span><span class="hljs-number">-2</span> |   <span class="hljs-type">0</span></code></pre></div>
+<p>其中：</p>
+<ul>
+<li>count：为当前listpack中所有未删除的消息个数</li>
+<li>deleted：当前listpack中所有已经删除的消息个数</li>
+<li>num-fields：field个数</li>
+<li>field-N：field域</li>
+<li>0为标识位，再从后向前遍历listpack时使用</li>
+</ul>
+<p>存储一个消息时，如果该消息的field域与master entry完全相同，则不需要再次存储field域</p>
+<h2 id="Rax"><a href="#Rax" class="headerlink" title="Rax"></a>Rax</h2><p>Redis对于Rax的解释为<code>A radix tree implement</code>，基数树的一种实现。Rax中不仅可以存储字符串，也可以为该字符串设置值形成kv结构。其基本结构如下：</p>
+<ul>
+<li>head：指向头节点</li>
+<li>numele：元素个数（key）</li>
+<li>numnodes：节点个数<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rax</span> &#123;</span>
+    raxNode *head;
+    <span class="hljs-type">uint64_t</span> numele;
+    <span class="hljs-type">uint64_t</span> numnodes;
+&#125; rax;</code></pre></div></li>
+</ul>
+<h2 id="raxNode"><a href="#raxNode" class="headerlink" title="raxNode"></a>raxNode</h2><p>raxNode代表Rax树中的一个节点，其基本结构如下所示：</p>
+<ul>
+<li>iskey：表明当前节点是否包含一个key，占用1bit</li>
+<li>isnull：表明当前key对应的value是否为空，占用1bit</li>
+<li>iscompr：表明当前节点是否为压缩节点，占用1bit</li>
+<li>size：压缩节点压缩的字符串长度或者非压缩节点的子节点个数，占用29bit</li>
+<li>data：包含填充字段，同时存储了当前节点包含的字符串以及子节点的指针，key对应的value指针。<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxNode</span> &#123;</span>
+    <span class="hljs-type">uint32_t</span> iskey:<span class="hljs-number">1</span>;
+    <span class="hljs-type">uint32_t</span> isnull:<span class="hljs-number">1</span>;
+    <span class="hljs-type">uint32_t</span> iscompr:<span class="hljs-number">1</span>;
+    <span class="hljs-type">uint32_t</span> size:<span class="hljs-number">29</span>;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> data[];
+&#125; raxNode;</code></pre></div></li>
+</ul>
+<p>其中raxNode分为压缩节点域非压缩节点。主要区别在于非压缩节点的每个字符都有子节点，如果字符个数小于2，都是非压缩节点。</p>
+<h2 id="raxStack"><a href="#raxStack" class="headerlink" title="raxStack"></a>raxStack</h2><p>raxStack结构用于存储从根节点到当前节点的路径，基本结构如下：</p>
+<ul>
+<li>stack：用于记录路径，该指针可能指向static_items或者堆内存</li>
+<li>items,maxitems：代表stack指向的空间的已用空间以及最大空间</li>
+<li>static_items：一个数组，每个元素都是指针，存储路径</li>
+<li>oom：代表当前栈是否出现过内存溢出<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxStack</span> &#123;</span>
+    <span class="hljs-type">void</span> **<span class="hljs-built_in">stack</span>;
+    <span class="hljs-type">size_t</span> items, maxitems;
+    <span class="hljs-type">void</span> *static_items[RAX_STACK_STATIC_ITEMS];
+    <span class="hljs-type">int</span> oom;
+&#125; raxStack;</code></pre></div></li>
+</ul>
+<h2 id="raxIterator"><a href="#raxIterator" class="headerlink" title="raxIterator"></a>raxIterator</h2><p>raxIterator用于遍历Rax树中的所有key，基本结构如下：</p>
+<ul>
+<li>flags：代表当前迭代器标志位,取值如下：<ul>
+<li>RAX_ITER_JUST_SEEKED：当前迭代器指向的元素是刚刚搜索过的，当需要从迭代器中获取元素时，直接返回当前元素并清空标志位。</li>
+<li>RAX_ITER_EOF：代表当前迭代器已经遍历到最后一个节点</li>
+<li>RAX_ITER_SAFE：代表当前迭代器为安全迭代器，可以进行写操作</li>
+</ul>
+</li>
+<li>rt：当前迭代器对应的rax</li>
+<li>key：存储了当前迭代器遍历到的key，该指针指向key_static_string或者堆内存</li>
+<li>data：value值</li>
+<li>key_len,key_max：key指向的空间的已用空间以及最大空间</li>
+<li>key_static_string：key的默认存储空间，key过大时，会使用堆内存</li>
+<li>node：当前key所在的raxNode</li>
+<li>stack：记录了从根节点到当前节点的路径，用于raxNode线上遍历</li>
+<li>node_cb：为节点的回调函数，默认为空<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">raxIterator</span> &#123;</span>
+    <span class="hljs-type">int</span> flags;
+    rax *rt;                <span class="hljs-comment">/* Radix tree we are iterating. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *key;     <span class="hljs-comment">/* The current string. */</span>
+    <span class="hljs-type">void</span> *data;             <span class="hljs-comment">/* Data associated to this key. */</span>
+    <span class="hljs-type">size_t</span> key_len;         <span class="hljs-comment">/* Current key length. */</span>
+    <span class="hljs-type">size_t</span> key_max;         <span class="hljs-comment">/* Max key len the current key buffer can hold. */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> key_static_string[RAX_ITER_STATIC_LEN];
+    raxNode *node;          <span class="hljs-comment">/* Current node. Only for unsafe iteration. */</span>
+    raxStack <span class="hljs-built_in">stack</span>;         <span class="hljs-comment">/* Stack used for unsafe iteration. */</span>
+    raxNodeCallback node_cb; <span class="hljs-comment">/* Optional node callback. Normally set to NULL. */</span>
+&#125; raxIterator;</code></pre></div></li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>上文主要对Redis Stream的基本结构与其底层数据结构做了简要分析，了解了消息由listpack结构存储，以消息ID为key，listpack为value存储在Rax树中。</p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/Redis/" class="category-chain-item">Redis</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/Redis/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" class="category-chain-item">源码分析</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/" class="print-no-link">#数据结构</a>
+      
+        <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" class="print-no-link">#源码分析</a>
+      
+        <a href="/tags/Redis/" class="print-no-link">#Redis</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Redis底层数据结构-Stream源码分析</div>
+      <div>https://l1n.wang/2020/中间件/Redis/redis-stream/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2020年6月27日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/Redis%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86%E6%80%BB%E7%BB%93/" title="Redis基础知识总结">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">Redis基础知识总结</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-quicklist/" title="Redis底层数据结构-Quicklist源码分析">
+                        <span class="hidden-mobile">Redis底层数据结构-Quicklist源码分析</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

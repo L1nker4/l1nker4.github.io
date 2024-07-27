@@ -1,0 +1,821 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="存在的问题Google所面临的问题：大数据处理任务庞大，如何通过分布式系统完成并行计算、分发数据、处理错误？ 为了解决这个问题，需要设计一个新的抽象模型，用来表述我们需要执行的计算。不用关心底层的实现细节，包括并行计算、容错、数据分布、负载均衡等方面。 编程模型MapReduce编程模型的原理：利用一个输入的key&#x2F;value pair集合来产生一个输出的key&#x2F;value p">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MapReduce论文阅读笔记">
+<meta property="og:url" content="https://l1n.wang/2020/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/MapReduce-note/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="存在的问题Google所面临的问题：大数据处理任务庞大，如何通过分布式系统完成并行计算、分发数据、处理错误？ 为了解决这个问题，需要设计一个新的抽象模型，用来表述我们需要执行的计算。不用关心底层的实现细节，包括并行计算、容错、数据分布、负载均衡等方面。 编程模型MapReduce编程模型的原理：利用一个输入的key&#x2F;value pair集合来产生一个输出的key&#x2F;value p">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/MapReduce/execution-overview.jpg">
+<meta property="article:published_time" content="2020-12-23T11:29:00.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.463Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="分布式系统">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/MapReduce/execution-overview.jpg">
+  
+  
+  
+  <title>MapReduce论文阅读笔记 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="MapReduce论文阅读笔记"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2020-12-23 19:29" pubdate>
+          2020年12月23日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          1.5k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          13 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">MapReduce论文阅读笔记</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h2 id="存在的问题"><a href="#存在的问题" class="headerlink" title="存在的问题"></a>存在的问题</h2><p>Google所面临的问题：大数据处理任务庞大，如何通过分布式系统完成并行计算、分发数据、处理错误？</p>
+<p>为了解决这个问题，需要设计一个新的抽象模型，用来表述我们需要执行的计算。不用关心底层的实现细节，包括并行计算、容错、数据分布、负载均衡等方面。</p>
+<h2 id="编程模型"><a href="#编程模型" class="headerlink" title="编程模型"></a>编程模型</h2><p>MapReduce编程模型的原理：利用一个输入的<strong>key&#x2F;value pair</strong>集合来产生一个输出的<strong>key&#x2F;value pair</strong>集合。</p>
+<p>自定义的Map函数接受一个<strong>key&#x2F;value pair</strong>输入，然后产生一个中间<strong>key&#x2F;value pair</strong>集合。会将相同key和对应多个value值集合在一起传递给reduce函数。</p>
+<p>自定义的Reduce函数接受上面的集合，合并这些value值，形成一个新的value值集合。</p>
+<p>下面是一个计算大文档集合中每个单词出现的次数的案例：</p>
+<div class="code-wrapper"><pre><code class="hljs processing"><span class="hljs-built_in">map</span>(<span class="hljs-built_in">String</span> <span class="hljs-built_in">key</span>, <span class="hljs-built_in">String</span> value):
+	<span class="hljs-comment">//key : document name</span>
+	<span class="hljs-comment">//value: document contents</span>
+	foreach word w in value:
+		<span class="hljs-title function_">emitintermediate</span>(w, <span class="hljs-string">&quot;1&quot;</span>);
+		
+<span class="hljs-title function_">reduce</span>(<span class="hljs-built_in">String</span> <span class="hljs-built_in">key</span>, Iterator values):
+	<span class="hljs-comment">//key : a word</span>
+	<span class="hljs-comment">//values: a list of counts</span>
+	<span class="hljs-type">int</span> result = <span class="hljs-number">0</span>;
+	foreach v in values:
+		result += <span class="hljs-title function_">ParseInt</span>(v);
+	<span class="hljs-title function_">emit</span>(<span class="hljs-title function_">AsString</span>(result));</code></pre></div>
+
+<p>Map计函数计算文档中<code>(word,count)</code>这样的<strong>key&#x2F;value pair</strong>，Reduce函数把Map函数产生的计数累加起来。</p>
+<p>Map Reduce函数可以抽象成以下形式：</p>
+<div class="code-wrapper"><pre><code class="hljs livescript"><span class="hljs-keyword">map</span><span class="hljs-function"><span class="hljs-params">(k1, v1)</span> -&gt;</span> <span class="hljs-keyword">list</span>(k2, v2)
+reduce<span class="hljs-function"><span class="hljs-params">(k2, <span class="hljs-keyword">list</span>(v2))</span> -&gt;</span> <span class="hljs-keyword">list</span>(v2)</code></pre></div>
+
+
+
+
+
+<h3 id="其他案例"><a href="#其他案例" class="headerlink" title="其他案例"></a>其他案例</h3><ul>
+<li>分布式的grep：Map输出匹配某个模式的一行，Reduce将中间数据处理再输出。</li>
+<li>计算URL访问频率：Map处理日志，输出<code>(URL, 1)</code>，Reduce将中间数据累加处理，产生<code>(URL, totalCount)</code>再输出。</li>
+</ul>
+<h2 id="实现"><a href="#实现" class="headerlink" title="实现"></a>实现</h2><p>将输入数据自动分割成M块数据片段，Map函数在多台机器上并行处理。Reduce调用也是在多台机器上并行处理。MapReduce实现的全部流程如图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/MapReduce/execution-overview.jpg" srcset="/img/loading.gif" lazyload></p>
+<h3 id="master数据结构"><a href="#master数据结构" class="headerlink" title="master数据结构"></a>master数据结构</h3><p>Master存储每个Map和Reduce任务的状态，以及Worker机器的标识。</p>
+<p>Master像一个数据管道，存储已完成的Map任务的计算结果。并将这些信息推送给Reduce任务。</p>
+<h3 id="容错"><a href="#容错" class="headerlink" title="容错"></a>容错</h3><ul>
+<li>worker故障<ul>
+<li>master会对worker进行心跳检测，如果在指定时间内没有收到返回信息，会将worker标记为失效。</li>
+<li>所有由这个失效worker完成的Map任务需要重新分配给其他的worker。</li>
+<li>当这个Map任务被调度到worker B执行时，会通知执行Reduce任务的worker从这台机器上读取数据。</li>
+</ul>
+</li>
+<li>master故障<ul>
+<li>让master定期的将上述的数据结构写入磁盘，如果master出现故障，可以让新的master从这个<strong>checkpoint</strong>恢复。</li>
+<li>由于只有一个master进程，如果master失效，需要中止MapReduce运算。</li>
+</ul>
+</li>
+</ul>
+<h3 id="存储位置"><a href="#存储位置" class="headerlink" title="存储位置"></a>存储位置</h3><p>MapReduce的master在调度Map任务时会考虑输入文件的位置信息，尽量将一个Map任务调度在有数据拷贝的机器上执行。这样可以减少网络带宽的消耗。</p>
+<h3 id="任务粒度"><a href="#任务粒度" class="headerlink" title="任务粒度"></a>任务粒度</h3><p>Map拆分成 M个片段，Reduce拆分成R个片段执行。</p>
+<p>但是实际上对M和R的取值有一定的客观限制：</p>
+<ul>
+<li>master必须执行$O(M + R)$次调度</li>
+<li>需要在内存中保存$O(M * R)$个状态</li>
+</ul>
+<p>R由用户指定的，实际使用时需要选择合适的M，以使得每一个独立任务都处理大约16M~64M的输入数据。R值应该设置为worker机器数量的倍数。</p>
+<h3 id="备用任务"><a href="#备用任务" class="headerlink" title="备用任务"></a>备用任务</h3><p>如果一个worker花了很长时间才完成最后几个Map或Reduce任务，会导致MapReduce操作总的执行时间超过预期。产生以上现象的原因有很多。</p>
+<p>因此需要使用一个通用的机制来减少这种现象，当一个MapReduce操作接近完成的时候，master调度备用任务进程来处理剩下的任务。</p>
+<h2 id="改良的功能"><a href="#改良的功能" class="headerlink" title="改良的功能"></a>改良的功能</h2><h3 id="分区函数"><a href="#分区函数" class="headerlink" title="分区函数"></a>分区函数</h3><p>选择什么函数来进行对数据进行分区？</p>
+<p><code>hash(key) mod R</code>能产生非常平衡的分区，但是，其它分区函数对一些key的分区效果较好，例如输入的key值是URL，我们希望每个主机的所有条目保持在同一个输出文件中。</p>
+<h3 id="顺序保证"><a href="#顺序保证" class="headerlink" title="顺序保证"></a>顺序保证</h3><p>需要保证Reduce的生成顺序。</p>
+<h3 id="Combiner函数"><a href="#Combiner函数" class="headerlink" title="Combiner函数"></a>Combiner函数</h3><p>某些情况下，Map函数产生的中间key值的重复数据会占很大的比重，因此，允许用户指定一个可选的combiner函数，该函数首先在本地将重复数据进行一次合并，然后再通过网络发送出去。</p>
+<h3 id="输入和输出的类型"><a href="#输入和输出的类型" class="headerlink" title="输入和输出的类型"></a>输入和输出的类型</h3><p>可以预定义输入&#x2F;输出的数据类型。</p>
+<h3 id="跳过损坏的记录"><a href="#跳过损坏的记录" class="headerlink" title="跳过损坏的记录"></a>跳过损坏的记录</h3><p>有时，用户程序中的Bug会导致Map&#x2F;Reduce函数在处理记录的时候发生crash，常用的做法是修复Bug后再执行MapReduce操作。</p>
+<p>但是很多时候，忽略一些有问题的记录是可以接受的，因此提供了一种执行模式，MapReduce会检测哪些记录导致了crash，并且会跳过这些记录不做处理。</p>
+<p>每个worker进程都设置了信号处理函数来捕获内存段错误和总线错误。在执行MapReduce之前，通过全局变量保存记录序号。如果用户程序触发了一个系统信号，消息处理函数会通过UDP向master发送处理的最后一条记录的序号，当master看到处理某条记录失败多次后，master标记此条记录将不会被处理。</p>
+<h3 id="本地运行"><a href="#本地运行" class="headerlink" title="本地运行"></a>本地运行</h3><p>需要本地进行debug来测试。</p>
+<h3 id="状态信息"><a href="#状态信息" class="headerlink" title="状态信息"></a>状态信息</h3><p>master可以使用HTTP服务器来显示状态信息，用户可以监控各类信息。包括任务完成数量、任务处理数量、执行时间、资源占用等。</p>
+<h3 id="计数器"><a href="#计数器" class="headerlink" title="计数器"></a>计数器</h3><p>MapReduce提供计数功能，需要用户在程序中创建一个计数器对象，在Map&#x2F;Reduce函数中相应的增加计数器的值。</p>
+<p>计数器机制对于MapReduce操作的完整性检查十分有用。某些时候，用户需要确保输出的<strong>key&#x2F;value pair</strong>精确等于输入的<strong>key&#x2F;value pair</strong></p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/" class="category-chain-item">分布式系统</a>
+  
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/" class="print-no-link">#分布式系统</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>MapReduce论文阅读笔记</div>
+      <div>https://l1n.wang/2020/分布式系统/MapReduce-note/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2020年12月23日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/%E9%9A%8F%E7%AC%94/2020-summary/" title="2020总结">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">2020总结</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/OS/ostep-persistence/" title="OSTEP阅读笔记-Persistence（三）">
+                        <span class="hidden-mobile">OSTEP阅读笔记-Persistence（三）</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

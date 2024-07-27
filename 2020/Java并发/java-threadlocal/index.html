@@ -1,0 +1,1101 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介 This class provides thread-local variables. These variables differ from their normal counterparts in that each thread that accesses one (via its get or set method) has its own, independently initia">
+<meta property="og:type" content="article">
+<meta property="og:title" content="ThreadLocal解析">
+<meta property="og:url" content="https://l1n.wang/2020/Java%E5%B9%B6%E5%8F%91/java-threadlocal/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="简介 This class provides thread-local variables. These variables differ from their normal counterparts in that each thread that accesses one (via its get or set method) has its own, independently initia">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-12-03T03:17:38.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.366Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="并发">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  
+  <title>ThreadLocal解析 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="ThreadLocal解析"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2020-12-03 11:17" pubdate>
+          2020年12月3日 上午
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          1.5k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          13 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">ThreadLocal解析</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><blockquote>
+<p>This class provides thread-local variables. These variables differ from their normal counterparts in that each thread that accesses one (via its <code>get</code> or <code>set</code> method) has its own, independently initialized copy of the variable. <code>ThreadLocal</code> instances are typically private static fields in classes that wish to associate state with a thread (e.g., a user ID or Transaction ID).</p>
+</blockquote>
+<p>简而言之，<code>ThreadLocal</code>可以创建一个只能被当前线程访问或修改的变量。</p>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><blockquote>
+<p>Q：如何实现线程隔离？</p>
+</blockquote>
+<p>使用<code>Thread</code>对象中的<code>ThreadLocalMap</code>进行数据存储。也就是<code>ThreadLocal</code>将数据存储到当前的线程对象中，通过<code>Thread.currentThread()</code>来获取线程，再通过<code>getMap(t)</code>来获取<code>ThreadLocalMap</code>。具体内容通过阅读源码来逐步分析。</p>
+<h2 id="get"><a href="#get" class="headerlink" title="get"></a>get</h2><p>返回当前线程存储的<code>ThreadLocal</code>值，如果不存在，会进行初始化并返回。通过<code>map.getEntry(this)</code>。</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-comment">/**</span>
+<span class="hljs-comment"> * Returns the value in the current thread&#x27;s copy of this</span>
+<span class="hljs-comment"> * thread-local variable.  If the variable has no value for the</span>
+<span class="hljs-comment"> * current thread, it is first initialized to the value returned</span>
+<span class="hljs-comment"> * by an invocation of the &#123;<span class="hljs-doctag">@link</span> #initialValue&#125; method.</span>
+<span class="hljs-comment"> *</span>
+<span class="hljs-comment"> * <span class="hljs-doctag">@return</span> the current thread&#x27;s value of this thread-local</span>
+<span class="hljs-comment"> */</span>
+<span class="hljs-keyword">public</span> T <span class="hljs-title function_">get</span><span class="hljs-params">()</span> &#123;
+    <span class="hljs-comment">//获取当前对象</span>
+    <span class="hljs-type">Thread</span> <span class="hljs-variable">t</span> <span class="hljs-operator">=</span> Thread.currentThread();
+    <span class="hljs-comment">//通过getMap获取ThreadLocalMap</span>
+    <span class="hljs-type">ThreadLocalMap</span> <span class="hljs-variable">map</span> <span class="hljs-operator">=</span> getMap(t);
+    <span class="hljs-keyword">if</span> (map != <span class="hljs-literal">null</span>) &#123;
+        <span class="hljs-comment">//获取entry</span>
+        ThreadLocalMap.<span class="hljs-type">Entry</span> <span class="hljs-variable">e</span> <span class="hljs-operator">=</span> map.getEntry(<span class="hljs-built_in">this</span>);
+        <span class="hljs-keyword">if</span> (e != <span class="hljs-literal">null</span>) &#123;
+            <span class="hljs-meta">@SuppressWarnings(&quot;unchecked&quot;)</span>
+            <span class="hljs-type">T</span> <span class="hljs-variable">result</span> <span class="hljs-operator">=</span> (T)e.value;
+            <span class="hljs-keyword">return</span> result;
+        &#125;
+    &#125;
+    <span class="hljs-comment">//不存在则进行初始化</span>
+    <span class="hljs-keyword">return</span> setInitialValue();
+&#125;</code></pre></div>
+
+
+
+<h2 id="getMap"><a href="#getMap" class="headerlink" title="getMap"></a>getMap</h2><p>返回指定线程的<code>ThreadLocalMap</code>。</p>
+<div class="code-wrapper"><pre><code class="hljs java">ThreadLocalMap <span class="hljs-title function_">getMap</span><span class="hljs-params">(Thread t)</span> &#123;
+        <span class="hljs-keyword">return</span> t.threadLocals;
+&#125;</code></pre></div>
+
+
+
+<p><code>Thread</code>中关于<code>ThreadLocalMap</code>的部分：</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Thread</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Runnable</span> &#123;
+    <span class="hljs-comment">/* ThreadLocal values pertaining to this thread. This map is maintained</span>
+<span class="hljs-comment">     * by the ThreadLocal class. */</span>
+    ThreadLocal.<span class="hljs-type">ThreadLocalMap</span> <span class="hljs-variable">threadLocals</span> <span class="hljs-operator">=</span> <span class="hljs-literal">null</span>;
+
+&#125;</code></pre></div>
+
+
+
+<h2 id="setInitialValue"><a href="#setInitialValue" class="headerlink" title="setInitialValue"></a>setInitialValue</h2><p>get方法获取不到值时，通过该方法设置初始值。</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-comment">/**</span>
+<span class="hljs-comment"> * Variant of set() to establish initialValue. Used instead</span>
+<span class="hljs-comment"> * of set() in case user has overridden the set() method.</span>
+<span class="hljs-comment"> *</span>
+<span class="hljs-comment"> * <span class="hljs-doctag">@return</span> the initial value</span>
+<span class="hljs-comment"> */</span>
+<span class="hljs-keyword">private</span> T <span class="hljs-title function_">setInitialValue</span><span class="hljs-params">()</span> &#123;
+    <span class="hljs-type">T</span> <span class="hljs-variable">value</span> <span class="hljs-operator">=</span> initialValue();
+    <span class="hljs-type">Thread</span> <span class="hljs-variable">t</span> <span class="hljs-operator">=</span> Thread.currentThread();
+    <span class="hljs-type">ThreadLocalMap</span> <span class="hljs-variable">map</span> <span class="hljs-operator">=</span> getMap(t);
+    <span class="hljs-keyword">if</span> (map != <span class="hljs-literal">null</span>)
+        map.set(<span class="hljs-built_in">this</span>, value);
+    <span class="hljs-keyword">else</span>
+        createMap(t, value);
+    <span class="hljs-keyword">return</span> value;
+&#125;</code></pre></div>
+
+
+
+<h2 id="createMap"><a href="#createMap" class="headerlink" title="createMap"></a>createMap</h2><p><code>ThreadLocalMap</code>不存在时，通过该方法创建，这里有一个疑惑：</p>
+<blockquote>
+<p> Q：为什么在<code>get</code>和<code>setInitialValue</code>进行两次为空检查才进行<code>createMap</code>？</p>
+</blockquote>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">void</span> <span class="hljs-title function_">createMap</span><span class="hljs-params">(Thread t, T firstValue)</span> &#123;
+        t.threadLocals = <span class="hljs-keyword">new</span> <span class="hljs-title class_">ThreadLocalMap</span>(<span class="hljs-built_in">this</span>, firstValue);
+&#125;</code></pre></div>
+
+
+
+<h2 id="set"><a href="#set" class="headerlink" title="set"></a>set</h2><p>通过调用<code>map.set(this,value)</code>实现。map中的key是当前<code>ThreadLocal</code>对象。</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">set</span><span class="hljs-params">(T value)</span> &#123;
+        <span class="hljs-type">Thread</span> <span class="hljs-variable">t</span> <span class="hljs-operator">=</span> Thread.currentThread();
+        <span class="hljs-type">ThreadLocalMap</span> <span class="hljs-variable">map</span> <span class="hljs-operator">=</span> getMap(t);
+        <span class="hljs-keyword">if</span> (map != <span class="hljs-literal">null</span>)
+            map.set(<span class="hljs-built_in">this</span>, value);
+        <span class="hljs-keyword">else</span>
+            createMap(t, value);
+    &#125;</code></pre></div>
+
+
+
+<h2 id="ThreadLocalMap"><a href="#ThreadLocalMap" class="headerlink" title="ThreadLocalMap"></a>ThreadLocalMap</h2><p>内部类和成员变量代码如下：</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">static</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ThreadLocalMap</span> &#123;
+
+        <span class="hljs-comment">/**</span>
+<span class="hljs-comment">         * The entries in this hash map extend WeakReference, using</span>
+<span class="hljs-comment">         * its main ref field as the key (which is always a</span>
+<span class="hljs-comment">         * ThreadLocal object).  Note that null keys (i.e. entry.get()</span>
+<span class="hljs-comment">         * == null) mean that the key is no longer referenced, so the</span>
+<span class="hljs-comment">         * entry can be expunged from table.  Such entries are referred to</span>
+<span class="hljs-comment">         * as &quot;stale entries&quot; in the code that follows.</span>
+<span class="hljs-comment">         */</span>
+        <span class="hljs-keyword">static</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Entry</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">WeakReference</span>&lt;ThreadLocal&lt;?&gt;&gt; &#123;
+            <span class="hljs-comment">/** The value associated with this ThreadLocal. */</span>
+            Object value;
+
+            Entry(ThreadLocal&lt;?&gt; k, Object v) &#123;
+                <span class="hljs-built_in">super</span>(k);
+                value = v;
+            &#125;
+        &#125;
+
+        <span class="hljs-comment">/**</span>
+<span class="hljs-comment">         * The initial capacity -- MUST be a power of two.</span>
+<span class="hljs-comment">         */</span>
+        <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> <span class="hljs-variable">INITIAL_CAPACITY</span> <span class="hljs-operator">=</span> <span class="hljs-number">16</span>;
+
+        <span class="hljs-comment">/**</span>
+<span class="hljs-comment">         * The table, resized as necessary.</span>
+<span class="hljs-comment">         * table.length MUST always be a power of two.</span>
+<span class="hljs-comment">         */</span>
+        <span class="hljs-keyword">private</span> Entry[] table;
+
+        <span class="hljs-comment">/**</span>
+<span class="hljs-comment">         * The number of entries in the table.</span>
+<span class="hljs-comment">         */</span>
+        <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> <span class="hljs-variable">size</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+
+        <span class="hljs-comment">/**</span>
+<span class="hljs-comment">         * The next size value at which to resize.</span>
+<span class="hljs-comment">         */</span>
+        <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> threshold; <span class="hljs-comment">// Default to 0</span>
+&#125;</code></pre></div>
+
+
+
+<h3 id="set-1"><a href="#set-1" class="headerlink" title="set"></a>set</h3><p>流程：</p>
+<ul>
+<li>计算下标，得到下标i</li>
+<li>进行遍历，如果i对应的key和传入相等，直接返回。如果对象已被回收，调用<code>replaceStaleEntry()</code>并返回。</li>
+<li>如果i对应的不相等，则从i开始从table数组完后找。</li>
+<li>能找到则返回，找不到新建entry进行存储。</li>
+<li>检查是否需要<code>rehash()</code></li>
+</ul>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-comment">/**</span>
+<span class="hljs-comment">         * Set the value associated with key.</span>
+<span class="hljs-comment">         *</span>
+<span class="hljs-comment">         * <span class="hljs-doctag">@param</span> key the thread local object</span>
+<span class="hljs-comment">         * <span class="hljs-doctag">@param</span> value the value to be set</span>
+<span class="hljs-comment">         */</span>
+        <span class="hljs-keyword">private</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">set</span><span class="hljs-params">(ThreadLocal&lt;?&gt; key, Object value)</span> &#123;
+
+            <span class="hljs-comment">// We don&#x27;t use a fast path as with get() because it is at</span>
+            <span class="hljs-comment">// least as common to use set() to create new entries as</span>
+            <span class="hljs-comment">// it is to replace existing ones, in which case, a fast</span>
+            <span class="hljs-comment">// path would fail more often than not.</span>
+			
+            Entry[] tab = table;
+            <span class="hljs-type">int</span> <span class="hljs-variable">len</span> <span class="hljs-operator">=</span> tab.length;
+            <span class="hljs-comment">//获取hash后的下标</span>
+            <span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> key.threadLocalHashCode &amp; (len-<span class="hljs-number">1</span>);
+			<span class="hljs-comment">//遍历</span>
+            <span class="hljs-keyword">for</span> (<span class="hljs-type">Entry</span> <span class="hljs-variable">e</span> <span class="hljs-operator">=</span> tab[i];
+                 e != <span class="hljs-literal">null</span>;
+                 e = tab[i = nextIndex(i, len)]) &#123;
+                ThreadLocal&lt;?&gt; k = e.get();
+				<span class="hljs-comment">//如果对应下标的ThreadLocal与当前的相等，直接更新</span>
+                <span class="hljs-keyword">if</span> (k == key) &#123;
+                    e.value = value;
+                    <span class="hljs-keyword">return</span>;
+                &#125;
+				<span class="hljs-comment">//如果ThreadLocal对象已被回收，调用replaceStaleEntry</span>
+                <span class="hljs-keyword">if</span> (k == <span class="hljs-literal">null</span>) &#123;
+                    replaceStaleEntry(key, value, i);
+                    <span class="hljs-keyword">return</span>;
+                &#125;
+            &#125;
+			<span class="hljs-comment">//如果遍历一圈还是找不到，新建entry进行存储</span>
+            tab[i] = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Entry</span>(key, value);
+            <span class="hljs-type">int</span> <span class="hljs-variable">sz</span> <span class="hljs-operator">=</span> ++size;
+            <span class="hljs-comment">//检查是否需要rehash</span>
+            <span class="hljs-keyword">if</span> (!cleanSomeSlots(i, sz) &amp;&amp; sz &gt;= threshold)
+                rehash();
+        &#125;</code></pre></div>
+
+
+
+<p>下标计算方式：</p>
+<p>通过<code>AtomicInteger + 0x61c88647 &amp; (len-1)</code>来获取下标。</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> key.threadLocalHashCode &amp; (len-<span class="hljs-number">1</span>);
+
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> <span class="hljs-variable">threadLocalHashCode</span> <span class="hljs-operator">=</span> nextHashCode();
+
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-type">AtomicInteger</span> <span class="hljs-variable">nextHashCode</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AtomicInteger</span>();
+
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> <span class="hljs-variable">HASH_INCREMENT</span> <span class="hljs-operator">=</span> <span class="hljs-number">0x61c88647</span>;
+
+<span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">nextHashCode</span><span class="hljs-params">()</span> &#123;
+    <span class="hljs-keyword">return</span> nextHashCode.getAndAdd(HASH_INCREMENT);
+&#125;</code></pre></div>
+
+
+
+<h3 id="getEntry"><a href="#getEntry" class="headerlink" title="getEntry"></a>getEntry</h3><p>流程：</p>
+<ul>
+<li>计算下标，得到下标i</li>
+<li>判断对应下标的entry是否存在，key是否相等，符合要求则直接返回。</li>
+<li>不符合则调用<code>getEntryAfterMiss()</code></li>
+</ul>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-comment">/**</span>
+<span class="hljs-comment"> * Get the entry associated with key.  This method</span>
+<span class="hljs-comment"> * itself handles only the fast path: a direct hit of existing</span>
+<span class="hljs-comment"> * key. It otherwise relays to getEntryAfterMiss.  This is</span>
+<span class="hljs-comment"> * designed to maximize performance for direct hits, in part</span>
+<span class="hljs-comment"> * by making this method readily inlinable.</span>
+<span class="hljs-comment"> *</span>
+<span class="hljs-comment"> * <span class="hljs-doctag">@param</span>  key the thread local object</span>
+<span class="hljs-comment"> * <span class="hljs-doctag">@return</span> the entry associated with key, or null if no such</span>
+<span class="hljs-comment"> */</span>
+<span class="hljs-keyword">private</span> Entry <span class="hljs-title function_">getEntry</span><span class="hljs-params">(ThreadLocal&lt;?&gt; key)</span> &#123;
+    <span class="hljs-comment">//计算下标</span>
+    <span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> key.threadLocalHashCode &amp; (table.length - <span class="hljs-number">1</span>);
+    <span class="hljs-type">Entry</span> <span class="hljs-variable">e</span> <span class="hljs-operator">=</span> table[i];
+    <span class="hljs-keyword">if</span> (e != <span class="hljs-literal">null</span> &amp;&amp; e.get() == key)
+        <span class="hljs-keyword">return</span> e;
+    <span class="hljs-keyword">else</span>
+        <span class="hljs-comment">//entry不存在或key不相等</span>
+        <span class="hljs-keyword">return</span> getEntryAfterMiss(key, i, e);
+&#125;</code></pre></div>
+
+
+
+<h4 id="getEntryAfterMiss"><a href="#getEntryAfterMiss" class="headerlink" title="getEntryAfterMiss"></a>getEntryAfterMiss</h4><p>也就是对table数组进行遍历查找，找一圈还没有则返回<code>null</code>。</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">private</span> Entry <span class="hljs-title function_">getEntryAfterMiss</span><span class="hljs-params">(ThreadLocal&lt;?&gt; key, <span class="hljs-type">int</span> i, Entry e)</span> &#123;
+    Entry[] tab = table;
+    <span class="hljs-type">int</span> <span class="hljs-variable">len</span> <span class="hljs-operator">=</span> tab.length;
+
+    <span class="hljs-keyword">while</span> (e != <span class="hljs-literal">null</span>) &#123;
+        ThreadLocal&lt;?&gt; k = e.get();
+        <span class="hljs-keyword">if</span> (k == key)
+            <span class="hljs-keyword">return</span> e;
+        <span class="hljs-keyword">if</span> (k == <span class="hljs-literal">null</span>)
+            expungeStaleEntry(i);
+        <span class="hljs-keyword">else</span>
+            i = nextIndex(i, len);
+        e = tab[i];
+    &#125;
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">null</span>;
+&#125;</code></pre></div>
+
+
+
+
+
+<h3 id="remove"><a href="#remove" class="headerlink" title="remove"></a>remove</h3><p>流程：</p>
+<ul>
+<li>计算下标</li>
+<li>判断key是否相等，符合要求则调用<code>e.clear()</code>来清除key，并调用<code>expungeStaleEntry</code>清除value。</li>
+</ul>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-comment">/**</span>
+<span class="hljs-comment">         * Remove the entry for key.</span>
+<span class="hljs-comment">         */</span>
+        <span class="hljs-keyword">private</span> <span class="hljs-keyword">void</span> <span class="hljs-title function_">remove</span><span class="hljs-params">(ThreadLocal&lt;?&gt; key)</span> &#123;
+            Entry[] tab = table;
+            <span class="hljs-type">int</span> <span class="hljs-variable">len</span> <span class="hljs-operator">=</span> tab.length;
+            <span class="hljs-comment">//计算下标</span>
+            <span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> key.threadLocalHashCode &amp; (len-<span class="hljs-number">1</span>);
+            <span class="hljs-keyword">for</span> (<span class="hljs-type">Entry</span> <span class="hljs-variable">e</span> <span class="hljs-operator">=</span> tab[i];
+                 e != <span class="hljs-literal">null</span>;
+                 e = tab[i = nextIndex(i, len)]) &#123;
+                <span class="hljs-comment">//如果key相等</span>
+                <span class="hljs-keyword">if</span> (e.get() == key) &#123;
+                    e.clear();
+                    expungeStaleEntry(i);
+                    <span class="hljs-keyword">return</span>;
+                &#125;
+            &#125;
+        &#125;</code></pre></div>
+
+
+
+<h1 id="内存泄露问题"><a href="#内存泄露问题" class="headerlink" title="内存泄露问题"></a>内存泄露问题</h1><h2 id="问题分析"><a href="#问题分析" class="headerlink" title="问题分析"></a>问题分析</h2><p>从上文可以看到，<strong>Entry</strong>继承自<strong>WeakReference</strong>，弱引用指向的对象会在下一次GC时被回收。</p>
+<div class="code-wrapper"><pre><code class="hljs java">Entry(ThreadLocal&lt;?&gt; k, Object v) &#123;
+                <span class="hljs-built_in">super</span>(k);
+                value = v;
+&#125;</code></pre></div>
+
+<p>​		在初始化时，将弱引用指向<code>ThreadLocal</code>实例。如果外部没有强引用指向ThreadLocal的话，那么Thread Local实例就没有一条引用链路可达，则会被回收。此时entry的key未null，但是有value，但是不能通过key找到value，这样就会存在<strong>内存泄漏问题</strong>。但是如果线程结束，以上内存都会被回收，也就不存在上述问题。</p>
+<p>​		如果使用线程池去维护线程，线程池并不会主动销毁内部的线程，总会存在着强引用，那么还是会存在问题。</p>
+<p>总结问题出现的原因：</p>
+<ol>
+<li>线程一直运行，不终止（线程池）</li>
+<li>null-value：某个弱引用key被回收</li>
+</ol>
+<h2 id="如何解决"><a href="#如何解决" class="headerlink" title="如何解决"></a>如何解决</h2><p>上述的<code>getEntryAfterMiss()</code>如果判断到了<code>key == null</code>则会调用<code>expungeStaleEntry()</code>将value删除。</p>
+<div class="code-wrapper"><pre><code class="hljs java"><span class="hljs-keyword">private</span> <span class="hljs-type">int</span> <span class="hljs-title function_">expungeStaleEntry</span><span class="hljs-params">(<span class="hljs-type">int</span> staleSlot)</span> &#123;
+    Entry[] tab = table;
+    <span class="hljs-type">int</span> <span class="hljs-variable">len</span> <span class="hljs-operator">=</span> tab.length;
+
+    <span class="hljs-comment">// expunge entry at staleSlot</span>
+    tab[staleSlot].value = <span class="hljs-literal">null</span>;
+    tab[staleSlot] = <span class="hljs-literal">null</span>;
+    size--;
+
+    <span class="hljs-comment">// Rehash until we encounter null</span>
+    Entry e;
+    <span class="hljs-type">int</span> i;
+    <span class="hljs-keyword">for</span> (i = nextIndex(staleSlot, len);
+         (e = tab[i]) != <span class="hljs-literal">null</span>;
+         i = nextIndex(i, len)) &#123;
+        ThreadLocal&lt;?&gt; k = e.get();
+        <span class="hljs-keyword">if</span> (k == <span class="hljs-literal">null</span>) &#123;
+            e.value = <span class="hljs-literal">null</span>;
+            tab[i] = <span class="hljs-literal">null</span>;
+            size--;
+        &#125; <span class="hljs-keyword">else</span> &#123;
+            <span class="hljs-type">int</span> <span class="hljs-variable">h</span> <span class="hljs-operator">=</span> k.threadLocalHashCode &amp; (len - <span class="hljs-number">1</span>);
+            <span class="hljs-keyword">if</span> (h != i) &#123;
+                tab[i] = <span class="hljs-literal">null</span>;
+
+                <span class="hljs-comment">// Unlike Knuth 6.4 Algorithm R, we must scan until</span>
+                <span class="hljs-comment">// null because multiple entries could have been stale.</span>
+                <span class="hljs-keyword">while</span> (tab[h] != <span class="hljs-literal">null</span>)
+                    h = nextIndex(h, len);
+                tab[h] = e;
+            &#125;
+        &#125;
+    &#125;
+    <span class="hljs-keyword">return</span> i;
+&#125;</code></pre></div>
+
+
+
+<p>该方法在<code>set</code>、<code>get</code>、<code>remove</code>中都会调用。因此还有一个问题：如果创建了<code>ThreadLocal</code>但不调用以上方法，还是会存在问题。</p>
+<p>所以最能解决办法的就是用完<code>ThreadLocal</code>之后显式执行<code>ThreadLocal.remove()</code>。</p>
+<h2 id="为什么key不设置为强引用"><a href="#为什么key不设置为强引用" class="headerlink" title="为什么key不设置为强引用"></a>为什么key不设置为强引用</h2><p>既然弱引用会存在内存泄露问题，为什么不使用强引用呢？</p>
+<p>如果将key设置为强引用，当<code>ThreadLocal</code>实例释放后，但是ThreadLocal强引用指向threadLocalMap，threadLocalMap.Entry又强引用指向ThreadLocal，这样会导致ThreadLocal无法回收。也就会出现更为严重的问题。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p>Java SE 8 Docs API</p>
+<p><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/dde92ec37bd1">https://www.jianshu.com/p/dde92ec37bd1</a></p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/Java/" class="category-chain-item">Java</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/Java/Java%E5%B9%B6%E5%8F%91/" class="category-chain-item">Java并发</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/Java/" class="print-no-link">#Java</a>
+      
+        <a href="/tags/%E5%B9%B6%E5%8F%91/" class="print-no-link">#并发</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>ThreadLocal解析</div>
+      <div>https://l1n.wang/2020/Java并发/java-threadlocal/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2020年12月3日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/OS/ostep-virtualization/" title="OSTEP阅读笔记-Virtuallization（一）">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">OSTEP阅读笔记-Virtuallization（一）</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/Java%E5%B9%B6%E5%8F%91/%E5%87%A0%E4%B8%AAJava%E5%B9%B6%E5%8F%91%E5%B7%A5%E5%85%B7%E7%B1%BB%E8%A7%A3%E6%9E%90/" title="几个Java并发工具类解析">
+                        <span class="hidden-mobile">几个Java并发工具类解析</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

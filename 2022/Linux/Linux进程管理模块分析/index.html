@@ -1,0 +1,1636 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="二进制程序执行编译过程源代码文件会经过以下的步骤生成可执行文件（CSAPP）：  预处理：预处理过程会将头文件嵌入代码中，定义宏展开，生成.i文件 编译：编译生成汇编语言程序,生成.s文件 汇编：汇编器as将汇编语言翻译成机器指令，打包成.o文件，这被称为Relocatable File 链接：链接器ld将链接库和重定位文件合并，生成可执行文件  编译process.c内容如下： #include">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux进程管理模块分析">
+<meta property="og:url" content="https://l1n.wang/2022/Linux/Linux%E8%BF%9B%E7%A8%8B%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="二进制程序执行编译过程源代码文件会经过以下的步骤生成可执行文件（CSAPP）：  预处理：预处理过程会将头文件嵌入代码中，定义宏展开，生成.i文件 编译：编译生成汇编语言程序,生成.s文件 汇编：汇编器as将汇编语言翻译成机器指令，打包成.o文件，这被称为Relocatable File 链接：链接器ld将链接库和重定位文件合并，生成可执行文件  编译process.c内容如下： #include">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220716124604381.png">
+<meta property="article:published_time" content="2022-07-14T15:31:46.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.363Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="l1nker4">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220716124604381.png">
+  
+  
+  
+  <title>Linux进程管理模块分析 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Linux进程管理模块分析"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2022-07-14 23:31" pubdate>
+          2022年7月14日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          4.6k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          39 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Linux进程管理模块分析</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h2 id="二进制程序执行"><a href="#二进制程序执行" class="headerlink" title="二进制程序执行"></a>二进制程序执行</h2><h3 id="编译过程"><a href="#编译过程" class="headerlink" title="编译过程"></a>编译过程</h3><p>源代码文件会经过以下的步骤生成可执行文件（CSAPP）：</p>
+<ul>
+<li>预处理：预处理过程会将头文件嵌入代码中，定义宏展开，生成<code>.i</code>文件</li>
+<li>编译：编译生成汇编语言程序,生成<code>.s</code>文件</li>
+<li>汇编：汇编器as将汇编语言翻译成机器指令，打包成<code>.o</code>文件，这被称为<code>Relocatable File</code></li>
+<li>链接：链接器ld将链接库和重定位文件合并，生成可执行文件</li>
+</ul>
+<h3 id="编译"><a href="#编译" class="headerlink" title="编译"></a>编译</h3><p><code>process.c</code>内容如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-meta">#<span class="hljs-keyword">include</span> <span class="hljs-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">include</span> <span class="hljs-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">include</span> <span class="hljs-string">&lt;sys/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">include</span> <span class="hljs-string">&lt;unistd.h&gt;</span></span>
+ 
+ 
+<span class="hljs-keyword">extern</span> <span class="hljs-type">int</span> <span class="hljs-title function_">create_process</span> <span class="hljs-params">(<span class="hljs-type">char</span>* program, <span class="hljs-type">char</span>** arg_list)</span>;
+ 
+ 
+<span class="hljs-type">int</span> <span class="hljs-title function_">create_process</span> <span class="hljs-params">(<span class="hljs-type">char</span>* program, <span class="hljs-type">char</span>** arg_list)</span>
+&#123;
+    <span class="hljs-type">pid_t</span> child_pid;
+    child_pid = fork ();
+    <span class="hljs-keyword">if</span> (child_pid != <span class="hljs-number">0</span>)
+        <span class="hljs-keyword">return</span> child_pid;
+    <span class="hljs-keyword">else</span> &#123;
+        execvp (program, arg_list);
+        <span class="hljs-built_in">abort</span> ();
+    &#125;</code></pre></div>
+
+
+
+<p><code>createprocess.c</code>内容如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-meta">#<span class="hljs-keyword">include</span> <span class="hljs-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">include</span> <span class="hljs-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">include</span> <span class="hljs-string">&lt;sys/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">include</span> <span class="hljs-string">&lt;unistd.h&gt;</span></span>
+ 
+<span class="hljs-keyword">extern</span> <span class="hljs-type">int</span> <span class="hljs-title function_">create_process</span> <span class="hljs-params">(<span class="hljs-type">char</span>* program, <span class="hljs-type">char</span>** arg_list)</span>;
+ 
+<span class="hljs-type">int</span> <span class="hljs-title function_">main</span> <span class="hljs-params">()</span>
+&#123;
+    <span class="hljs-type">char</span>* arg_list[] = &#123;
+        <span class="hljs-string">&quot;ls&quot;</span>,
+        <span class="hljs-string">&quot;-l&quot;</span>,
+        <span class="hljs-string">&quot;/opt/&quot;</span>,
+        <span class="hljs-literal">NULL</span>
+    &#125;;
+    create_process (<span class="hljs-string">&quot;ls&quot;</span>, arg_list);
+    <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+&#125;</code></pre></div>
+
+
+
+
+
+<p>编译上面两个文件，生成<code>.o</code>文件</p>
+<div class="code-wrapper"><pre><code class="hljs tap">gcc -c -fPIC process.c
+gcc -c -fPIC createprocess.c
+
+drwxr-xr-x<span class="hljs-number"> 2 </span>root root<span class="hljs-number"> 4096 </span>Jul<span class="hljs-number"> 12 </span>18:29 ./
+drwxr-xr-x<span class="hljs-number"> 3 </span>root root<span class="hljs-number"> 4096 </span>Jul<span class="hljs-number"> 12 </span>18:25 ../
+-rw-r--r--<span class="hljs-number"> 1 </span>root root <span class="hljs-number"> 289 </span>Jul<span class="hljs-number"> 12 </span>18:27 createprocess.c
+-rw-r--r--<span class="hljs-number"> 1 </span>root root<span class="hljs-number"> 1888 </span>Jul<span class="hljs-number"> 12 </span>18:29 createprocess.o
+-rw-r--r--<span class="hljs-number"> 1 </span>root root <span class="hljs-number"> 373 </span>Jul<span class="hljs-number"> 12 </span>18:28 process.c
+-rw-r--r--<span class="hljs-number"> 1 </span>root root<span class="hljs-number"> 1712 </span>Jul<span class="hljs-number"> 12 </span>18:28 process.o</code></pre></div>
+
+
+
+<p>Linux中的二进制文件格式为<strong>ELF</strong>（Executeable and Linkable Format），上面的<code>.o</code>文件是ELF文件中的<code>Relocatable File</code>，其各部分与其功能如下所示：</p>
+<ul>
+<li>ELF Header：描述整个文件，文件格式在kernel中定义，64位由<code>struct elf64_hdr</code>定义</li>
+<li>.text：编译好的二进制可执行代码</li>
+<li>.data：初始化好的全局变量</li>
+<li>.rodata：只读数据，const声明的变量、字符串常量</li>
+<li>.bss：未初始化的全局变量，运行时置为0</li>
+<li>.symtab：符号表，记录的是函数和变量名</li>
+<li>.strtab：字符串表，字符串常量和变量名</li>
+<li>Section Header Table：存储section的元数据</li>
+<li>.rel.*：重定位表，记录重定位项</li>
+</ul>
+<h3 id="链接"><a href="#链接" class="headerlink" title="链接"></a>链接</h3><p>需要让<code>create_process </code>能被重用，需要形成链接库文件，使用下面的命令完成静态链接生成：</p>
+<div class="code-wrapper"><pre><code class="hljs livecodeserver">ar <span class="hljs-literal">cr</span> libstaticprocess.<span class="hljs-keyword">a</span> <span class="hljs-built_in">process</span>.o</code></pre></div>
+
+
+
+<p>将两者连接起来生成二进制执行文件<code>staticcreateprocess</code>：</p>
+<div class="code-wrapper"><pre><code class="hljs nginx"><span class="hljs-attribute">gcc</span> -o staticcreateprocess createprocess.o -L. -lstaticprocess</code></pre></div>
+
+
+
+<p>上面生成的二进制执行文件可以直接在Linux运行，这也是ELF文件，格式和对象文件十分类似，是由多个<code>.o</code>文件合并而成，各部分如下：</p>
+<ul>
+<li>代码段<ul>
+<li>.text</li>
+<li>.rodata</li>
+</ul>
+</li>
+<li>数据段<ul>
+<li>.data</li>
+<li>.bss</li>
+</ul>
+</li>
+<li>不加载到内存的部分：ELF header、.symtab、.strtab、Section Header Table<ul>
+<li>Segment Header Table：代码中定义为<code>struct elf64_phdr</code>，主要是对段的描述，</li>
+<li>ELF Header中的<code>e_entry</code>字段存储程序入口的虚拟地址</li>
+</ul>
+</li>
+</ul>
+<h3 id="动态链接"><a href="#动态链接" class="headerlink" title="动态链接"></a>动态链接</h3><p>动态链接库是多个对象文件的组合，可以被多个程序共享。</p>
+<div class="code-wrapper"><pre><code class="hljs stylus">gcc -shared -fPIC -o libdynamicprocess<span class="hljs-selector-class">.so</span> process<span class="hljs-selector-class">.o</span>
+gcc -o dynamiccreateprocess createprocess<span class="hljs-selector-class">.o</span> -L. -ldynamicprocess
+<span class="hljs-comment">//默认去/lib、/usr/lib 寻找动态链接库，修改为当前路径</span>
+export LD_LIBRARY_PATH=.</code></pre></div>
+
+
+
+<p>动态链接也是ELF格式文件，多了<code>.interp</code>的segment，里面是<code>ld-linux.so</code>，这是做动态链接的工具。</p>
+<p>新增的section如下：</p>
+<ul>
+<li>.plt（Procedure Linkage Table）：过程链接表，entry存储地址，跳转到GOT的entry</li>
+<li>.got.plt（Global Offset Table GOT）：全局偏移量表，这里的entry存储函数的实际内存虚拟地址<ul>
+<li>初始化时GOT如何找到函数的内存地址：回调到PLT，PLT触发<code>ld-linux.so</code>去找地址，并将地址存储在GOT</li>
+</ul>
+</li>
+</ul>
+<h3 id="ELF注册机制"><a href="#ELF注册机制" class="headerlink" title="ELF注册机制"></a>ELF注册机制</h3><p>Linux kernel对支持的可执行文件类型都有<code>linux_binfmt</code>的结构，定义在<code>include/linux/binfmts.h</code>中</p>
+<p>下面的struct定义了加载二进制文件的方法：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">linux_binfmt</span> &#123;</span>
+        <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">list_head</span> <span class="hljs-title">lh</span>;</span>
+        <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">module</span> *<span class="hljs-title">module</span>;</span>
+        <span class="hljs-type">int</span> (*load_binary)(<span class="hljs-keyword">struct</span> linux_binprm *);
+        <span class="hljs-type">int</span> (*load_shlib)(<span class="hljs-keyword">struct</span> file *);
+        <span class="hljs-type">int</span> (*core_dump)(<span class="hljs-keyword">struct</span> coredump_params *cprm);
+        <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> min_coredump;     <span class="hljs-comment">/* minimal dump size */</span>
+&#125; __randomize_layout;
+
+<span class="hljs-comment">//ELF文件的实现 </span>
+<span class="hljs-type">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">linux_binfmt</span> <span class="hljs-title">elf_format</span> =</span> &#123;
+        .module         = THIS_MODULE,
+        .load_binary    = load_elf_binary,
+        .load_shlib     = load_elf_library,
+        .core_dump      = elf_core_dump,
+        .min_coredump   = ELF_EXEC_PAGESIZE,
+&#125;;</code></pre></div>
+
+
+
+<p>其中的函数与含义如下：</p>
+<ul>
+<li>load_binary：读取可执行文件并为当前进程创建一个新的执行环境。</li>
+<li>load_shlib：动态的把一个共享库捆绑到在运行的进程。</li>
+<li>core_dump：在名称为core的文件中，存放当前进程的上下文，这个文件是进程收到<code>dump</code>信号时被创建的</li>
+</ul>
+<p>Linux中的<code>linux_binfmt</code>都存储在链表中，执行可执行文件时，kernel会遍历list找到指定的<code>linux_binfmt</code>，并调用<code>load_binary</code>来加载程序。</p>
+<blockquote>
+<p>Q：ELF文件在什么时间段完成<code>linux_binfmt</code>的注册？</p>
+</blockquote>
+<h2 id="Linux中使用线程"><a href="#Linux中使用线程" class="headerlink" title="Linux中使用线程"></a>Linux中使用线程</h2><p>普通线程的创建和运行过程：</p>
+<ul>
+<li>声明线程函数：定义一个工作函数</li>
+<li>声明线程对象：<code>pthread_t thread;</code></li>
+<li>设置线程属性：<code>pthread_attr_t、pthread_attr_init、pthread_attr_setdetachstate</code></li>
+<li>创建线程：<code>pthread_create</code></li>
+<li>销毁线程属性：<code>pthread_attr_destroy</code></li>
+<li>等待线程结束：<code>pthread_join</code></li>
+<li>主线程结束：<code>pthread_exit</code></li>
+</ul>
+<p>线程能访问的数据分为以下几种：</p>
+<ul>
+<li>线程stack上的本地数据：函数执行过程中的局部变量<ul>
+<li>stack大小可以通过<code>ulimit -a</code>查看</li>
+<li>stack大小可以通过<code>ulimit -s</code>修改，或者<code>pthread_attr_setstacksize</code>函数修改。</li>
+</ul>
+</li>
+<li>进程共享的全局数据：全局变量，需要使用<code>mutex</code>等方案保证线程安全。</li>
+<li>线程私有数据：线程内部各个函数传递信息，线程外的函数无法访问到这些数据<ul>
+<li>通过<code>pthread_key_create</code>创建key</li>
+<li><code>pthread_setspecific</code>设置key对应的value</li>
+<li><code>pthread_getspecific</code>获取key对应的value</li>
+</ul>
+</li>
+</ul>
+<h2 id="task-struct结构"><a href="#task-struct结构" class="headerlink" title="task_struct结构"></a>task_struct结构</h2><p>在OS理论课程中的PCB，在Linux中实现就是<code>task_struct</code>，该结构体通过<strong>链表</strong>进行连接，无论是进程还是线程，在内核中都被称为<code>task</code>，并使用上述结构体存储<code>metadata</code>。</p>
+<h3 id="进程Id"><a href="#进程Id" class="headerlink" title="进程Id"></a>进程Id</h3><p>线程组id用于区分线程和进程（线程拥有tgid），同一进程中的所有线程具有同一个<code>tgid</code>，<code>tgid</code>等于第一个主线程的pid。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-type">pid_t</span> pid;<span class="hljs-comment">//进程ID</span>
+<span class="hljs-type">pid_t</span> tgid;<span class="hljs-comment">//线程组ID</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">group_leader</span>;</span> c</code></pre></div>
+
+
+
+<h3 id="运行状态"><a href="#运行状态" class="headerlink" title="运行状态"></a>运行状态</h3><ul>
+<li>state：进程运行状态</li>
+<li>exit_state：任务终止状态</li>
+<li>flags：进程状态的信息，用于kernel识别进程当前状态</li>
+</ul>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-keyword">volatile</span> <span class="hljs-type">long</span> state;    <span class="hljs-comment">/* -1 unrunnable, 0 runnable, &gt;0 stopped */</span>
+<span class="hljs-type">int</span> exit_state;
+<span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> flags;
+
+<span class="hljs-comment">/*</span>
+<span class="hljs-comment"> * Task state bitmask. NOTE! These bits are also</span>
+<span class="hljs-comment"> * encoded in fs/proc/array.c: get_task_state().</span>
+<span class="hljs-comment"> *</span>
+<span class="hljs-comment"> * We have two separate sets of flags: task-&gt;state</span>
+<span class="hljs-comment"> * is about runnability, while task-&gt;exit_state are</span>
+<span class="hljs-comment"> * about the task exiting. Confusing, but this way</span>
+<span class="hljs-comment"> * modifying one set can&#x27;t modify the other one by</span>
+<span class="hljs-comment"> * mistake.</span>
+<span class="hljs-comment"> */</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_RUNNING		0</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_INTERRUPTIBLE	1</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_UNINTERRUPTIBLE	2</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> __TASK_STOPPED		4</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> __TASK_TRACED		8</span>
+<span class="hljs-comment">/* in tsk-&gt;exit_state */</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> EXIT_DEAD		16</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> EXIT_ZOMBIE		32</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> EXIT_TRACE		(EXIT_ZOMBIE | EXIT_DEAD)</span>
+<span class="hljs-comment">/* in tsk-&gt;state again */</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_DEAD		64</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_WAKEKILL		128</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_WAKING		256</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_PARKED		512</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_STATE_MAX		1024</span>
+················
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_KILLABLE		(TASK_WAKEKILL | TASK_UNINTERRUPTIBLE)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_STOPPED		(TASK_WAKEKILL | __TASK_STOPPED)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> TASK_TRACED		(TASK_WAKEKILL | __TASK_TRACED)</span></code></pre></div>
+
+<p>Linux中的睡眠状态：</p>
+<ul>
+<li><strong>TASK_INTERRUPTIBLE</strong>：可中断睡眠</li>
+<li><strong>TASK_UNINTERRUPTIBLE</strong>：不可中断睡眠，不可被信号唤醒</li>
+<li><strong>TASK_KILLABLE</strong>：可终止的新睡眠状态，只能接受致命信号</li>
+</ul>
+<p>其他状态：</p>
+<ul>
+<li><p><strong>TASK_RUNNING</strong>：要么正在执行，要么准备被调度</p>
+</li>
+<li><p><strong>TASK_STOPPED</strong> ：进程接收到了SIGSTOP、SIGTTIN、SIGTSTP、SIGTTOU信号后进入该状态。</p>
+</li>
+<li><p><strong>TASK_TRACED</strong> ：进程正在被debug进程监视</p>
+</li>
+<li><p><strong>EXIT_ZOMBIE</strong> ：进程结束进入的状态，若父进程没有用<code>wait()</code>等syscall获取它的终止信息，该进程变成僵尸进程。</p>
+</li>
+<li><p><strong>EXIT_DEAD</strong>：进程执行完的最终状态</p>
+</li>
+</ul>
+<p><code>flags</code>取值如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">/*</span>
+<span class="hljs-comment"> * Per process flags</span>
+<span class="hljs-comment"> */</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_EXITING	0x00000004	<span class="hljs-comment">/* getting shut down */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_EXITPIDONE	0x00000008	<span class="hljs-comment">/* pi exit done on shut down */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_VCPU		0x00000010	<span class="hljs-comment">/* I&#x27;m a virtual CPU */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_WQ_WORKER	0x00000020	<span class="hljs-comment">/* I&#x27;m a workqueue worker */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_FORKNOEXEC	0x00000040	<span class="hljs-comment">/* forked but didn&#x27;t exec */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_MCE_PROCESS  0x00000080      <span class="hljs-comment">/* process policy on mce errors */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_SUPERPRIV	0x00000100	<span class="hljs-comment">/* used super-user privileges */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_DUMPCORE	0x00000200	<span class="hljs-comment">/* dumped core */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_SIGNALED	0x00000400	<span class="hljs-comment">/* killed by a signal */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_MEMALLOC	0x00000800	<span class="hljs-comment">/* Allocating memory */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_NPROC_EXCEEDED 0x00001000	<span class="hljs-comment">/* set_user noticed that RLIMIT_NPROC was exceeded */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_USED_MATH	0x00002000	<span class="hljs-comment">/* if unset the fpu must be initialized before use */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_USED_ASYNC	0x00004000	<span class="hljs-comment">/* used async_schedule*(), used by module init */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_NOFREEZE	0x00008000	<span class="hljs-comment">/* this thread should not be frozen */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_FROZEN	0x00010000	<span class="hljs-comment">/* frozen for system suspend */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_FSTRANS	0x00020000	<span class="hljs-comment">/* inside a filesystem transaction */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_KSWAPD	0x00040000	<span class="hljs-comment">/* I am kswapd */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_MEMALLOC_NOIO 0x00080000	<span class="hljs-comment">/* Allocating memory without IO involved */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_LESS_THROTTLE 0x00100000	<span class="hljs-comment">/* Throttle me less: I clean memory */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_KTHREAD	0x00200000	<span class="hljs-comment">/* I am a kernel thread */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_RANDOMIZE	0x00400000	<span class="hljs-comment">/* randomize virtual address space */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_SWAPWRITE	0x00800000	<span class="hljs-comment">/* Allowed to write to swap */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_NO_SETAFFINITY 0x04000000	<span class="hljs-comment">/* Userland is not allowed to meddle with cpus_allowed */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_MCE_EARLY    0x08000000      <span class="hljs-comment">/* Early kill for mce process policy */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_MUTEX_TESTER	0x20000000	<span class="hljs-comment">/* Thread belongs to the rt mutex tester */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_FREEZER_SKIP	0x40000000	<span class="hljs-comment">/* Freezer should not count it as freezable */</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> PF_SUSPEND_TASK 0x80000000      <span class="hljs-comment">/* this thread called freeze_processes and should not be frozen */</span></span></code></pre></div>
+
+
+
+
+
+<h3 id="信号处理"><a href="#信号处理" class="headerlink" title="信号处理"></a>信号处理</h3><p>信号处理函数默认使用用户态的函数栈，也可以开辟新的栈用于信号处理。这里定义了那些信号被阻塞暂不处理（blocked）、哪些信号尚待处理（pending）、哪些正在通过信号处理函数处理（sighand）</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">/* Signal handlers: */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">signal_struct</span>		*<span class="hljs-title">signal</span>;</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sighand_struct</span>		*<span class="hljs-title">sighand</span>;</span>
+<span class="hljs-type">sigset_t</span>			blocked;
+<span class="hljs-type">sigset_t</span>			real_blocked;
+<span class="hljs-type">sigset_t</span>			saved_sigmask;
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sigpending</span>		<span class="hljs-title">pending</span>;</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>			sas_ss_sp;
+<span class="hljs-type">size_t</span>				sas_ss_size;
+<span class="hljs-type">unsigned</span> <span class="hljs-type">int</span>			sas_ss_flags;</code></pre></div>
+
+
+
+
+
+
+<h3 id="运行情况"><a href="#运行情况" class="headerlink" title="运行情况"></a>运行情况</h3><p>各字段含义如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c">u64				utime;<span class="hljs-comment">// 用户态消耗的 CPU 时间</span>
+u64				stime;<span class="hljs-comment">// 内核态消耗的 CPU 时间</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>			nvcsw;<span class="hljs-comment">// 自愿 (voluntary) 上下文切换计数</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>			nivcsw;<span class="hljs-comment">// 非自愿 (involuntary) 上下文切换计数</span>
+u64				start_time;<span class="hljs-comment">// 进程启动时间，不包含睡眠时间</span>
+u64				real_start_time;<span class="hljs-comment">// 进程启动时间，包含睡眠时间</span></code></pre></div>
+
+
+
+<h3 id="父子进程关系"><a href="#父子进程关系" class="headerlink" title="父子进程关系"></a>父子进程关系</h3><p>若在bash使用某进程创建进程，此时<code>real_parent</code>为bash，parent为某进程id，其他情况两者相同。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> __<span class="hljs-title">rcu</span> *<span class="hljs-title">real_parent</span>;</span> <span class="hljs-comment">//指向父进程</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> __<span class="hljs-title">rcu</span> *<span class="hljs-title">parent</span>;</span> <span class="hljs-comment">//指向父进程</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">list_head</span> <span class="hljs-title">children</span>;</span>      <span class="hljs-comment">//指向子进程的链表头部</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">list_head</span> <span class="hljs-title">sibling</span>;</span>       <span class="hljs-comment">//指向兄弟进程</span></code></pre></div>
+
+
+
+<h3 id="进程拥有权限"><a href="#进程拥有权限" class="headerlink" title="进程拥有权限"></a>进程拥有权限</h3><ul>
+<li>Objective：当前进程能操作的对象</li>
+<li>Subjective：能操作当前进程的对象</li>
+</ul>
+<p>定义的取值是用户和用户所属的用户组信息。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">/* Objective and real subjective task credentials (COW): */</span>
+<span class="hljs-type">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">cred</span> __<span class="hljs-title">rcu</span>         *<span class="hljs-title">real_cred</span>;</span>	<span class="hljs-comment">//谁能操作当前进程</span>
+<span class="hljs-comment">/* Effective (overridable) subjective task credentials (COW): */</span>
+<span class="hljs-type">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">cred</span> __<span class="hljs-title">rcu</span>         *<span class="hljs-title">cred</span>;</span> <span class="hljs-comment">//当前进程能操作的</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">cred</span> &#123;</span>
+......
+        <span class="hljs-type">kuid_t</span>          uid;            <span class="hljs-comment">//启动当前进程的进程id</span>
+        <span class="hljs-type">kgid_t</span>          gid;            <span class="hljs-comment">//同上</span>
+        <span class="hljs-type">kuid_t</span>          suid;           <span class="hljs-comment">/* saved UID of the task */</span>
+        <span class="hljs-type">kgid_t</span>          sgid;           <span class="hljs-comment">/* saved GID of the task */</span>
+        <span class="hljs-type">kuid_t</span>          euid;           <span class="hljs-comment">//操作消息队列 共享内存 信号量比较的权限</span>
+        <span class="hljs-type">kgid_t</span>          egid;           <span class="hljs-comment">/* effective GID of the task */</span>
+        <span class="hljs-type">kuid_t</span>          fsuid;          <span class="hljs-comment">//文件系统操作比较的权限</span>
+        <span class="hljs-type">kgid_t</span>          fsgid;          <span class="hljs-comment">/* GID for VFS ops */</span>
+......
+        <span class="hljs-type">kernel_cap_t</span>    cap_inheritable; <span class="hljs-comment">//继承的权限集合</span>
+        <span class="hljs-type">kernel_cap_t</span>    cap_permitted;  <span class="hljs-comment">//当前进程能够使用的权限</span>
+        <span class="hljs-type">kernel_cap_t</span>    cap_effective;  <span class="hljs-comment">//实际能使用的权限</span>
+        <span class="hljs-type">kernel_cap_t</span>    cap_bset;       <span class="hljs-comment">//系统中所有进程允许保留的权限</span>
+        <span class="hljs-type">kernel_cap_t</span>    cap_ambient;    <span class="hljs-comment">/* Ambient capability set */</span>
+......
+&#125; __randomize_layout;</code></pre></div>
+
+
+
+<p>除了以用户和用户组控制权限，Linux还用<strong>capabilities</strong>机制控制。用bitmap来表示权限，<code>capability.h</code>可以找到定义的权限。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-meta">#<span class="hljs-keyword">define</span> CAP_CHOWN            0</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> CAP_KILL             5</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> CAP_NET_BIND_SERVICE 10</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> CAP_NET_RAW          13</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> CAP_SYS_MODULE       16</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> CAP_SYS_RAWIO        17</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> CAP_SYS_BOOT         22</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> CAP_SYS_TIME         25</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> CAP_AUDIT_READ          37</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> CAP_LAST_CAP         CAP_AUDIT_READ</span></code></pre></div>
+
+
+
+<h3 id="函数栈"><a href="#函数栈" class="headerlink" title="函数栈"></a>函数栈</h3><p>进程中的函数调用都是通过函数栈来实现的，每个函数都是一个栈帧，函数开始运行入栈，结束运行出栈。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">thread_info</span>		<span class="hljs-title">thread_info</span>;</span>	<span class="hljs-comment">//存放对task_struct的补充信息（针对其他体系结构）</span>
+<span class="hljs-type">void</span>  *<span class="hljs-built_in">stack</span>;							<span class="hljs-comment">//内核栈</span>
+
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> THREAD_SIZE_ORDER	1</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> THREAD_SIZE		(PAGE_SIZE &lt;&lt; THREAD_SIZE_ORDER)</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">thread_info</span> &#123;</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>        flags;        <span class="hljs-comment">/* low level flags */</span>
+    <span class="hljs-type">mm_segment_t</span>        addr_limit;    <span class="hljs-comment">/* address limit */</span>
+    <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span>    *<span class="hljs-title">task</span>;</span>        <span class="hljs-comment">/* main task structure */</span>
+    <span class="hljs-type">int</span>            preempt_count;    <span class="hljs-comment">/* 0 =&gt; preemptable, &lt;0 =&gt; bug */</span>
+    <span class="hljs-type">int</span>            cpu;        <span class="hljs-comment">/* cpu */</span>
+&#125;;</code></pre></div>
+
+<p>普通函数存储在用户态函数栈，当发生系统调用，从进程空间转换到内核空间时，使用内核态函数栈存储栈帧。</p>
+<p>内核栈在x86架构64bit中，定义在<code>arch/x86/include/asm/page_64_types.h</code>文件中，内核栈大小为<code>PAGE_SIZE</code>右移两位（16K），起始地址必须是8192的整数倍。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-meta">#<span class="hljs-keyword">ifdef</span> CONFIG_KASAN</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> KASAN_STACK_ORDER 1</span>
+<span class="hljs-meta">#<span class="hljs-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> KASAN_STACK_ORDER 0</span>
+<span class="hljs-meta">#<span class="hljs-keyword">endif</span></span>
+ 
+ 
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> THREAD_SIZE_ORDER	(2 + KASAN_STACK_ORDER)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> THREAD_SIZE  (PAGE_SIZE &lt;&lt; THREAD_SIZE_ORDER)</span></code></pre></div>
+
+
+
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220716124604381.png" srcset="/img/loading.gif" lazyload alt="stack结构图"></p>
+<p><code>stack</code>指向的地址空间最顶端是<code>pt_regs</code>（存储用户态上下文），当发生用户态转内核态时，存储用户态的CPU上下文信息，定义如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">pt_regs</span> &#123;</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> r15;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> r14;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> r13;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> r12;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> bp;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> bx;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> r11;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> r10;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> r9;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> r8;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> ax;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> cx;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> dx;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> si;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> di;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> orig_ax;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> ip;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> cs;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> flags;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> sp;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> ss;
+<span class="hljs-comment">/* top of stack page */</span>
+&#125;;</code></pre></div>
+
+
+
+<h3 id="内存管理"><a href="#内存管理" class="headerlink" title="内存管理"></a>内存管理</h3><div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">mm_struct</span>                *<span class="hljs-title">mm</span>;</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">mm_struct</span>                *<span class="hljs-title">active_mm</span>;</span></code></pre></div>
+
+
+
+<h3 id="文件系统"><a href="#文件系统" class="headerlink" title="文件系统"></a>文件系统</h3><div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">/* Filesystem information: */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">fs_struct</span>                *<span class="hljs-title">fs</span>;</span>
+<span class="hljs-comment">/* Open file information: */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">files_struct</span>             *<span class="hljs-title">files</span>;</span></code></pre></div>
+
+
+
+
+
+
+
+<h2 id="进程调度"><a href="#进程调度" class="headerlink" title="进程调度"></a>进程调度</h2><p>有关进程调度的字段如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">// 是否在运行队列上</span>
+<span class="hljs-type">int</span>				on_rq;
+<span class="hljs-comment">// 优先级</span>
+<span class="hljs-type">int</span>				prio;
+<span class="hljs-type">int</span>				static_prio;
+<span class="hljs-type">int</span>				normal_prio;
+<span class="hljs-type">unsigned</span> <span class="hljs-type">int</span>			rt_priority;
+<span class="hljs-comment">// 调度器类，调度策略执行的逻辑</span>
+<span class="hljs-type">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sched_class</span>	*<span class="hljs-title">sched_class</span>;</span>
+<span class="hljs-comment">// 调度实体</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sched_entity</span>		<span class="hljs-title">se</span>;</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sched_rt_entity</span>		<span class="hljs-title">rt</span>;</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sched_dl_entity</span>		<span class="hljs-title">dl</span>;</span>
+<span class="hljs-comment">// 调度策略</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">int</span>			policy;
+<span class="hljs-comment">// 可以使用哪些 CPU</span>
+<span class="hljs-type">int</span>				nr_cpus_allowed;
+<span class="hljs-type">cpumask_t</span>			cpus_allowed;
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sched_info</span>		<span class="hljs-title">sched_info</span>;</span></code></pre></div>
+
+
+
+<p><code>policy</code>是<strong>调度策略</strong>，其取值如下：</p>
+<ul>
+<li>实时调度策略：调度实施进程，需要尽快返回结果的。<ul>
+<li>SCHED_FIFO：按照FIFO调度</li>
+<li>SCHED_RR：时间片轮转调度策略，高优先级任务可以抢占低优先级的任务。</li>
+<li>SCHED_DEADLINE：按照任务deadline进行调度，DL调度器选择deadline距离当前时间点最近的任务</li>
+</ul>
+</li>
+<li>普通调度策略：调度普通进程<ul>
+<li>SCHED_NORMAL：调度普通进程</li>
+<li>SCHED_BATCH：调度后台进程，不需要和前端交互</li>
+<li>SCHED_IDLE：空闲时跑的进程</li>
+</ul>
+</li>
+</ul>
+<p><code>sched_class</code>的具体实现：</p>
+<ul>
+<li><code>stop_sched_class</code> ：优先级最高的任务会使用这种策略，会中断所有其他线程，且不会被其他任务打断；</li>
+<li><code>dl_sched_class</code> ：就对应上面的 deadline 调度策略；</li>
+<li><code>rt_sched_class</code>： 就对应 RR 算法或者 FIFO 算法的调度策略，具体调度策略由进程的 task_struct-&gt;policy 指定；</li>
+<li><code>fair_sched_class</code>： 就是普通进程的调度策略；</li>
+<li><code>idle_sched_class</code>： 就是空闲进程的调度策略。</li>
+</ul>
+<h3 id="完全公平调度算法"><a href="#完全公平调度算法" class="headerlink" title="完全公平调度算法"></a>完全公平调度算法</h3><p>Linux中实现了基于CFS（Completely Fair Scheduling）调度算法，其原理如下：</p>
+<ul>
+<li><p>根据各个进程的<strong>权重</strong>分配运行时间，<strong>分配给进程的运行时间 &#x3D; 调度周期 * 进程权重 &#x2F; 所有进程权重之和</strong></p>
+</li>
+<li><p>公平体现在：给每个进程安排一个虚拟运行时间<code>vruntime</code>，<strong>vruntime &#x3D; 实际运行时间 * 1024 &#x2F; 进程权重</strong>，<code>vruntime</code>小的进程运行时间不公平，CFS会优先调度这类进程。</p>
+</li>
+<li><p>CFS使用红黑树将调度实体<code>sched_entity</code>组织起来，<code>vruntime</code>是红黑树的key，树中key最小的节点就是CFS下一个调度的进程</p>
+</li>
+</ul>
+<h3 id="主动调度"><a href="#主动调度" class="headerlink" title="主动调度"></a>主动调度</h3><p>主动调度是指进程主动触发以下情况，转入内核态，最后调用<code>schedule()</code>：</p>
+<ul>
+<li>进程发起需要等待的IO，read&#x2F;write</li>
+<li>进程主动调用schedule</li>
+<li>进程等待信号量或mutex，spin lock不会触发调度</li>
+</ul>
+<p>进程调度的具体实现如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c">asmlinkage __visible <span class="hljs-type">void</span> __sched <span class="hljs-title function_">schedule</span><span class="hljs-params">(<span class="hljs-type">void</span>)</span>
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">tsk</span> =</span> current;
+ 
+ 
+	sched_submit_work(tsk);
+	<span class="hljs-keyword">do</span> &#123;
+		preempt_disable();
+		__schedule(<span class="hljs-literal">false</span>);
+		sched_preempt_enable_no_resched();
+	&#125; <span class="hljs-keyword">while</span> (need_resched());
+&#125;
+
+<span class="hljs-type">static</span> <span class="hljs-type">void</span> __sched notrace __schedule(<span class="hljs-type">bool</span> preempt)
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">prev</span>, *<span class="hljs-title">next</span>;</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> *switch_count;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rq_flags</span> <span class="hljs-title">rf</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rq</span> *<span class="hljs-title">rq</span>;</span>
+	<span class="hljs-type">int</span> cpu;
+ 
+ 
+	cpu = smp_processor_id();
+	rq = cpu_rq(cpu);
+	prev = rq-&gt;curr;
+    next = pick_next_task(rq, prev, &amp;rf);
+	clear_tsk_need_resched(prev);
+	clear_preempt_need_resched();
+ 
+&#125;
+
+<span class="hljs-type">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">struct</span> task_struct *
+<span class="hljs-title function_">pick_next_task</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> rq *rq, <span class="hljs-keyword">struct</span> task_struct *prev, <span class="hljs-keyword">struct</span> rq_flags *rf)</span>
+&#123;
+	<span class="hljs-type">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sched_class</span> *<span class="hljs-keyword">class</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">p</span>;</span>
+	<span class="hljs-comment">/*</span>
+<span class="hljs-comment">	 * Optimization: we know that if all tasks are in the fair class we can call that function directly, but only if the @prev task wasn&#x27;t of a higher scheduling class, because otherwise those loose the opportunity to pull in more work from other CPUs.</span>
+<span class="hljs-comment">	 */</span>
+	<span class="hljs-keyword">if</span> (likely((prev-&gt;sched_class == &amp;idle_sched_class ||
+		    prev-&gt;sched_class == &amp;fair_sched_class) &amp;&amp;
+		   rq-&gt;nr_running == rq-&gt;cfs.h_nr_running)) &#123;
+		p = fair_sched_class.pick_next_task(rq, prev, rf);
+		<span class="hljs-keyword">if</span> (unlikely(p == RETRY_TASK))
+			<span class="hljs-keyword">goto</span> again;
+		<span class="hljs-comment">/* Assumes fair_sched_class-&gt;next == idle_sched_class */</span>
+		<span class="hljs-keyword">if</span> (unlikely(!p))
+			p = idle_sched_class.pick_next_task(rq, prev, rf);
+		<span class="hljs-keyword">return</span> p;
+	&#125;
+    <span class="hljs-comment">//这里是依次调用调度类</span>
+again:
+	for_each_class(class) &#123;
+		p = class-&gt;pick_next_task(rq, prev, rf);
+		<span class="hljs-keyword">if</span> (p) &#123;
+			<span class="hljs-keyword">if</span> (unlikely(p == RETRY_TASK))
+				<span class="hljs-keyword">goto</span> again;
+			<span class="hljs-keyword">return</span> p;
+		&#125;
+	&#125;
+&#125;</code></pre></div>
+
+<p>逻辑如下：</p>
+<ol>
+<li>在当前CPU取出任务队列rq</li>
+<li>prev指向rq上面正在运行的进程curr，因为curr要被切换下来</li>
+<li>调用<code>pick_next_task</code>选择下一个任务，该函数遍历所有的<code>sched_class</code>，如果<code>rq -&gt; nr_running == rq -&gt; cfs.h_nr_running</code>即队列进程数量&#x3D;&#x3D; CFS调度器进程数量，CFS调度器则调用<code>fair_sched_class.pick_next_task</code></li>
+<li>CFS调度器会调用以下三个函数实现调度：<ol>
+<li>update_curr：更新当前进程的vruntime，然后更新红黑树节点和<code>cfs_rq -&gt; min_vruntime</code></li>
+<li>pick_next_entity：选择红黑树的最左侧节点，比较和当前进程是否相同，不同则执行context_switch</li>
+<li>context_switch：上下文切换主要做两件事：<ul>
+<li>切换进程空间（虚拟内存）</li>
+<li>切换寄存器和CPU上下文（内核栈切换）</li>
+</ul>
+</li>
+</ol>
+</li>
+</ol>
+<h4 id="上下文切换"><a href="#上下文切换" class="headerlink" title="上下文切换"></a>上下文切换</h4><p>上下文切换的核心代码如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">/*</span>
+<span class="hljs-comment"> * context_switch - switch to the new MM and the new thread&#x27;s register state.</span>
+<span class="hljs-comment"> */</span>
+<span class="hljs-type">static</span> __always_inline <span class="hljs-keyword">struct</span> rq *
+<span class="hljs-title function_">context_switch</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> rq *rq, <span class="hljs-keyword">struct</span> task_struct *prev,</span>
+<span class="hljs-params">	       <span class="hljs-keyword">struct</span> task_struct *next, <span class="hljs-keyword">struct</span> rq_flags *rf)</span>
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">mm_struct</span> *<span class="hljs-title">mm</span>, *<span class="hljs-title">oldmm</span>;</span>
+......
+	mm = next-&gt;mm;
+	oldmm = prev-&gt;active_mm;
+......
+    <span class="hljs-comment">//切换内存地址空间</span>
+	switch_mm_irqs_off(oldmm, mm, next);
+......
+	<span class="hljs-comment">/* Here we just switch the register state and the stack. */</span>
+    <span class="hljs-comment">//切换寄存器堆栈</span>
+	switch_to(prev, next, prev);
+	barrier();
+	<span class="hljs-keyword">return</span> finish_task_switch(prev);
+&#125;
+
+<span class="hljs-comment">//switch_to实现了栈和寄存器的切换</span>
+ENTRY(__switch_to_asm)
+......
+	<span class="hljs-comment">/* switch stack   切换rsp指针（栈顶指针） */</span>
+	movq	%rsp, TASK_threadsp(%rdi)
+	movq	<span class="hljs-title function_">TASK_threadsp</span><span class="hljs-params">(%rsi)</span>, %rsp
+......
+	jmp	__switch_to		<span class="hljs-comment">//__switch_to</span>
+<span class="hljs-title function_">END</span><span class="hljs-params">(__switch_to_asm)</span>
+    
+__visible __notrace_funcgraph <span class="hljs-keyword">struct</span> task_struct *
+__<span class="hljs-title function_">switch_to</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *prev_p, <span class="hljs-keyword">struct</span> task_struct *next_p)</span>
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">thread_struct</span> *<span class="hljs-title">prev</span> =</span> &amp;prev_p-&gt;thread;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">thread_struct</span> *<span class="hljs-title">next</span> =</span> &amp;next_p-&gt;thread;
+......
+	<span class="hljs-type">int</span> cpu = smp_processor_id();
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tss_struct</span> *<span class="hljs-title">tss</span> =</span> &amp;per_cpu(cpu_tss, cpu);
+......
+	load_TLS(next, cpu);
+......
+	this_cpu_write(current_task, next_p);
+ 
+ 
+	<span class="hljs-comment">/* Reload esp0 and ss1.  This changes current_thread_info(). */</span>
+	load_sp0(tss, next);
+......
+	<span class="hljs-keyword">return</span> prev_p;
+&#125;</code></pre></div>
+
+
+
+<p>X86结构提供了TSS（Task State Segment），这是以硬件的方式进行进程切换的结构，其中有X86所有的寄存器，但是这种切换的<strong>开销较大</strong>，需要保存所有寄存器数据。</p>
+<p>Linux使用软切换方案，初始化时将每个CPU绑定一个TSS，tr指针永远指向这个<code>tss_struct</code>。使用<code>thread_struct</code>来保存上下文。当需要切换进程时，将<code>thread_struct</code>里面寄存器的值写入tr指向的<code>tss_struct</code>。两个结构如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tss_struct</span> &#123;</span>
+	<span class="hljs-comment">/*</span>
+<span class="hljs-comment">	 * The hardware state:</span>
+<span class="hljs-comment">	 */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">x86_hw_tss</span>	<span class="hljs-title">x86_tss</span>;</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>		io_bitmap[IO_BITMAP_LONGS + <span class="hljs-number">1</span>];
+&#125; 
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">thread_struct</span> &#123;</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>    rsp0;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>    rsp;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>     userrsp;    <span class="hljs-comment">/* Copy from PDA */</span> 
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>    fs;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>    gs;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">short</span>    es, ds, fsindex, gsindex;    
+<span class="hljs-comment">/* Hardware debugging registers */</span>
+....
+<span class="hljs-comment">/* fault info */</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>    cr2, trap_no, error_code;
+<span class="hljs-comment">/* floating point info */</span>
+    <span class="hljs-class"><span class="hljs-keyword">union</span> <span class="hljs-title">i387_union</span>    <span class="hljs-title">i387</span>  __<span class="hljs-title">attribute__</span>((<span class="hljs-title">aligned</span>(16)));</span>
+<span class="hljs-comment">/* IO permissions. the bitmap could be moved into the GDT, that would make</span>
+<span class="hljs-comment">   switch faster for a limited number of ioperm using tasks. -AK */</span>
+    <span class="hljs-type">int</span>        ioperm;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>    *io_bitmap_ptr;
+    <span class="hljs-type">unsigned</span> io_bitmap_max;
+<span class="hljs-comment">/* cached TLS descriptors. */</span>
+    u64 tls_array[GDT_ENTRY_TLS_ENTRIES];
+&#125; __attribute__((aligned(<span class="hljs-number">16</span>)));</code></pre></div>
+
+
+
+<p>在Linux中可以通过以下操作查看进程的上下文切换：</p>
+<div class="code-wrapper"><pre><code class="hljs bash">vmstat
+pidstat
+<span class="hljs-built_in">cat</span> /proc/interrupts</code></pre></div>
+
+
+
+
+
+
+
+<h3 id="被动调度（抢占式调度）"><a href="#被动调度（抢占式调度）" class="headerlink" title="被动调度（抢占式调度）"></a>被动调度（抢占式调度）</h3><p>一般也被称为抢占式调度，发生时机：</p>
+<ul>
+<li>CPU时钟中断</li>
+<li>fork出新进程，CFS算法检查到CPU当前进程vruntime不是最小</li>
+<li>进程等待IO完成后，进程被唤醒，如果优先级高于CPU当前进程，则会触发抢占。</li>
+</ul>
+<p>时钟中断会调用<code>scheduler_tick</code>：</p>
+<ul>
+<li>首先取出当前cpu运行队列rq</li>
+<li>取到当前正在运行线程的task_struct</li>
+<li>调用这个task的task_tick函数来处理时钟事件</li>
+</ul>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-type">void</span> <span class="hljs-title function_">scheduler_tick</span><span class="hljs-params">(<span class="hljs-type">void</span>)</span>
+&#123;
+	<span class="hljs-type">int</span> cpu = smp_processor_id();
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rq</span> *<span class="hljs-title">rq</span> =</span> cpu_rq(cpu);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">curr</span> =</span> rq-&gt;curr;
+......
+	curr-&gt;sched_class-&gt;task_tick(rq, curr, <span class="hljs-number">0</span>);
+	cpu_load_update_active(rq);
+	calc_global_load_tick(rq);
+......
+&#125;</code></pre></div>
+
+
+
+<p>普通进程使用的公平调度器，对应函数为<code>task_tick_fair</code></p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">task_tick_fair</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> rq *rq, <span class="hljs-keyword">struct</span> task_struct *curr, <span class="hljs-type">int</span> queued)</span>
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">cfs_rq</span> *<span class="hljs-title">cfs_rq</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sched_entity</span> *<span class="hljs-title">se</span> =</span> &amp;curr-&gt;se;
+ 
+ 	<span class="hljs-comment">//找到对应的调度实体和cfs队列，调用entity_tick</span>
+	for_each_sched_entity(se) &#123;
+		cfs_rq = cfs_rq_of(se);
+		entity_tick(cfs_rq, se, queued);
+	&#125;
+......
+&#125;
+
+<span class="hljs-type">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">entity_tick</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> cfs_rq *cfs_rq, <span class="hljs-keyword">struct</span> sched_entity *curr, <span class="hljs-type">int</span> queued)</span>
+&#123;
+    <span class="hljs-comment">//更新当前进程的vruntime</span>
+	update_curr(cfs_rq);
+	update_load_avg(curr, UPDATE_TG);
+	update_cfs_shares(curr);
+.....
+	<span class="hljs-keyword">if</span> (cfs_rq-&gt;nr_running &gt; <span class="hljs-number">1</span>)
+        <span class="hljs-comment">//检查是否需要被抢占，内部检查进程运行时间等信息</span>
+		check_preempt_tick(cfs_rq, curr);
+&#125;
+
+
+<span class="hljs-type">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">check_preempt_tick</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> cfs_rq *cfs_rq, <span class="hljs-keyword">struct</span> sched_entity *curr)</span>
+&#123;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> ideal_runtime, delta_exec;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sched_entity</span> *<span class="hljs-title">se</span>;</span>
+	s64 delta;
+ 
+ 	<span class="hljs-comment">//计算runtime</span>
+	ideal_runtime = sched_slice(cfs_rq, curr);
+	delta_exec = curr-&gt;sum_exec_runtime - curr-&gt;prev_sum_exec_runtime;
+	<span class="hljs-keyword">if</span> (delta_exec &gt; ideal_runtime) &#123;
+		resched_curr(rq_of(cfs_rq));
+		<span class="hljs-keyword">return</span>;
+	&#125;
+......
+    <span class="hljs-comment">//取出红黑树最左侧，比较vruntime</span>
+	se = __pick_first_entity(cfs_rq);
+	delta = curr-&gt;vruntime - se-&gt;vruntime;
+	<span class="hljs-keyword">if</span> (delta &lt; <span class="hljs-number">0</span>)
+		<span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (delta &gt; ideal_runtime)
+        <span class="hljs-comment">//调用该方法标记该进程可被抢占</span>
+		resched_curr(rq_of(cfs_rq));
+&#125;</code></pre></div>
+
+
+
+<h4 id="抢占时机"><a href="#抢占时机" class="headerlink" title="抢占时机"></a>抢占时机</h4><p>上面的流程仅仅将当前进程标记为可抢占，但是真正的调度流程还未执行。需要正在运行的进程调用<code>__schedule()</code>，这个调用可以在用户态和内核态发生。</p>
+<p>用户态时，从系统调用中返回的时刻可以执行。<code>exit_to_usermode_loop</code>执行</p>
+<p>内核态时，<code>preempt_enable</code>进行调度判断。</p>
+<h2 id="fork创建进程"><a href="#fork创建进程" class="headerlink" title="fork创建进程"></a>fork创建进程</h2><p><code>fork</code>是Linux中创建进程的一种方法，主要通过复制当前进程的方式来创建子进程</p>
+<h3 id="拷贝task-struct"><a href="#拷贝task-struct" class="headerlink" title="拷贝task_struct"></a>拷贝task_struct</h3><p>fork是一个系统调用，它的调用流程最终会执行<code>sys_fork</code>，其定义如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c">SYSCALL_DEFINE0(fork)
+&#123;
+......
+	<span class="hljs-keyword">return</span> _do_fork(SIGCHLD, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+&#125;
+
+<span class="hljs-type">long</span> _do_fork(<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> clone_flags,
+	      <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> stack_start,
+	      <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> stack_size,
+	      <span class="hljs-type">int</span> __user *parent_tidptr,
+	      <span class="hljs-type">int</span> __user *child_tidptr,
+	      <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> tls)
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">p</span>;</span>
+	<span class="hljs-type">int</span> trace = <span class="hljs-number">0</span>;
+	<span class="hljs-type">long</span> nr;
+ 
+ 
+......
+
+    <span class="hljs-comment">//复制父进程task_struct</span>
+	p = copy_process(clone_flags, stack_start, stack_size,
+			 child_tidptr, <span class="hljs-literal">NULL</span>, trace, tls, NUMA_NO_NODE);
+......
+	<span class="hljs-keyword">if</span> (!IS_ERR(p)) &#123;
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">pid</span> *<span class="hljs-title">pid</span>;</span>
+        <span class="hljs-comment">//</span>
+		pid = get_task_pid(p, PIDTYPE_PID);
+		nr = pid_vnr(pid);
+ 
+ 
+		<span class="hljs-keyword">if</span> (clone_flags &amp; CLONE_PARENT_SETTID)
+			put_user(nr, parent_tidptr);
+ 
+ 
+......
+		wake_up_new_task(p);
+......
+		put_pid(pid);
+	&#125; 
+
+<span class="hljs-comment">//copy_process实现</span>
+<span class="hljs-type">static</span> __latent_entropy <span class="hljs-keyword">struct</span> task_struct *<span class="hljs-title function_">copy_process</span><span class="hljs-params">(</span>
+<span class="hljs-params">					<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> clone_flags,</span>
+<span class="hljs-params">					<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> stack_start,</span>
+<span class="hljs-params">					<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> stack_size,</span>
+<span class="hljs-params">					<span class="hljs-type">int</span> __user *child_tidptr,</span>
+<span class="hljs-params">					<span class="hljs-keyword">struct</span> pid *pid,</span>
+<span class="hljs-params">					<span class="hljs-type">int</span> trace,</span>
+<span class="hljs-params">					<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> tls,</span>
+<span class="hljs-params">					<span class="hljs-type">int</span> node)</span>
+&#123;
+	<span class="hljs-type">int</span> retval;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">p</span>;</span>
+......
+    <span class="hljs-comment">//</span>
+	p = dup_task_struct(current, node);
+  <span class="hljs-comment">//执行调度器相关设置，将该task分配给一某个CPU</span>
+  retval = sched_fork(clone_flags, p); 
+  retval = perf_event_init_task(p);
+  retval = audit_alloc(p);
+  
+  <span class="hljs-comment">//拷贝进程的所有信息</span>
+  shm_init_task(p); 
+  retval = copy_semundo(clone_flags, p);
+  <span class="hljs-comment">//拷贝进程打开的文件信息</span>
+  retval = copy_files(clone_flags, p);
+  <span class="hljs-comment">//拷贝进程的目录信息</span>
+  retval = copy_fs(clone_flags, p);
+  <span class="hljs-comment">//拷贝信号处理函数</span>
+  retval = copy_sighand(clone_flags, p);
+  retval = copy_signal(clone_flags, p);
+  <span class="hljs-comment">//复制内存空间</span>
+  retval = copy_mm(clone_flags, p);
+  retval = copy_namespaces(clone_flags, p);
+  retval = copy_io(clone_flags, p);
+  retval = copy_thread_tls(clone_flags, stack_start, stack_size, p, tls);</code></pre></div>
+
+<ul>
+<li><p><code>dup_task_struct</code>完成了对进程结构的初始化，具体实现了：</p>
+<ul>
+<li><p>调用<code>alloc_task_struct_node </code>分配<code>task_struct</code>的内存结构</p>
+</li>
+<li><p>调用<code>alloc_thread_stack_node </code>创建<code>task_struct-&gt;stack</code></p>
+</li>
+<li><p>调用<code>arch_dup_task_struct</code>完成<code>task_struct</code>的复制</p>
+</li>
+<li><p>调用<code>setup_thread_stack </code>设置<code>thread_info</code></p>
+</li>
+</ul>
+</li>
+<li><p><code>sched_fork</code>主要对调度所需的变量进行初始化：</p>
+<ul>
+<li><p>调用<code>__sched_fork</code>，对调度变量初始化，比如vruntime等</p>
+</li>
+<li><p>设置进程优先级</p>
+</li>
+<li><p>设置调度类，并调用调度函数<code>task_fork </code>（CFS调度是<code>task_fork_fair</code>）</p>
+</li>
+</ul>
+</li>
+</ul>
+<p>fork主要做了以下的操作：</p>
+<ol>
+<li>完成<code>task_struct</code>的拷贝，通过<code>copy_process</code>实现</li>
+<li>完成权限的拷贝，通过<code>copy_creds </code>实现</li>
+<li>调用<code>sched_fork</code>进行调度</li>
+</ol>
+<h3 id="唤醒子进程"><a href="#唤醒子进程" class="headerlink" title="唤醒子进程"></a>唤醒子进程</h3><div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-type">void</span> <span class="hljs-title function_">wake_up_new_task</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *p)</span>
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rq_flags</span> <span class="hljs-title">rf</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rq</span> *<span class="hljs-title">rq</span>;</span>
+......
+    <span class="hljs-comment">//设置进程状态</span>
+	p-&gt;state = TASK_RUNNING;
+......
+    <span class="hljs-comment">//调用enqueue_task，CFS调度会执行对应的enqueue_task_fair</span>
+	activate_task(rq, p, ENQUEUE_NOCLOCK);
+	p-&gt;on_rq = TASK_ON_RQ_QUEUED;
+	trace_sched_wakeup_new(p);
+    <span class="hljs-comment">//检查是否能抢占当前进程</span>
+	check_preempt_curr(rq, p, WF_FORK);
+......
+&#125;
+</code></pre></div>
+
+<p>上述的<code>enqueue_task_fair</code>实现以下功能：</p>
+<ul>
+<li>取出rq，调用<code>enqueue_entity</code>将进程节点加入红黑树</li>
+<li>更新队列上运行的进程数量</li>
+</ul>
+<h2 id="创建线程"><a href="#创建线程" class="headerlink" title="创建线程"></a>创建线程</h2><p>Linux中创建线程调用的是<code>pthread_create</code>，其调用的也是<code>_do_fork</code>实现线程数据复制功能，与进程创建流程的流程图差异如下所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220716142100955.png" srcset="/img/loading.gif" lazyload alt="两者区别"></p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/Linux/" class="category-chain-item">Linux</a>
+  
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Linux进程管理模块分析</div>
+      <div>https://l1n.wang/2022/Linux/Linux进程管理模块分析/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2022年7月14日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2022/Linux/Linux%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90/" title="Linux内存管理模块分析">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">Linux内存管理模块分析</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2022/%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/%E7%9F%AD%E7%BD%91%E5%9D%80%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1%E6%80%BB%E7%BB%93/" title="短网址系统设计总结">
+                        <span class="hidden-mobile">短网址系统设计总结</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

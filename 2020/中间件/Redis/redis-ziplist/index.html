@@ -1,0 +1,1006 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介压缩列表（ziplist）的本质是一个字节数组，主要是Redis为了节省内存而设计的数据结构。在Redis的list和hash都使用了ziplist，当list或hash的元素个数比较少，并且元素都是短字符串或小整数值时，使用ziplist作为其底层数据结构。 压缩列表的基本结构基本如下所示： &lt;zlbytes&gt; &lt;zltail&gt; &lt;zllen&gt; &lt;e">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Redis底层数据结构-ZipList源码分析">
+<meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-ziplist/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="简介压缩列表（ziplist）的本质是一个字节数组，主要是Redis为了节省内存而设计的数据结构。在Redis的list和hash都使用了ziplist，当list或hash的元素个数比较少，并且元素都是短字符串或小整数值时，使用ziplist作为其底层数据结构。 压缩列表的基本结构基本如下所示： &lt;zlbytes&gt; &lt;zltail&gt; &lt;zllen&gt; &lt;e">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-05-26T08:58:29.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.359Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="数据结构">
+<meta property="article:tag" content="源码分析">
+<meta property="article:tag" content="Redis">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  
+  <title>Redis底层数据结构-ZipList源码分析 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Redis底层数据结构-ZipList源码分析"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2020-05-26 16:58" pubdate>
+          2020年5月26日 下午
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          1.6k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          14 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Redis底层数据结构-ZipList源码分析</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><p>压缩列表（ziplist）的本质是一个字节数组，主要是Redis为了节省内存而设计的数据结构。在Redis的list和hash都使用了ziplist，<strong>当list或hash的元素个数比较少，并且元素都是短字符串或小整数值时</strong>，使用ziplist作为其底层数据结构。</p>
+<p>压缩列表的基本结构基本如下所示：</p>
+<div class="code-wrapper"><pre><code class="hljs xml"><span class="hljs-tag">&lt;<span class="hljs-name">zlbytes</span>&gt;</span> <span class="hljs-tag">&lt;<span class="hljs-name">zltail</span>&gt;</span> <span class="hljs-tag">&lt;<span class="hljs-name">zllen</span>&gt;</span> <span class="hljs-tag">&lt;<span class="hljs-name">entry</span>&gt;</span> <span class="hljs-tag">&lt;<span class="hljs-name">entry</span>&gt;</span> ... <span class="hljs-tag">&lt;<span class="hljs-name">entry</span>&gt;</span> <span class="hljs-tag">&lt;<span class="hljs-name">zlend</span>&gt;</span></code></pre></div>
+
+<ul>
+<li>uint32_t zlbytes：压缩列表的字节长度，占4个字节</li>
+<li>uint32_t zltail：压缩列表尾元素相对于起始地址的偏移量，占4个字节，方便从列表尾部进行操作</li>
+<li>uint16_t zllen：元素个数，占2个字节，元素个数无法超过2^16-1，只能通过遍历整个列表才能获取到个数</li>
+<li>uint8_t zlend：列表的结尾元素，占1个字节，值为255（0xff）</li>
+<li>entry：列表的元素，可以是字节数组或者整数<ul>
+<li>prevlen：表示前一个元素的字节长度，1~5个字节表示，当前一个元素长度小于254字节，用1个字节表示，大于或等于254字节时，用5个字节表示，该情况下，第一个字节为<code>0xFE</code>，剩余4个字节表示真正长度</li>
+<li>encoding：表示当前元素的编码，编码表示当前存储的是字节数组还是整数</li>
+<li>entry：存储数据内容</li>
+</ul>
+</li>
+</ul>
+<p>encoding选项：</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIP_STR_06B (0 &lt;&lt; 6)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIP_STR_14B (1 &lt;&lt; 6)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIP_STR_32B (2 &lt;&lt; 6)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIP_INT_16B (0xc0 | 0&lt;&lt;4)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIP_INT_32B (0xc0 | 1&lt;&lt;4)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIP_INT_64B (0xc0 | 2&lt;&lt;4)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIP_INT_24B (0xc0 | 3&lt;&lt;4)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIP_INT_8B 0xfe</span></code></pre></div>
+<p>下面是一个包含两个元素的ziplist，存储的数据为字符串“2”和“5”。它由15个字节组成</p>
+<div class="code-wrapper"><pre><code class="hljs gherkin">[0f 00 00 00] [0c 00 00 00] [02 00] [00 f3] [02 f6] [ff]
+      |<span class="hljs-string">             </span>|<span class="hljs-string">          </span>|<span class="hljs-string">       </span>|<span class="hljs-string">       </span>|<span class="hljs-string">     </span>|
+   zlbytes        zltail    entries   <span class="hljs-string">&quot;2&quot;</span>     <span class="hljs-string">&quot;5&quot;</span>   end</code></pre></div>
+
+<p>Redis通过宏定义来对以上部分进行快速定位，zl为压缩列表首地址指针。</p>
+<div class="code-wrapper"><pre><code class="hljs C">
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIPLIST_TAIL_OFFSET(zl) (*((uint32_t*)((zl)+sizeof(uint32_t))))</span>
+
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIPLIST_LENGTH(zl)      (*((uint16_t*)((zl)+sizeof(uint32_t)*2)))</span>
+
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIPLIST_HEADER_SIZE     (sizeof(uint32_t)*2+sizeof(uint16_t))</span>
+
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIPLIST_END_SIZE        (sizeof(uint8_t))</span>
+
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIPLIST_ENTRY_HEAD(zl)  ((zl)+ZIPLIST_HEADER_SIZE)</span>
+
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIPLIST_ENTRY_TAIL(zl)  ((zl)+intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl)))</span>
+
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIPLIST_ENTRY_END(zl)   ((zl)+intrev32ifbe(ZIPLIST_BYTES(zl))-1)</span></code></pre></div>
+
+<h1 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h1><p>压缩列表在获取元素长度、获取元素内容都需要经过解码运算，解码后的数据结果存储在zlentry结构中。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">zlentry</span> &#123;</span>
+    <span class="hljs-comment">//上述的prevlen的长度</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> prevrawlensize;
+    <span class="hljs-comment">//上述的prevlen的内容</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> prevrawlen;
+    <span class="hljs-comment">//encoding字段的长度</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> lensize;
+    <span class="hljs-comment">//元素数据的长度</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> len;
+    <span class="hljs-comment">//当前元素的首部长度，prevrawlensize + lensize</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> headersize;
+    <span class="hljs-comment">//数据类型</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> encoding;
+    <span class="hljs-comment">//指向元素的首地址的指针</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *p;           
+&#125; zlentry;</code></pre></div>
+
+<h1 id="接口"><a href="#接口" class="headerlink" title="接口"></a>接口</h1><h2 id="ziplistNew"><a href="#ziplistNew" class="headerlink" title="ziplistNew"></a>ziplistNew</h2><p>创建压缩列表，返回值为压缩列表的首地址。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIPLIST_HEADER_SIZE     (sizeof(uint32_t)*2+sizeof(uint16_t))</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> ZIPLIST_END_SIZE        (sizeof(uint8_t))</span>
+
+<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *<span class="hljs-title function_">ziplistNew</span><span class="hljs-params">(<span class="hljs-type">void</span>)</span> &#123;
+    <span class="hljs-comment">//计算分配的字节数</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> bytes = ZIPLIST_HEADER_SIZE+ZIPLIST_END_SIZE;
+    <span class="hljs-comment">//申请内存空间</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *zl = zmalloc(bytes);
+    <span class="hljs-comment">//初始化</span>
+    ZIPLIST_BYTES(zl) = intrev32ifbe(bytes);
+    ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(ZIPLIST_HEADER_SIZE);
+    ZIPLIST_LENGTH(zl) = <span class="hljs-number">0</span>;
+    <span class="hljs-comment">//设置结尾标识符0xff</span>
+    zl[bytes<span class="hljs-number">-1</span>] = ZIP_END;
+    <span class="hljs-keyword">return</span> zl;
+&#125;</code></pre></div>
+
+<h2 id="ziplistInsert"><a href="#ziplistInsert" class="headerlink" title="ziplistInsert"></a>ziplistInsert</h2><p>该接口在指定的位置p，插入的数据的地址指针为s，长度为slen。新插入的数据占据p原来的位置，p之后的数据项向后移动。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *<span class="hljs-title function_">ziplistInsert</span><span class="hljs-params">(<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *zl, <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *p, <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *s, <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> slen)</span> &#123;
+    <span class="hljs-keyword">return</span> __ziplistInsert(zl,p,s,slen);
+&#125;
+
+<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *__ziplistInsert(<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *zl, <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *p, <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *s, <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> slen) &#123;
+    <span class="hljs-type">size_t</span> curlen = intrev32ifbe(ZIPLIST_BYTES(zl)), reqlen;
+    <span class="hljs-comment">//初始化变量</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> prevlensize, prevlen = <span class="hljs-number">0</span>;
+    <span class="hljs-type">size_t</span> offset;
+    <span class="hljs-type">int</span> nextdiff = <span class="hljs-number">0</span>;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> encoding = <span class="hljs-number">0</span>;
+    <span class="hljs-type">long</span> <span class="hljs-type">long</span> value = <span class="hljs-number">123456789</span>;
+    zlentry tail;
+
+    <span class="hljs-comment">//如果p不是尾元素</span>
+    <span class="hljs-keyword">if</span> (p[<span class="hljs-number">0</span>] != ZIP_END) &#123;
+        ZIP_DECODE_PREVLEN(p, prevlensize, prevlen);
+    &#125; <span class="hljs-keyword">else</span> &#123;
+        <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *ptail = ZIPLIST_ENTRY_TAIL(zl);
+        <span class="hljs-keyword">if</span> (ptail[<span class="hljs-number">0</span>] != ZIP_END) &#123;
+            prevlen = zipRawEntryLength(ptail);
+        &#125;
+    &#125;
+
+    <span class="hljs-comment">//尝试将数据内容解析为整数</span>
+    <span class="hljs-keyword">if</span> (zipTryEncoding(s,slen,&amp;value,&amp;encoding)) &#123;
+        <span class="hljs-comment">//按整数类型编码进行存储</span>
+        reqlen = zipIntSize(encoding);
+    &#125; <span class="hljs-keyword">else</span> &#123;
+        <span class="hljs-comment">//按字节数组类型编码进行存储</span>
+        reqlen = slen;
+    &#125;
+    <span class="hljs-comment">/* We need space for both the length of the previous entry and</span>
+<span class="hljs-comment">     * the length of the payload. */</span>
+    reqlen += zipStorePrevEntryLength(<span class="hljs-literal">NULL</span>,prevlen);
+    reqlen += zipStoreEntryEncoding(<span class="hljs-literal">NULL</span>,encoding,slen);
+
+    <span class="hljs-comment">//不是从尾部进行插入时，需要确保下一个entry可以存储当前entry的长度</span>
+    <span class="hljs-type">int</span> forcelarge = <span class="hljs-number">0</span>;
+    nextdiff = (p[<span class="hljs-number">0</span>] != ZIP_END) ? zipPrevLenByteDiff(p,reqlen) : <span class="hljs-number">0</span>;
+    <span class="hljs-keyword">if</span> (nextdiff == <span class="hljs-number">-4</span> &amp;&amp; reqlen &lt; <span class="hljs-number">4</span>) &#123;
+        nextdiff = <span class="hljs-number">0</span>;
+        forcelarge = <span class="hljs-number">1</span>;
+    &#125;
+
+    <span class="hljs-comment">//存储偏移量</span>
+    offset = p-zl;
+    <span class="hljs-comment">//调用realloc重新分配空间</span>
+    zl = ziplistResize(zl,curlen+reqlen+nextdiff);
+    <span class="hljs-comment">//重新偏移到插入位置p</span>
+    p = zl+offset;
+
+    <span class="hljs-comment">//数据复制</span>
+    <span class="hljs-keyword">if</span> (p[<span class="hljs-number">0</span>] != ZIP_END) &#123;
+        <span class="hljs-comment">//因为zlend恒为0xff，所以减一</span>
+        memmove(p+reqlen,p-nextdiff,curlen-offset<span class="hljs-number">-1</span>+nextdiff);
+
+        <span class="hljs-comment">//更新entryX + 1元素的prevlen数据</span>
+        <span class="hljs-keyword">if</span> (forcelarge)
+        <span class="hljs-comment">//该entry的prevlen仍然用5个字节存储时</span>
+            zipStorePrevEntryLengthLarge(p+reqlen,reqlen);
+        <span class="hljs-keyword">else</span>
+            zipStorePrevEntryLength(p+reqlen,reqlen);
+
+        <span class="hljs-comment">//更新zltail</span>
+        ZIPLIST_TAIL_OFFSET(zl) =
+            intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+reqlen);
+
+        <span class="hljs-comment">//</span>
+        zipEntry(p+reqlen, &amp;tail);
+        <span class="hljs-keyword">if</span> (p[reqlen+tail.headersize+tail.len] != ZIP_END) &#123;
+            ZIPLIST_TAIL_OFFSET(zl) =
+                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+nextdiff);
+        &#125;
+    &#125; <span class="hljs-keyword">else</span> &#123;
+       
+        ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(p-zl);
+    &#125;
+
+    
+    <span class="hljs-keyword">if</span> (nextdiff != <span class="hljs-number">0</span>) &#123;
+        offset = p-zl;
+        zl = __ziplistCascadeUpdate(zl,p+reqlen);
+        p = zl+offset;
+    &#125;
+
+    <span class="hljs-comment">//写entry</span>
+    p += zipStorePrevEntryLength(p,prevlen);
+    p += zipStoreEntryEncoding(p,encoding,slen);
+    <span class="hljs-keyword">if</span> (ZIP_IS_STR(encoding)) &#123;
+        <span class="hljs-built_in">memcpy</span>(p,s,slen);
+    &#125; <span class="hljs-keyword">else</span> &#123;
+        zipSaveInteger(p,value,encoding);
+    &#125;
+    <span class="hljs-comment">//更新zllen</span>
+    ZIPLIST_INCR_LENGTH(zl,<span class="hljs-number">1</span>);
+    <span class="hljs-keyword">return</span> zl;
+&#125;</code></pre></div>
+
+
+<h2 id="ziplistDelete"><a href="#ziplistDelete" class="headerlink" title="ziplistDelete"></a>ziplistDelete</h2><p>zl指向压缩列表首地址，*p指向需要删除的entry的首地址，返回值为压缩列表首地址。<code>__ziplistDelete</code>可以同时删除多个连续元素，输入参数p指向的是首个待删除元素的地址，num表示待删除的元素个数。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *<span class="hljs-title function_">ziplistDelete</span><span class="hljs-params">(<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *zl, <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> **p)</span> &#123;
+    <span class="hljs-type">size_t</span> offset = *p-zl;
+    zl = __ziplistDelete(zl,*p,<span class="hljs-number">1</span>);
+    
+    *p = zl+offset;
+    <span class="hljs-keyword">return</span> zl;
+&#125;
+
+<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *__ziplistDelete(<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *zl, <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *p, <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> num) &#123;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> i, totlen, deleted = <span class="hljs-number">0</span>;
+    <span class="hljs-type">size_t</span> offset;
+    <span class="hljs-type">int</span> nextdiff = <span class="hljs-number">0</span>;
+    zlentry first, tail;
+    <span class="hljs-comment">//解码第一个待删除的元素</span>
+    zipEntry(p, &amp;first);
+    <span class="hljs-comment">//遍历所有待删除的元素，同时指针p向后偏移</span>
+    <span class="hljs-keyword">for</span> (i = <span class="hljs-number">0</span>; p[<span class="hljs-number">0</span>] != ZIP_END &amp;&amp; i &lt; num; i++) &#123;
+        p += zipRawEntryLength(p);
+        deleted++;
+    &#125;
+    <span class="hljs-comment">//该变量为待删除元素总长度</span>
+    totlen = p-first.p; <span class="hljs-comment">/* Bytes taken by the element(s) to delete. */</span>
+    <span class="hljs-keyword">if</span> (totlen &gt; <span class="hljs-number">0</span>) &#123;
+        <span class="hljs-keyword">if</span> (p[<span class="hljs-number">0</span>] != ZIP_END) &#123;
+            <span class="hljs-comment">//计算元素entryN长度的变化量</span>
+            nextdiff = zipPrevLenByteDiff(p,first.prevrawlen);
+
+            <span class="hljs-comment">//更新元素entryN的prevlen数据</span>
+            p -= nextdiff;
+            zipStorePrevEntryLength(p,first.prevrawlen);
+
+            <span class="hljs-comment">//更新zltail</span>
+            ZIPLIST_TAIL_OFFSET(zl) =
+                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))-totlen);
+            zipEntry(p, &amp;tail);
+            <span class="hljs-keyword">if</span> (p[tail.headersize+tail.len] != ZIP_END) &#123;
+                ZIPLIST_TAIL_OFFSET(zl) =
+                   intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+nextdiff);
+            &#125;
+
+            <span class="hljs-comment">//数据复制</span>
+            memmove(first.p,p,
+                intrev32ifbe(ZIPLIST_BYTES(zl))-(p-zl)<span class="hljs-number">-1</span>);
+        &#125; <span class="hljs-keyword">else</span> &#123;
+            <span class="hljs-comment">/* The entire tail was deleted. No need to move memory. */</span>
+            ZIPLIST_TAIL_OFFSET(zl) =
+                intrev32ifbe((first.p-zl)-first.prevrawlen);
+        &#125;
+
+        <span class="hljs-comment">//重新分配空间，与添加逻辑相似</span>
+        offset = first.p-zl;
+        zl = ziplistResize(zl, intrev32ifbe(ZIPLIST_BYTES(zl))-totlen+nextdiff);
+        ZIPLIST_INCR_LENGTH(zl,-deleted);
+        p = zl+offset;
+
+        <span class="hljs-keyword">if</span> (nextdiff != <span class="hljs-number">0</span>)
+            zl = __ziplistCascadeUpdate(zl,p);
+    &#125;
+    <span class="hljs-keyword">return</span> zl;
+&#125;</code></pre></div>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文主要对压缩列表的基本概念与在Redis中的具体实现做了简要分析，同时对压缩列表在Redis中的添加删除接口做了简要的源代码分析。使用压缩列表能有效地节省内存，在Redis的Hash结构中，当field比较少时，采用压缩列表进行存储，当达到对应阈值，转为dict进行存储，与JDK1.8中的HashMap存储策略有异曲同工之妙。</p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/Redis/" class="category-chain-item">Redis</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/Redis/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" class="category-chain-item">源码分析</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/" class="print-no-link">#数据结构</a>
+      
+        <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" class="print-no-link">#源码分析</a>
+      
+        <a href="/tags/Redis/" class="print-no-link">#Redis</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Redis底层数据结构-ZipList源码分析</div>
+      <div>https://l1n.wang/2020/中间件/Redis/redis-ziplist/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2020年5月26日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-dict/" title="Redis底层数据结构-Dict源码分析">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">Redis底层数据结构-Dict源码分析</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-zskiplist/" title="Redis底层数据结构-SkipList源码分析">
+                        <span class="hidden-mobile">Redis底层数据结构-SkipList源码分析</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

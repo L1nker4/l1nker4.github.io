@@ -1,0 +1,953 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="Kafka存储架构Kafka是为了解决大数据量的实时日志流而产生的，日志流主要特点包括：  数据实时存储 海量数据存储与处理  Kafka需要保证以下几点：  存储的主要是消息流 要保证海量数据的高效存储 要支持海量数据的高效检索 要保证数据的安全性和稳定性  Kafka使用的存储方案是：磁盘顺序写 + 稀疏哈希索引。 日志目录布局Kafka中消息以Topic为单位归类，各个Topic下面分为多个">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Kafka学习笔记(二)-存储架构">
+<meta property="og:url" content="https://l1n.wang/2022/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/Kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0(%E4%BA%8C)-%E5%AD%98%E5%82%A8%E7%BB%93%E6%9E%84/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="Kafka存储架构Kafka是为了解决大数据量的实时日志流而产生的，日志流主要特点包括：  数据实时存储 海量数据存储与处理  Kafka需要保证以下几点：  存储的主要是消息流 要保证海量数据的高效存储 要支持海量数据的高效检索 要保证数据的安全性和稳定性  Kafka使用的存储方案是：磁盘顺序写 + 稀疏哈希索引。 日志目录布局Kafka中消息以Topic为单位归类，各个Topic下面分为多个">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2022-06-29T12:06:22.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.361Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="l1nker4">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  
+  <title>Kafka学习笔记(二)-存储架构 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Kafka学习笔记(二)-存储架构"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2022-06-29 20:06" pubdate>
+          2022年6月29日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          2.3k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          20 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Kafka学习笔记(二)-存储架构</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h1 id="Kafka存储架构"><a href="#Kafka存储架构" class="headerlink" title="Kafka存储架构"></a>Kafka存储架构</h1><p>Kafka是为了解决大数据量的实时日志流而产生的，日志流主要特点包括：</p>
+<ol>
+<li>数据实时存储</li>
+<li>海量数据存储与处理</li>
+</ol>
+<p>Kafka需要保证以下几点：</p>
+<ul>
+<li>存储的主要是消息流</li>
+<li>要保证海量数据的高效存储</li>
+<li>要支持海量数据的高效检索</li>
+<li>要保证数据的安全性和稳定性</li>
+</ul>
+<p>Kafka使用的存储方案是：磁盘顺序写 + 稀疏哈希索引。</p>
+<h2 id="日志目录布局"><a href="#日志目录布局" class="headerlink" title="日志目录布局"></a>日志目录布局</h2><p>Kafka中消息以Topic为单位归类，各个Topic下面分为多个分区，分区中每条消息都会被分配一个唯一的序列号（offset）。日志命名方式为：<code>&lt;topic&gt;-&lt;partition&gt;</code></p>
+<p>在不考虑多副本的情况下，一个分区对应一个Log，为了防止Log过大，Kafka引入<code>LogSegment</code>，将Log切分为多个<code>LogSegment</code>。其结构如下所示：</p>
+<ul>
+<li>Log<ul>
+<li>LogSegment：每个 LogSegment 都有一个基准偏移量 baseOffset，用来表示当前 LogSegment中第一条消息的offset。只有最后一个LogSegment才能写入。下述文件根据<code>baseOffset</code>命名，长度固定为20位数字，没有达到的位数用0填充。<ul>
+<li>.log：日志文件</li>
+<li>.index：偏移量索引文件</li>
+<li>.timeindex：时间戳索引文件</li>
+<li>.snapshot：快照索引文件</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h2 id="消息格式"><a href="#消息格式" class="headerlink" title="消息格式"></a>消息格式</h2><p>消息格式关系到存储性能，比如冗余字段会增加分区的存储空间、网络传输的开销较大。</p>
+<p>Kafka3.0中将<code>BatchRecords</code>作为磁盘中的存储单元，一个<code>BatchRecords</code>中包含多个<code>Record</code>。</p>
+<p><code>BatchRecords</code>的格式如下：</p>
+<div class="code-wrapper"><pre><code class="hljs nestedtext"><span class="hljs-attribute">baseOffset</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int64</span>
+<span class="hljs-attribute">batchLength</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int32</span>
+<span class="hljs-attribute">partitionLeaderEpoch</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int32</span>
+<span class="hljs-attribute">magic</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int8 (current magic value is 2)</span>
+<span class="hljs-attribute">crc</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int32</span>
+<span class="hljs-attribute">attributes</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int16</span>
+    <span class="hljs-attribute">bit 0~2</span><span class="hljs-punctuation">:</span>
+        <span class="hljs-attribute">0</span><span class="hljs-punctuation">:</span> <span class="hljs-string">no compression</span>
+        <span class="hljs-attribute">1</span><span class="hljs-punctuation">:</span> <span class="hljs-string">gzip</span>
+        <span class="hljs-attribute">2</span><span class="hljs-punctuation">:</span> <span class="hljs-string">snappy</span>
+        <span class="hljs-attribute">3</span><span class="hljs-punctuation">:</span> <span class="hljs-string">lz4</span>
+        <span class="hljs-attribute">4</span><span class="hljs-punctuation">:</span> <span class="hljs-string">zstd</span>
+    <span class="hljs-attribute">bit 3</span><span class="hljs-punctuation">:</span> <span class="hljs-string">timestampType</span>
+    <span class="hljs-attribute">bit 4</span><span class="hljs-punctuation">:</span> <span class="hljs-string">isTransactional (0 means not transactional)</span>
+    <span class="hljs-attribute">bit 5</span><span class="hljs-punctuation">:</span> <span class="hljs-string">isControlBatch (0 means not a control batch)</span>
+    <span class="hljs-attribute">bit 6</span><span class="hljs-punctuation">:</span> <span class="hljs-string">hasDeleteHorizonMs (0 means baseTimestamp is not set as the delete horizon for compaction)</span>
+    <span class="hljs-attribute">bit 7~15</span><span class="hljs-punctuation">:</span> <span class="hljs-string">unused</span>
+<span class="hljs-attribute">lastOffsetDelta</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int32</span>
+<span class="hljs-attribute">baseTimestamp</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int64</span>
+<span class="hljs-attribute">maxTimestamp</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int64</span>
+<span class="hljs-attribute">producerId</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int64</span>
+<span class="hljs-attribute">producerEpoch</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int16</span>
+<span class="hljs-attribute">baseSequence</span><span class="hljs-punctuation">:</span> <span class="hljs-string">int32</span>
+<span class="hljs-attribute">records</span><span class="hljs-punctuation">:</span> <span class="hljs-string">[Record]</span></code></pre></div>
+
+<p>字段解释如下：</p>
+<table>
+<thead>
+<tr>
+<th align="center">字段</th>
+<th align="center">含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="center">baseOffset</td>
+<td align="center">这批消息的起始Offset</td>
+</tr>
+<tr>
+<td align="center">partitionLeaderEpoch</td>
+<td align="center">用于分区恢复时保护数据的一致性</td>
+</tr>
+<tr>
+<td align="center">batchLength</td>
+<td align="center">BatchRecords的长度</td>
+</tr>
+<tr>
+<td align="center">magic</td>
+<td align="center">魔数，可以用于拓展存储一些信息，当前3.0版本的magic是2</td>
+</tr>
+<tr>
+<td align="center">crc</td>
+<td align="center">crc校验码，包含从attributes开始到BatchRecords结束的数据的校验码</td>
+</tr>
+<tr>
+<td align="center">attributes</td>
+<td align="center">int16，其中bit0-2中包含了使用的压缩算法，bit3是timestampType，bit4表示是否失误，bit5表示是否是控制指令，bit6-15暂未使用</td>
+</tr>
+<tr>
+<td align="center">lastOffsetDelta</td>
+<td align="center">BatchRecords中最后一个Offset，是相对baseOffset的值</td>
+</tr>
+<tr>
+<td align="center">firstTimestamp</td>
+<td align="center">BatchRecords中最小的timestamp</td>
+</tr>
+<tr>
+<td align="center">maxTimestamp</td>
+<td align="center">BatchRecords中最大的timestamp</td>
+</tr>
+<tr>
+<td align="center">producerId</td>
+<td align="center">发送端的唯一ID，用于做消息的幂等处理</td>
+</tr>
+<tr>
+<td align="center">producerEpoch</td>
+<td align="center">发送端的Epoch，用于做消息的幂等处理</td>
+</tr>
+<tr>
+<td align="center">baseSequence</td>
+<td align="center">BatchRecords的序列号，用于做消息的幂等处理</td>
+</tr>
+<tr>
+<td align="center">records</td>
+<td align="center">具体的消息内容</td>
+</tr>
+</tbody></table>
+<p>Record格式如下：</p>
+<div class="code-wrapper"><pre><code class="hljs vbnet"><span class="hljs-symbol">length:</span> varint
+<span class="hljs-symbol">attributes:</span> int8
+    bit <span class="hljs-number">0</span>~<span class="hljs-number">7</span>: unused
+<span class="hljs-symbol">timestampDelta:</span> varlong
+<span class="hljs-symbol">offsetDelta:</span> varint
+<span class="hljs-symbol">keyLength:</span> varint
+<span class="hljs-symbol">key:</span> <span class="hljs-type">byte</span>[]
+<span class="hljs-symbol">valueLen:</span> varint
+<span class="hljs-symbol">value:</span> <span class="hljs-type">byte</span>[]
+Headers =&gt; [Header]
+
+<span class="hljs-symbol">headerKeyLength:</span> varint
+<span class="hljs-symbol">headerKey:</span> <span class="hljs-type">String</span>
+<span class="hljs-symbol">headerValueLength:</span> varint
+<span class="hljs-symbol">Value:</span> <span class="hljs-type">byte</span>[]</code></pre></div>
+
+
+
+<p>上述使用的<code>Varint</code>编码方式，该编码起到很好的压缩效果。ProtoBuf使用的也是该编码方式。</p>
+<h3 id="消息压缩"><a href="#消息压缩" class="headerlink" title="消息压缩"></a>消息压缩</h3><p>压缩算法在生产者客户端进行配置，通过<code>compression.type</code>参数选择合适的算法，主要有<code>gzip</code>, <code>lz4</code>, <code>snappy</code>,<code>zstd</code></p>
+<h2 id="日志索引"><a href="#日志索引" class="headerlink" title="日志索引"></a>日志索引</h2><p>索引用来提高查找的效率，<strong>偏移量索引文件</strong>建立了offset到物理地址之间的映射关系，时间戳索引文件根据指定的时间戳来查找对应的偏移量信息。</p>
+<p>Kafka中索引文件以<strong>稀疏索引</strong>的方式构造消息的索引，不能保证每个消息在索引文件中都有对应的索引项，每写入一定量的消息（由broker端的<code>log.index.interval.bytes</code>指定）时，两个索引文件分别增加一个偏移量索引项和时间戳索引项。</p>
+<p>稀疏索引通过<code>MappedByteBuffer</code>将索引文件映射到内存中，以加快索引的查询速度。两个索引文件中索引项根据偏移量和时间戳单调递增的，可以使用<strong>二分查找</strong>快速定位到。</p>
+<p>日志分段策略由以下配置决定（满足其一即可）：</p>
+<ul>
+<li>broker的<code>log.segment.bytes </code>：当前LogSegment大小超过该值，默认1GB</li>
+<li>当前日志分段中消息的最大时间戳与当前系统的时间戳的差值大于 <code>log.roll.ms</code>或<code>log.roll.hours</code>参数配置的值。</li>
+<li>偏移量索引文件或时间戳索引文件的大小达到broker端参数<code>log.index.size.max.bytes</code>配置的值。默认为10MB</li>
+<li>追加的消息的偏移量与当前日志分段的偏移量之间的差值大于<code>Integer.MAX_VALUE</code></li>
+</ul>
+<h3 id="偏移量索引项"><a href="#偏移量索引项" class="headerlink" title="偏移量索引项"></a>偏移量索引项</h3><p>每个索引项占用8个字节，分为以下两个部分：</p>
+<ul>
+<li>relativeOffset：相对偏移量，消息相对于<code>baseOffset</code>的偏移量，占用4个字节</li>
+<li>position：物理地址，消息在日志分段文件中的物理位置，占用4个字节。</li>
+</ul>
+<p>Kafka要求索引文件大小必须是索引项的整数倍。</p>
+<h3 id="时间戳索引项"><a href="#时间戳索引项" class="headerlink" title="时间戳索引项"></a>时间戳索引项</h3><p>时间戳索引项占用12字节，分为以下两个部分：</p>
+<ul>
+<li>timestamp：当前日志分段最大的时间戳<ul>
+<li>追加的索引项该字段必须大于前面的时间戳，保持单调递增属性</li>
+</ul>
+</li>
+<li>relativeOffset：时间戳对应的相对偏移量</li>
+</ul>
+<h2 id="日志清理"><a href="#日志清理" class="headerlink" title="日志清理"></a>日志清理</h2><p>Kafka将消息存储在磁盘上，为了控制占用空间的不断增加，需要对消息做一定的清理操作。提供了两种日志清理策略：</p>
+<ul>
+<li>日志删除：按照一定的保留策略直接删除不符合条件的日志分段。</li>
+<li>日志压缩：对相同key进行整合，保留最新版本的value。</li>
+</ul>
+<p>通过broker端参数<code>log.cleanup.policy</code>来设置日志清理策略，默认采用<code>delete</code>策略，日志清理的粒度可以控制到主题级别</p>
+<h3 id="日志删除"><a href="#日志删除" class="headerlink" title="日志删除"></a>日志删除</h3><p>日志管理器中会有一个日志删除任务来周期性检测并删除不符合保留条件的日志分段文件，周期通过<code>log.retention.check.interval.ms</code>来配置，默认五分钟，保留策略如下：</p>
+<ul>
+<li>基于时间的保留策略：删除日志文件中超过设定阈值的日志分段</li>
+<li>基于日志大小的保留策略：删除超过阈值的日志分段</li>
+<li>基于日志起始偏移量的保留策略：某日志分段的下一个日志分段的起始偏移量baseOffset 是否小于等于logStartOffset，若是，则可以删除此日志分段。</li>
+</ul>
+<h3 id="日志压缩"><a href="#日志压缩" class="headerlink" title="日志压缩"></a>日志压缩</h3><p><code>Log Compaction</code>前后，分段中每条消息的偏移量和写入时偏移量保持一致，日志中每条消息的物理位置会改变，类似Redis的RDB过程</p>
+<h2 id="磁盘存储"><a href="#磁盘存储" class="headerlink" title="磁盘存储"></a>磁盘存储</h2><p><strong>磁盘顺序写速度比磁盘随机写快，比内存随机写快</strong>。</p>
+<p>Kafka采用append的方式写入消息，并且不允许修改写入的消息，这种方式属于<strong>磁盘顺序写</strong>。</p>
+<h3 id="Page-Cache"><a href="#Page-Cache" class="headerlink" title="Page Cache"></a>Page Cache</h3><p><code>Page Cache</code>是OS实现的一种主要的磁盘缓存，以此减少对磁盘IO的操作。具体流程：将磁盘数据缓存到内存，将对磁盘的访问转为对内存的访问，极大提高访问效率。</p>
+<p>当进程访问磁盘时，会首先查看数据所在的页是否在<code>page cache</code>中，没有命中，则向磁盘发起读取请求并将数据存入缓存。</p>
+<p>Kafka中大量使用了页缓存，这是Kafka实现高吞吐的重要因素之一，虽然刷盘由OS控制，Kafka同样提供了<code>fsync</code>强制刷盘来保证数据可靠性。</p>
+<h3 id="磁盘IO流程"><a href="#磁盘IO流程" class="headerlink" title="磁盘IO流程"></a>磁盘IO流程</h3><p>磁盘IO的场景从编程角度分为以下几种：</p>
+<ul>
+<li>调用C标准库，数据流向：进程buffer-&gt;C 标准IO库 buffer-&gt;page cache-&gt;磁盘上的具体文件</li>
+<li>调用文件IO，数据流向：进程buffer-&gt;page cache -&gt;磁盘</li>
+<li>打开文件使用<code>O_DIRECT</code>，直接读磁盘</li>
+</ul>
+<p>磁盘IO流程如下：</p>
+<ul>
+<li><strong>写操作</strong>：调用<code>fwrite</code>把数据写入 IO Buffer（会存在将多个请求打包在一个buffer）。调用<code>write</code>将数据写入页缓存，此时不会主动刷盘，存在<code>pdflush</code>线程不断检测脏页，并判断是否写回磁盘。</li>
+<li><strong>读操作</strong>：调用<code>fread</code>去IO Buffer中读取数据，读取到成功返回，否则去页缓存读取，不存在去磁盘读。</li>
+<li><strong>IO请求处理</strong>：通用块层将IO请求构造成多个bio结构提交给调度层，调度器将bio结构排序：<strong>尽可能将随机读写变为顺序读写</strong></li>
+</ul>
+<p>从上到下，逐层分别为：</p>
+<ul>
+<li>应用层：应用程序</li>
+<li>内核层：虚拟文件系统 + 具体文件系统，接收应用层的内核调用，并并封装请求发送给通用块层。</li>
+<li>通用块层：接受上层发出的磁盘请求，并调整结构传给设备层，该层隐藏了底层硬件块的特性，提供了通用视图。</li>
+<li>设备层：磁盘</li>
+</ul>
+<p>Linux的IO调度策略：</p>
+<ul>
+<li>NOOP：FIFO队列</li>
+<li>CFQ：按照IO请求地址进行排序</li>
+<li>DEADLINE：在CFQ的基础上，解决了IO请求饥饿问题。</li>
+<li>ANTICIPATORY：为每个读IO设置了6ms的等待时间窗口，如果在此期间内，收到了相邻位置的读IO请求，立即满足</li>
+</ul>
+<p>Kafka还采用了<strong>零拷贝</strong>技术来提升性能，直接将数据从磁盘文件复制到网卡设备，不经过应用程序的进程空间，减少了内核态和用户态的切换次数，大大提升了性能，Java的NIO采用<code>FileChannal.transferTo()</code>实现零拷贝。</p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/" class="category-chain-item">中间件</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/Kafka/" class="category-chain-item">Kafka</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Kafka学习笔记(二)-存储架构</div>
+      <div>https://l1n.wang/2022/中间件/Kafka/Kafka学习笔记(二)-存储结构/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2022年6月29日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2022/Linux/%E5%88%86%E6%9E%90Zero-Copy%E6%8A%80%E6%9C%AF/" title="分析Linux中的Zero-Copy技术">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">分析Linux中的Zero-Copy技术</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2022/Linux/%E5%B0%8F%E8%AE%B0-%E6%9E%84%E5%BB%BArpm%E5%8C%85/" title="小记-构建RPM包">
+                        <span class="hidden-mobile">小记-构建RPM包</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

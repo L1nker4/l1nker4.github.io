@@ -1,0 +1,1092 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="简介字典是一种用来存储键值对的数据结构。Redis本身就是KV型数据库，整个数据库就是用字典进行存储的，对Redis的增删改查操作，实际上就是对字典中的数据进行增删改查操作。 数据结构HashTable table：指针数组，用于存储键值对，指向的是dictEntry结构体，每个dictEntry存有键值对 size：table数组的大小 sizemask：掩码，用来计算键的索引值。值恒为size">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Redis底层数据结构-Dict源码分析">
+<meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-dict/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="简介字典是一种用来存储键值对的数据结构。Redis本身就是KV型数据库，整个数据库就是用字典进行存储的，对Redis的增删改查操作，实际上就是对字典中的数据进行增删改查操作。 数据结构HashTable table：指针数组，用于存储键值对，指向的是dictEntry结构体，每个dictEntry存有键值对 size：table数组的大小 sizemask：掩码，用来计算键的索引值。值恒为size">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/dict/dict.png">
+<meta property="article:published_time" content="2020-05-29T10:30:20.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.358Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="数据结构">
+<meta property="article:tag" content="源码分析">
+<meta property="article:tag" content="Redis">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/dict/dict.png">
+  
+  
+  
+  <title>Redis底层数据结构-Dict源码分析 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Redis底层数据结构-Dict源码分析"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2020-05-29 18:30" pubdate>
+          2020年5月29日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          2.3k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          20 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Redis底层数据结构-Dict源码分析</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><p>字典是一种用来存储键值对的数据结构。Redis本身就是KV型数据库，整个数据库就是用字典进行存储的，对Redis的增删改查操作，实际上就是对字典中的数据进行增删改查操作。</p>
+<h1 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h1><h2 id="HashTable"><a href="#HashTable" class="headerlink" title="HashTable"></a>HashTable</h2><ul>
+<li>table：指针数组，用于存储键值对，指向的是<code>dictEntry</code>结构体，每个<code>dictEntry</code>存有键值对</li>
+<li>size：table数组的大小</li>
+<li>sizemask：掩码，用来计算键的索引值。值恒为size -1</li>
+<li>used：table数组已存键值对个数</li>
+</ul>
+<p>Hash表的数组容量初始值为4，扩容倍数为当前一倍，所以sizemask大小为<code>3,7,11,31</code>，二进制表示为<code>111111...</code>，在计算索引值时，首先计算hash值，通过<code>hash = dict-&gt; type-&gt;hashFunction(k0)</code>得到对应hash。再通过<code>idx = hash &amp; d-&gt;dt[table].sizemask</code>计算entry存储的索引位置，位运算速度快于取余运算，Redis使用链地址法来解决<strong>hash冲突</strong>问题。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dictht</span> &#123;</span>
+    dictEntry **table;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> size;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> sizemask;
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> used;
+&#125; dictht;</code></pre></div>
+
+
+
+<h3 id="rehash"><a href="#rehash" class="headerlink" title="rehash"></a>rehash</h3><p>hashtable一般需要将负载因子维护在一个合理的范围，使得其达到最大的操作效率，当键值对数量太多或太少时，都需要对hashtable进行相应的扩展或缩容。rehash动作是分批次、渐进式完成的，这是为了避免rehash对server性能造成影响。</p>
+<p>Redis进行rehash的执行步骤如下：</p>
+<ol>
+<li>为<code>ht[1]</code>分配空间，空间大小取决于<code>ht[0]</code>包含的键值对数量。</li>
+<li>将所有保存在<code>ht[0]</code>的键值对rehash到<code>ht[1]</code>上，即重新计算对应hash和index，并存储在<code>ht[1]</code></li>
+<li>释放<code>ht[0]</code>空间，将<code>ht[1]</code>设置为<code>ht[0]</code>，并在<code>ht[1]</code>新建一个空白hashtable，为下一次rehash服务。</li>
+</ol>
+<p>在渐进式rehash过程中，查询等操作同时使用两个hashtable。</p>
+<h3 id="dictEntry"><a href="#dictEntry" class="headerlink" title="dictEntry"></a>dictEntry</h3><p>键值对节点，存放键值对数据。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dictEntry</span> &#123;</span>
+    <span class="hljs-comment">//键</span>
+    <span class="hljs-type">void</span> *key;
+    <span class="hljs-class"><span class="hljs-keyword">union</span> &#123;</span>
+        <span class="hljs-comment">//存储值</span>
+        <span class="hljs-type">void</span> *val;
+        <span class="hljs-type">uint64_t</span> u64;
+        <span class="hljs-comment">//存储过期时间</span>
+        <span class="hljs-type">int64_t</span> s64;
+        <span class="hljs-type">double</span> d;
+    &#125; v;<span class="hljs-comment">//值，联合体</span>
+    <span class="hljs-comment">//next指针，Hash冲突时的单链表法</span>
+    <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dictEntry</span> *<span class="hljs-title">next</span>;</span>
+&#125; dictEntry;</code></pre></div>
+
+
+
+<h3 id="dictType"><a href="#dictType" class="headerlink" title="dictType"></a>dictType</h3><p>存放的是对字典操作的函数指针</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dictType</span> &#123;</span>
+    <span class="hljs-comment">//Hash函数，默认使用MurmurHash2算法来计算hash值</span>
+    <span class="hljs-type">uint64_t</span> (*hashFunction)(<span class="hljs-type">const</span> <span class="hljs-type">void</span> *key);
+    <span class="hljs-comment">//键对应的复制函数</span>
+    <span class="hljs-type">void</span> *(*keyDup)(<span class="hljs-type">void</span> *privdata, <span class="hljs-type">const</span> <span class="hljs-type">void</span> *key);
+    <span class="hljs-comment">//值对应的复制函数</span>
+    <span class="hljs-type">void</span> *(*valDup)(<span class="hljs-type">void</span> *privdata, <span class="hljs-type">const</span> <span class="hljs-type">void</span> *obj);
+    <span class="hljs-comment">//键的比对函数</span>
+    <span class="hljs-type">int</span> (*keyCompare)(<span class="hljs-type">void</span> *privdata, <span class="hljs-type">const</span> <span class="hljs-type">void</span> *key1, <span class="hljs-type">const</span> <span class="hljs-type">void</span> *key2);
+    <span class="hljs-comment">//键的销毁函数</span>
+    <span class="hljs-type">void</span> (*keyDestructor)(<span class="hljs-type">void</span> *privdata, <span class="hljs-type">void</span> *key);
+    <span class="hljs-comment">//值得销毁函数</span>
+    <span class="hljs-type">void</span> (*valDestructor)(<span class="hljs-type">void</span> *privdata, <span class="hljs-type">void</span> *obj);
+&#125; dictType;</code></pre></div>
+
+
+
+<h2 id="dict"><a href="#dict" class="headerlink" title="dict"></a>dict</h2><ul>
+<li>type：字典操作函数指针，指向一个dictType结构的指针</li>
+<li>privdata：私有数据，配合tyoe指针指向的函数一起使用</li>
+<li>ht：大小为2的数组，默认使用ht[0]，当字典扩容缩容时进行rehash时，才会用到ht[1]</li>
+<li>rehashidx：标记该字典是否在进行rehash，没进行为-1，用来记录rehash到了哪个元素，值为下标值</li>
+<li>iterators：用来记录当前运行的安全迭代器数，当有安全迭代器，会暂停rehash</li>
+</ul>
+<p>基本结构图如图所示：<br><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/dict/dict.png" srcset="/img/loading.gif" lazyload alt="字典结构图"></p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dict</span> &#123;</span>
+<span class="hljs-comment">//存放字典的操作函数</span>
+    dictType *type;
+    <span class="hljs-comment">//依赖的数据</span>
+    <span class="hljs-type">void</span> *privdata;
+    <span class="hljs-comment">//Hash表</span>
+    dictht ht[<span class="hljs-number">2</span>];
+    <span class="hljs-comment">//rehash标识，默认为-1，代表没有进行rehash操作</span>
+    <span class="hljs-type">long</span> rehashidx; 
+    <span class="hljs-comment">//当前运行的迭代器数</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> iterators;
+&#125; dict;</code></pre></div>
+
+<h1 id="接口"><a href="#接口" class="headerlink" title="接口"></a>接口</h1><h2 id="dictCreate"><a href="#dictCreate" class="headerlink" title="dictCreate"></a>dictCreate</h2><p>redis-server启动时，会初始化一个空字典用于存储整个数据库的键值对，初始化的主要逻辑如下：</p>
+<ul>
+<li>申请空间</li>
+<li>调用<code>_dictInit</code>完成初始化<div class="code-wrapper"><pre><code class="hljs C">dict *<span class="hljs-title function_">dictCreate</span><span class="hljs-params">(dictType *type,</span>
+<span class="hljs-params">        <span class="hljs-type">void</span> *privDataPtr)</span>
+&#123;
+    dict *d = zmalloc(<span class="hljs-keyword">sizeof</span>(*d));
+
+    _dictInit(d,type,privDataPtr);
+    <span class="hljs-keyword">return</span> d;
+&#125;
+
+<span class="hljs-type">int</span> _dictInit(dict *d, dictType *type,
+        <span class="hljs-type">void</span> *privDataPtr)
+&#123;
+    _dictReset(&amp;d-&gt;ht[<span class="hljs-number">0</span>]);
+    _dictReset(&amp;d-&gt;ht[<span class="hljs-number">1</span>]);
+    d-&gt;type = type;
+    d-&gt;privdata = privDataPtr;
+    d-&gt;rehashidx = <span class="hljs-number">-1</span>;
+    d-&gt;iterators = <span class="hljs-number">0</span>;
+    <span class="hljs-keyword">return</span> DICT_OK;
+&#125;</code></pre></div></li>
+</ul>
+<h2 id="dictAdd"><a href="#dictAdd" class="headerlink" title="dictAdd"></a>dictAdd</h2><p>添加键值对，主要逻辑如下：</p>
+<ul>
+<li>调用<code>dictAddRaw</code>，添加键</li>
+<li>给返回的新节点设置值（更新val字段）<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-type">int</span> <span class="hljs-title function_">dictAdd</span><span class="hljs-params">(dict *d, <span class="hljs-type">void</span> *key, <span class="hljs-type">void</span> *val)</span>
+&#123;
+    <span class="hljs-comment">//添加键，字典中键已存在则返回NULL，否则添加新节点，并返回</span>
+    dictEntry *entry = dictAddRaw(d,key,<span class="hljs-literal">NULL</span>);
+    <span class="hljs-comment">//键存在则添加错误</span>
+    <span class="hljs-keyword">if</span> (!entry) <span class="hljs-keyword">return</span> DICT_ERR;
+    <span class="hljs-comment">//设置值</span>
+    dictSetVal(d, entry, val);
+    <span class="hljs-keyword">return</span> DICT_OK;
+&#125;
+
+
+<span class="hljs-comment">//d为入参字典，key为键，existing为Hash表节点地址</span>
+dictEntry *<span class="hljs-title function_">dictAddRaw</span><span class="hljs-params">(dict *d, <span class="hljs-type">void</span> *key, dictEntry **existing)</span>
+&#123;
+    <span class="hljs-type">long</span> index;
+    dictEntry *entry;
+    dictht *ht;
+
+    <span class="hljs-comment">//字典是否在进行rehash操作</span>
+    <span class="hljs-keyword">if</span> (dictIsRehashing(d)) _dictRehashStep(d);
+
+    <span class="hljs-comment">//查找键，找到直接返回-1，并把老节点存放在existing里，否则返回新节点索引值</span>
+    <span class="hljs-keyword">if</span> ((index = _dictKeyIndex(d, key, dictHashKey(d,key), existing)) == <span class="hljs-number">-1</span>)
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;，
+
+    <span class="hljs-comment">//检测容量</span>
+    ht = dictIsRehashing(d) ? &amp;d-&gt;ht[<span class="hljs-number">1</span>] : &amp;d-&gt;ht[<span class="hljs-number">0</span>];
+    <span class="hljs-comment">//申请新节点内存空间，插入哈希表</span>
+    entry = zmalloc(<span class="hljs-keyword">sizeof</span>(*entry));
+    entry-&gt;next = ht-&gt;table[index];
+    ht-&gt;table[index] = entry;
+    ht-&gt;used++;
+
+    <span class="hljs-comment">//存储键信息</span>
+    dictSetKey(d, entry, key);
+    <span class="hljs-keyword">return</span> entry;
+&#125;</code></pre></div></li>
+</ul>
+<h2 id="dictExpand"><a href="#dictExpand" class="headerlink" title="dictExpand"></a>dictExpand</h2><p>扩容操作主要逻辑：</p>
+<ul>
+<li>计算扩容大小（是size的下一个2的幂）</li>
+<li>将新申请的地址存放于ht[1]，并把<code>rehashidx</code>标为1，表示需要进行rehash</li>
+</ul>
+<p>扩容完成后ht[1]中为全新的Hash表，扩容之后，添加操作的键值对全部存放于全新的Hash表中，修改删除查找等操作需要在ht[0]和ht[1]中进行检查。此外还需要将ht[0]中的键值对rehash到ht[1]中。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-type">int</span> <span class="hljs-title function_">dictExpand</span><span class="hljs-params">(dict *d, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> size)</span>
+&#123;
+    <span class="hljs-comment">//如果已存在空间大于传入size，则无效</span>
+    <span class="hljs-keyword">if</span> (dictIsRehashing(d) || d-&gt;ht[<span class="hljs-number">0</span>].used &gt; size)
+        <span class="hljs-keyword">return</span> DICT_ERR;
+
+    dictht n; <span class="hljs-comment">/* the new hash table */</span>
+    <span class="hljs-comment">//扩容值为2的幂</span>
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> realsize = _dictNextPower(size);
+
+    <span class="hljs-comment">//相同则不扩容</span>
+    <span class="hljs-keyword">if</span> (realsize == d-&gt;ht[<span class="hljs-number">0</span>].size) <span class="hljs-keyword">return</span> DICT_ERR;
+
+    <span class="hljs-comment">//将新的hash表内部变量初始化，并申请对应的内存空间</span>
+    n.size = realsize;
+    n.sizemask = realsize<span class="hljs-number">-1</span>;
+    n.table = zcalloc(realsize*<span class="hljs-keyword">sizeof</span>(dictEntry*));
+    n.used = <span class="hljs-number">0</span>;
+
+    <span class="hljs-comment">//如果当前是空表，就直接存放在ht[0]</span>
+    <span class="hljs-keyword">if</span> (d-&gt;ht[<span class="hljs-number">0</span>].table == <span class="hljs-literal">NULL</span>) &#123;
+        d-&gt;ht[<span class="hljs-number">0</span>] = n;
+        <span class="hljs-keyword">return</span> DICT_OK;
+    &#125;
+
+    扩容后的新内存放入ht[<span class="hljs-number">1</span>]
+    d-&gt;ht[<span class="hljs-number">1</span>] = n;
+    <span class="hljs-comment">//表示需要进行rehash</span>
+    d-&gt;rehashidx = <span class="hljs-number">0</span>;
+    <span class="hljs-keyword">return</span> DICT_OK;
+&#125;</code></pre></div>
+
+<h2 id="dictResize"><a href="#dictResize" class="headerlink" title="dictResize"></a>dictResize</h2><p>缩容操作主要通过<code>dictExpand(d, minimal)</code>实现。</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-meta">#<span class="hljs-keyword">define</span> DICT_HT_INITIAL_SIZE     4</span>
+<span class="hljs-type">int</span> <span class="hljs-title function_">dictResize</span><span class="hljs-params">(dict *d)</span>
+&#123;
+    <span class="hljs-type">int</span> minimal;
+    <span class="hljs-comment">//判断是否在rehash</span>
+    <span class="hljs-keyword">if</span> (!dict_can_resize || dictIsRehashing(d)) <span class="hljs-keyword">return</span> DICT_ERR;
+    <span class="hljs-comment">//minimal为ht[0]的已使用量</span>
+    minimal = d-&gt;ht[<span class="hljs-number">0</span>].used;
+    <span class="hljs-comment">//如果键值对数量 &lt; 4，将缩容至4</span>
+    <span class="hljs-keyword">if</span> (minimal &lt; DICT_HT_INITIAL_SIZE)
+        minimal = DICT_HT_INITIAL_SIZE;
+        <span class="hljs-comment">//调用dictExpand进行缩容</span>
+    <span class="hljs-keyword">return</span> dictExpand(d, minimal);
+&#125;</code></pre></div>
+
+<h2 id="Rehash"><a href="#Rehash" class="headerlink" title="Rehash"></a>Rehash</h2><p>Rehash在缩容和扩容时都会触发。执行插入、删除、查找、修改操作前，会判断当前字典是否在rehash，如果在，调用<code>dictRehashStep</code>进行rehash（只对一个节点rehash）。如果服务处于空闲时，也会进行rehash操作（<code>incrementally</code>批量，一次100个节点）</p>
+<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-type">int</span> <span class="hljs-title function_">dictRehash</span><span class="hljs-params">(dict *d, <span class="hljs-type">int</span> n)</span> &#123;
+    <span class="hljs-type">int</span> empty_visits = n*<span class="hljs-number">10</span>; <span class="hljs-comment">/* Max number of empty buckets to visit. */</span>
+    <span class="hljs-comment">//如果已经rehash结束，直接返回</span>
+    <span class="hljs-keyword">if</span> (!dictIsRehashing(d)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+    
+    <span class="hljs-keyword">while</span>(n-- &amp;&amp; d-&gt;ht[<span class="hljs-number">0</span>].used != <span class="hljs-number">0</span>) &#123;
+        dictEntry *de, *nextde;
+
+        <span class="hljs-comment">/* Note that rehashidx can&#x27;t overflow as we are sure there are more</span>
+<span class="hljs-comment">         * elements because ht[0].used != 0 */</span>
+        assert(d-&gt;ht[<span class="hljs-number">0</span>].size &gt; (<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>)d-&gt;rehashidx);
+        <span class="hljs-comment">//找到hash表中不为空的位置</span>
+        <span class="hljs-keyword">while</span>(d-&gt;ht[<span class="hljs-number">0</span>].table[d-&gt;rehashidx] == <span class="hljs-literal">NULL</span>) &#123;
+            d-&gt;rehashidx++;
+            <span class="hljs-keyword">if</span> (--empty_visits == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+        &#125;
+        <span class="hljs-comment">//de为rehash标识，存放正在进行rehash节点的索引值</span>
+        de = d-&gt;ht[<span class="hljs-number">0</span>].table[d-&gt;rehashidx];
+        <span class="hljs-comment">/* Move all the keys in this bucket from the old to the new hash HT */</span>
+        <span class="hljs-keyword">while</span>(de) &#123;
+            <span class="hljs-type">uint64_t</span> h;
+
+            nextde = de-&gt;next;
+            <span class="hljs-comment">//h</span>
+            h = dictHashKey(d, de-&gt;key) &amp; d-&gt;ht[<span class="hljs-number">1</span>].sizemask;
+            <span class="hljs-comment">//插入</span>
+            de-&gt;next = d-&gt;ht[<span class="hljs-number">1</span>].table[h];
+            d-&gt;ht[<span class="hljs-number">1</span>].table[h] = de;
+            <span class="hljs-comment">//更新数据</span>
+            d-&gt;ht[<span class="hljs-number">0</span>].used--;
+            d-&gt;ht[<span class="hljs-number">1</span>].used++;
+            de = nextde;
+        &#125;
+        <span class="hljs-comment">//置空</span>
+        d-&gt;ht[<span class="hljs-number">0</span>].table[d-&gt;rehashidx] = <span class="hljs-literal">NULL</span>;
+        d-&gt;rehashidx++;
+    &#125;
+
+    <span class="hljs-comment">//检查是否已经rehash过了</span>
+    <span class="hljs-keyword">if</span> (d-&gt;ht[<span class="hljs-number">0</span>].used == <span class="hljs-number">0</span>) &#123;
+        zfree(d-&gt;ht[<span class="hljs-number">0</span>].table);
+        d-&gt;ht[<span class="hljs-number">0</span>] = d-&gt;ht[<span class="hljs-number">1</span>];
+        _dictReset(&amp;d-&gt;ht[<span class="hljs-number">1</span>]);
+        d-&gt;rehashidx = <span class="hljs-number">-1</span>;
+        <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+    &#125;
+
+    <span class="hljs-comment">/* More to rehash... */</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+&#125;</code></pre></div>
+
+<h2 id="dictFind"><a href="#dictFind" class="headerlink" title="dictFind"></a>dictFind</h2><p>查找键的逻辑较为简单，遍历ht[0]和ht[1]。</p>
+<div class="code-wrapper"><pre><code class="hljs C">dictEntry *<span class="hljs-title function_">dictFind</span><span class="hljs-params">(dict *d, <span class="hljs-type">const</span> <span class="hljs-type">void</span> *key)</span>
+&#123;
+    dictEntry *he;
+    <span class="hljs-type">uint64_t</span> h, idx, table;
+    <span class="hljs-comment">//字典为空，直接返回</span>
+    <span class="hljs-keyword">if</span> (d-&gt;ht[<span class="hljs-number">0</span>].used + d-&gt;ht[<span class="hljs-number">1</span>].used == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* dict is empty */</span>
+    <span class="hljs-keyword">if</span> (dictIsRehashing(d)) _dictRehashStep(d);
+    <span class="hljs-comment">//获取键的hash值</span>
+    h = dictHashKey(d, key);
+    <span class="hljs-comment">//遍历查找hash表,ht[0]和ht[1]</span>
+    <span class="hljs-keyword">for</span> (table = <span class="hljs-number">0</span>; table &lt;= <span class="hljs-number">1</span>; table++) &#123;
+        idx = h &amp; d-&gt;ht[table].sizemask;
+        he = d-&gt;ht[table].table[idx];
+        <span class="hljs-comment">//遍历单链表</span>
+        <span class="hljs-keyword">while</span>(he) &#123;
+            <span class="hljs-keyword">if</span> (key==he-&gt;key || dictCompareKeys(d, key, he-&gt;key))
+                <span class="hljs-keyword">return</span> he;
+            he = he-&gt;next;
+        &#125;
+        <span class="hljs-keyword">if</span> (!dictIsRehashing(d)) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+    &#125;
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+&#125;</code></pre></div>
+
+<h2 id="dictDelete"><a href="#dictDelete" class="headerlink" title="dictDelete"></a>dictDelete</h2><p>删除的主要逻辑如下：</p>
+<ul>
+<li>查找该键是否存在于该字典中</li>
+<li>存在则将节点从单链表中删除</li>
+<li>释放节点内存空间，used减一<div class="code-wrapper"><pre><code class="hljs C"><span class="hljs-type">int</span> <span class="hljs-title function_">dictDelete</span><span class="hljs-params">(dict *ht, <span class="hljs-type">const</span> <span class="hljs-type">void</span> *key)</span> &#123;
+    <span class="hljs-keyword">return</span> dictGenericDelete(ht,key,<span class="hljs-number">0</span>) ? DICT_OK : DICT_ERR;
+&#125;
+
+<span class="hljs-type">static</span> dictEntry *<span class="hljs-title function_">dictGenericDelete</span><span class="hljs-params">(dict *d, <span class="hljs-type">const</span> <span class="hljs-type">void</span> *key, <span class="hljs-type">int</span> nofree)</span> &#123;
+    <span class="hljs-type">uint64_t</span> h, idx;
+    dictEntry *he, *prevHe;
+    <span class="hljs-type">int</span> table;
+    <span class="hljs-comment">//如果字典为空直接返回</span>
+    <span class="hljs-keyword">if</span> (d-&gt;ht[<span class="hljs-number">0</span>].used == <span class="hljs-number">0</span> &amp;&amp; d-&gt;ht[<span class="hljs-number">1</span>].used == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+    <span class="hljs-comment">//。如果正在rehash，则调用_dictRehashStep进行rehash一次</span>
+    <span class="hljs-keyword">if</span> (dictIsRehashing(d)) _dictRehashStep(d);
+    <span class="hljs-comment">//获取需要删除节点的键Hash值</span>
+    h = dictHashKey(d, key);
+    <span class="hljs-comment">//从ht[0]和ht[1]中查找</span>
+    <span class="hljs-keyword">for</span> (table = <span class="hljs-number">0</span>; table &lt;= <span class="hljs-number">1</span>; table++) &#123;
+        idx = h &amp; d-&gt;ht[table].sizemask;
+        he = d-&gt;ht[table].table[idx];
+        prevHe = <span class="hljs-literal">NULL</span>;
+        <span class="hljs-comment">//遍历单链表查找</span>
+        <span class="hljs-keyword">while</span>(he) &#123;
+            <span class="hljs-keyword">if</span> (key==he-&gt;key || dictCompareKeys(d, key, he-&gt;key)) &#123;
+                <span class="hljs-comment">//删除节点</span>
+                <span class="hljs-keyword">if</span> (prevHe)
+                    prevHe-&gt;next = he-&gt;next;
+                <span class="hljs-keyword">else</span>
+                    d-&gt;ht[table].table[idx] = he-&gt;next;
+                <span class="hljs-keyword">if</span> (!nofree) &#123;
+                    <span class="hljs-comment">//释放节点内存空间</span>
+                    dictFreeKey(d, he);
+                    dictFreeVal(d, he);
+                    zfree(he);
+                &#125;
+                <span class="hljs-comment">//used自减一</span>
+                d-&gt;ht[table].used--;
+                <span class="hljs-keyword">return</span> he;
+            &#125;
+            prevHe = he;
+            he = he-&gt;next;
+        &#125;
+        <span class="hljs-keyword">if</span> (!dictIsRehashing(d)) <span class="hljs-keyword">break</span>;
+    &#125;
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* not found */</span>
+&#125;</code></pre></div></li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文主要对Redis中的字典基本结构做了简要分析，对字典的创建，键值对添加&#x2F;删除&#x2F;查找等操作与字典的缩容扩容机制做了简要分析，键值对修改操作主要通过<code>db.c</code>中的<code>dbOverwrite</code>函数调用<code>dictSetVal</code>实现。</p>
+<p>字典是通过两个hashtable来实现的，一个用于日常存储，一个用于渐进式rehash，字典被应用于提供的<strong>hash结构</strong>和服务端的<strong>数据库存储</strong>。</p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/Redis/" class="category-chain-item">Redis</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/Redis/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" class="category-chain-item">源码分析</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/" class="print-no-link">#数据结构</a>
+      
+        <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" class="print-no-link">#源码分析</a>
+      
+        <a href="/tags/Redis/" class="print-no-link">#Redis</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Redis底层数据结构-Dict源码分析</div>
+      <div>https://l1n.wang/2020/中间件/Redis/redis-dict/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2020年5月29日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-intset/" title="Redis底层数据结构-Intset源码分析">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">Redis底层数据结构-Intset源码分析</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/redis-ziplist/" title="Redis底层数据结构-ZipList源码分析">
+                        <span class="hidden-mobile">Redis底层数据结构-ZipList源码分析</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

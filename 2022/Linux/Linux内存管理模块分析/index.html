@@ -1,0 +1,1564 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="概述内存管理主要分为三个方面：  管理物理内存：只有内核中负责内存管理的模块可以使用 管理虚拟内存：每个进程看到的都是独立且互不干扰的虚拟空间 物理内存和虚拟内存的转换：上述两者的映射关系  无论是内核态程序还是用户态程序，都使用虚拟内存，虚拟内存空间布局如下：   内核空间部分：存放内核进程的程序 用户空间部分：存放用户进程的程序，从最低位开始，逐个段如下： Text Segment：存放二进制">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux内存管理模块分析">
+<meta property="og:url" content="https://l1n.wang/2022/Linux/Linux%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="概述内存管理主要分为三个方面：  管理物理内存：只有内核中负责内存管理的模块可以使用 管理虚拟内存：每个进程看到的都是独立且互不干扰的虚拟空间 物理内存和虚拟内存的转换：上述两者的映射关系  无论是内核态程序还是用户态程序，都使用虚拟内存，虚拟内存空间布局如下：   内核空间部分：存放内核进程的程序 用户空间部分：存放用户进程的程序，从最低位开始，逐个段如下： Text Segment：存放二进制">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220723131749685.png">
+<meta property="article:published_time" content="2022-07-17T01:52:49.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.364Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="l1nker4">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220723131749685.png">
+  
+  
+  
+  <title>Linux内存管理模块分析 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Linux内存管理模块分析"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2022-07-17 09:52" pubdate>
+          2022年7月17日 上午
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          4.9k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          41 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Linux内存管理模块分析</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>内存管理主要分为三个方面：</p>
+<ul>
+<li>管理物理内存：只有内核中负责内存管理的模块可以使用</li>
+<li>管理虚拟内存：每个进程看到的都是独立且互不干扰的虚拟空间</li>
+<li>物理内存和虚拟内存的转换：上述两者的映射关系</li>
+</ul>
+<p>无论是内核态程序还是用户态程序，都使用虚拟内存，虚拟内存空间布局如下：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220723131749685.png" srcset="/img/loading.gif" lazyload alt="Linux-Process-Virtual-Memory"></p>
+<ul>
+<li>内核空间部分：存放内核进程的程序</li>
+<li>用户空间部分：存放用户进程的程序，从最低位开始，逐个段如下：<ul>
+<li>Text Segment：存放二进制可执行代码的位置</li>
+<li>Data Segment：存放静态常量</li>
+<li>BSS Segment：存放未初始化的静态变量</li>
+<li>Heap：动态分配内存的区域，malloc在这个空间分配</li>
+<li>Memory Mapping Segment：用来把文件映射到内存的区域，如果可执行文件依赖某个动态链接库，so文件就映射在这。</li>
+<li>Stack：进程的函数调用栈，由一个个frame（相当于函数实体）构成，内部存放局部变量、返回地址等信息，frame结构如下图所示：</li>
+</ul>
+</li>
+</ul>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220717113852718.png" srcset="/img/loading.gif" lazyload alt="stack-frame"></p>
+<p>可以通过<code>pmap pid</code>展示进程的地址空间相关信息。</p>
+<h2 id="基本概念"><a href="#基本概念" class="headerlink" title="基本概念"></a>基本概念</h2><h3 id="分段机制"><a href="#分段机制" class="headerlink" title="分段机制"></a>分段机制</h3><p>分段机制如下图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220717133205056.png" srcset="/img/loading.gif" lazyload alt="分段机制"></p>
+<p>在Linux中，段表被称为<strong>段描述符表</strong>，放在<strong>全局描述符表 GDT</strong>中，一个段表项由段基址base，界限limit，还有一些标识符组成：</p>
+<div class="code-wrapper"><pre><code class="hljs c">DEFINE_PER_CPU_PAGE_ALIGNED(<span class="hljs-keyword">struct</span> gdt_page, gdt_page) = &#123; .gdt = &#123;
+<span class="hljs-meta">#<span class="hljs-keyword">ifdef</span> CONFIG_X86_64</span>
+	[GDT_ENTRY_KERNEL32_CS]		= GDT_ENTRY_INIT(<span class="hljs-number">0xc09b</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0xfffff</span>),
+	[GDT_ENTRY_KERNEL_CS]		= GDT_ENTRY_INIT(<span class="hljs-number">0xa09b</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0xfffff</span>),
+	[GDT_ENTRY_KERNEL_DS]		= GDT_ENTRY_INIT(<span class="hljs-number">0xc093</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0xfffff</span>),
+	[GDT_ENTRY_DEFAULT_USER32_CS]	= GDT_ENTRY_INIT(<span class="hljs-number">0xc0fb</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0xfffff</span>),
+	[GDT_ENTRY_DEFAULT_USER_DS]	= GDT_ENTRY_INIT(<span class="hljs-number">0xc0f3</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0xfffff</span>),
+	[GDT_ENTRY_DEFAULT_USER_CS]	= GDT_ENTRY_INIT(<span class="hljs-number">0xa0fb</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0xfffff</span>),
+<span class="hljs-meta">#<span class="hljs-keyword">else</span></span>
+	[GDT_ENTRY_KERNEL_CS]		= GDT_ENTRY_INIT(<span class="hljs-number">0xc09a</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0xfffff</span>),
+	[GDT_ENTRY_KERNEL_DS]		= GDT_ENTRY_INIT(<span class="hljs-number">0xc092</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0xfffff</span>),
+	[GDT_ENTRY_DEFAULT_USER_CS]	= GDT_ENTRY_INIT(<span class="hljs-number">0xc0fa</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0xfffff</span>),
+	[GDT_ENTRY_DEFAULT_USER_DS]	= GDT_ENTRY_INIT(<span class="hljs-number">0xc0f2</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0xfffff</span>),
+......
+<span class="hljs-meta">#<span class="hljs-keyword">endif</span></span>
+&#125; &#125;;
+EXPORT_PER_CPU_SYMBOL_GPL(gdt_page);
+
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> __KERNEL_CS			(GDT_ENTRY_KERNEL_CS*8)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> __KERNEL_DS			(GDT_ENTRY_KERNEL_DS*8)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> __USER_DS			(GDT_ENTRY_DEFAULT_USER_DS*8 + 3)</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> __USER_CS			(GDT_ENTRY_DEFAULT_USER_CS*8 + 3)</span></code></pre></div>
+
+
+
+<p>分段机制在Linux中，可以做权限审核，用户态试图访问内核态，权限不足会禁止访问。</p>
+<h3 id="分页机制"><a href="#分页机制" class="headerlink" title="分页机制"></a>分页机制</h3><p>Linux使用的更多的是分页机制，将物理内存分成一块块相同大小的page，其机制如下图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220717135216416.png" srcset="/img/loading.gif" lazyload alt="分页机制"></p>
+<p>多级页表的好处：</p>
+<ul>
+<li>减少页表占用的内存空间</li>
+<li>增加地址映射空间</li>
+</ul>
+<p>Linux的64位系统使用四级页表，其结构如下所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220717135853082.png" srcset="/img/loading.gif" lazyload alt="多级页表"></p>
+<h2 id="进程空间管理"><a href="#进程空间管理" class="headerlink" title="进程空间管理"></a>进程空间管理</h2><p>进程的<code>task_struct</code>中对进程地址存储了<code>mm_struct</code>，整个虚拟内存空间分为用户态空间和内核态空间，两者分界线由<code>mm_struct-&gt;task_size</code>决定。</p>
+<p>32位最大寻址空间为$2^{32} &#x3D;4G$，其中内核态占用顶部1G，用户态占用底部3G</p>
+<p>64为系统虚拟地址只使用了48位，内核态和用户态各使用128T</p>
+<h3 id="用户态空间"><a href="#用户态空间" class="headerlink" title="用户态空间"></a>用户态空间</h3><p><code>mm_struct</code>中关于用户态空间的信息如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> mmap_base;	<span class="hljs-comment">/* base of mmap area */</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> total_vm;		<span class="hljs-comment">//总共映射的页数量</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> locked_vm;	<span class="hljs-comment">//被锁定不能换出到磁盘的页数量</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> pinned_vm;	<span class="hljs-comment">//不能换出也不能移动的页数量</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> data_vm;		<span class="hljs-comment">//存放数据的页数量</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> exec_vm;		<span class="hljs-comment">//存放可执行文件的页数量</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> stack_vm;		<span class="hljs-comment">//栈所占的页数量</span>
+
+<span class="hljs-comment">//可执行代码开始位置、结束位置，已初始化数据开始位置、结束位置</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> start_code, end_code, start_data, end_data;
+
+<span class="hljs-comment">//堆开始位置、结束位置、栈开始位置</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> start_brk, brk, start_stack;
+
+<span class="hljs-comment">//参数列表的开始结束位置，环境变量的开始结束位置，这两者都位于栈的最顶部</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> arg_start, arg_end, env_start, env_end;
+
+<span class="hljs-comment">//描述内存区域</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vm_area_struct</span> *<span class="hljs-title">mmap</span>;</span>		<span class="hljs-comment">/* list of VMAs */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rb_root</span> <span class="hljs-title">mm_rb</span>;</span></code></pre></div>
+
+
+
+<p><code>vm_area_struct</code>是一个单链表，将<strong>进程拥有的内存区域</strong>串接起来 （根据地址串起来），并使用红黑树存储，方便快速查询。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vm_area_struct</span> &#123;</span>
+	<span class="hljs-comment">/* The first cache line has the info for VMA tree walking. */</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> vm_start;		<span class="hljs-comment">//区域开始位置</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> vm_end;		<span class="hljs-comment">//区域结束位置</span>
+	<span class="hljs-comment">/* linked list of VM areas per task, sorted by address */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vm_area_struct</span> *<span class="hljs-title">vm_next</span>, *<span class="hljs-title">vm_prev</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rb_node</span> <span class="hljs-title">vm_rb</span>;</span>		<span class="hljs-comment">//红黑树存储节点</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">mm_struct</span> *<span class="hljs-title">vm_mm</span>;</span>	<span class="hljs-comment">/* The address space we belong to. */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">list_head</span> <span class="hljs-title">anon_vma_chain</span>;</span> <span class="hljs-comment">/* Serialized by mmap_sem &amp;</span>
+<span class="hljs-comment">					  * page_table_lock */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">anon_vma</span> *<span class="hljs-title">anon_vma</span>;</span>	<span class="hljs-comment">/* Serialized by page_table_lock */</span>
+	<span class="hljs-comment">/* Function pointers to deal with this struct. */</span>
+	<span class="hljs-type">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vm_operations_struct</span> *<span class="hljs-title">vm_ops</span>;</span>	<span class="hljs-comment">//可以操作的动作</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">file</span> * <span class="hljs-title">vm_file</span>;</span>		<span class="hljs-comment">/* File we map to (can be NULL). */</span>
+	<span class="hljs-type">void</span> * vm_private_data;		<span class="hljs-comment">/* was vm_pte (shared mem) */</span>
+&#125; __randomize_layout;</code></pre></div>
+
+
+
+<blockquote>
+<p> Q：什么时候将<code>vm_area_struct</code>和上面的内存区域关联起来？</p>
+</blockquote>
+<p><code>load_elf_binary </code>除了解析ELF格式外，还需要建立内存映射：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">load_elf_binary</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> linux_binprm *bprm)</span>
+&#123;
+......
+  <span class="hljs-comment">//设置内存映射区mmap_base</span>
+  setup_new_exec(bprm);
+......
+  <span class="hljs-comment">//设置栈的vm_area_struct的args等参数</span>
+  retval = setup_arg_pages(bprm, randomize_stack_top(STACK_TOP),
+				 executable_stack);
+......
+  
+  error = elf_map(bprm-&gt;file, load_bias + vaddr, elf_ppnt,
+				elf_prot, elf_flags, total_size);
+......
+  <span class="hljs-comment">//设置堆的参数</span>
+  retval = set_brk(elf_bss, elf_brk, bss_prot);
+......
+  <span class="hljs-comment">//依赖的so文件映射到内存中的内存映射区域。</span>
+  elf_entry = load_elf_interp(&amp;loc-&gt;interp_elf_ex,
+					    interpreter,
+					    &amp;interp_map_addr,
+					    load_bias, interp_elf_phdata);
+......
+  current-&gt;mm-&gt;end_code = end_code;
+  current-&gt;mm-&gt;start_code = start_code;
+  current-&gt;mm-&gt;start_data = start_data;
+  current-&gt;mm-&gt;end_data = end_data;
+  current-&gt;mm-&gt;start_stack = bprm-&gt;p;
+......
+&#125;</code></pre></div>
+
+
+
+
+
+<h3 id="内核态空间"><a href="#内核态空间" class="headerlink" title="内核态空间"></a>内核态空间</h3><p>32位系统的内核态空间布局如下所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220717151758224.png" srcset="/img/loading.gif" lazyload alt="内核态内存空间结构"></p>
+<ul>
+<li>直接映射区：这部分与物理地址的前896MB进行映射。<ul>
+<li>系统启动时，使用物理内存的前1M加载内核代码段等，可以查看<code>/proc/iomem</code></li>
+<li>如果系统调用创建进程，进程<code>task_struct</code>会存放在这，相应的页表项也会被创建。</li>
+<li>内核栈分也被分配在该区域。</li>
+</ul>
+</li>
+<li>内核动态映射空间（vmalloc）：类似于用户态的堆区，内核态使用<code>vmalloc</code>申请内存</li>
+<li>持久内核映射：可以调用<code>kmap</code>将高端内存页到该区域</li>
+<li>固定内核映射：满足特殊需求。</li>
+</ul>
+<h2 id="物理内存管理"><a href="#物理内存管理" class="headerlink" title="物理内存管理"></a>物理内存管理</h2><p>平坦内存模型（Flat Memory Model）：物理内存中页是连续的，对于任何物理地址，只需要除以页大小，就可以算出具体的页面地址，每个页通过<code>struct page</code>表示。</p>
+<ul>
+<li>SMP（Symmetric multiprocessing）：多处理器通过一个总线同时访问内存。<ul>
+<li>总线称为性能瓶颈</li>
+</ul>
+</li>
+<li>NUMA（Non-uniform memory access）：非一致内存访问，每个CPU拥有自己的本地内存，这块内存称为一个NUMA节点，本地内存不足时可以申请另外的NUMA节点。<ul>
+<li>此时内存被分为一个个内存节点，节点再划分一个个页面，此时页号需要保证全局唯一</li>
+<li>NUMA是非连续内存模型</li>
+</ul>
+</li>
+</ul>
+<p>物理内存管理整体分为以下的流程：</p>
+<ul>
+<li>物理内存分为NUMA节点，分别管理。</li>
+<li>每个NUMA节点分为多个内存区域</li>
+<li>每个内存区域分为多个物理页面</li>
+<li>Buddy System将多个连续的页面作为一个大内存块分配给需求进程</li>
+<li>kswapd内核进程负责物理页的换入换出</li>
+<li>slab机制将从伙伴系统申请的大内存块划分成小块，并将热点结构<code>task_struct</code>等做缓存块，提供需求方使用。</li>
+</ul>
+<h3 id="节点"><a href="#节点" class="headerlink" title="节点"></a>节点</h3><p>对于NUMA方式，首先需要一个结构来表示NUMA节点，Linux中使用下面的结构体来表示，各字段注释如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">pglist_data</span> &#123;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">zone</span> <span class="hljs-title">node_zones</span>[<span class="hljs-title">MAX_NR_ZONES</span>];</span>	<span class="hljs-comment">//每个节点划分一个个zone，放在该数组中</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">zonelist</span> <span class="hljs-title">node_zonelists</span>[<span class="hljs-title">MAX_ZONELISTS</span>];</span>	<span class="hljs-comment">//备用节点和内存区域的情况</span>
+	<span class="hljs-type">int</span> nr_zones;					<span class="hljs-comment">//当前节点的zone数量</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">page</span> *<span class="hljs-title">node_mem_map</span>;</span>		<span class="hljs-comment">//该节点的struct page数组</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> node_start_pfn;	<span class="hljs-comment">//节点的起始页号</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> node_present_pages; <span class="hljs-comment">//真正可用的物理页面数</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> node_spanned_pages; <span class="hljs-comment">//节点中包含不连续的物理内存地址的页面数</span>
+	<span class="hljs-type">int</span> node_id;				<span class="hljs-comment">//节点</span>
+......
+&#125; <span class="hljs-type">pg_data_t</span>;</code></pre></div>
+
+
+
+
+
+<h3 id="zone"><a href="#zone" class="headerlink" title="zone"></a>zone</h3><p>表示zone的数据结构定义如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">zone</span> &#123;</span>
+......
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">pglist_data</span>	*<span class="hljs-title">zone_pgdat</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">per_cpu_pageset</span> __<span class="hljs-title">percpu</span> *<span class="hljs-title">pageset</span>;</span>	<span class="hljs-comment">//区分冷热页面</span>
+ 
+ 
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>		zone_start_pfn;		<span class="hljs-comment">//zone的第一个页</span>
+ 
+ 
+	<span class="hljs-comment">/*</span>
+<span class="hljs-comment">	 * spanned_pages is the total pages spanned by the zone, including</span>
+<span class="hljs-comment">	 * holes, which is calculated as:</span>
+<span class="hljs-comment">	 * 	spanned_pages = zone_end_pfn - zone_start_pfn;</span>
+<span class="hljs-comment">	 *</span>
+<span class="hljs-comment">	 * present_pages is physical pages existing within the zone, which</span>
+<span class="hljs-comment">	 * is calculated as:</span>
+<span class="hljs-comment">	 *	present_pages = spanned_pages - absent_pages(pages in holes);</span>
+<span class="hljs-comment">	 *</span>
+<span class="hljs-comment">	 * managed_pages is present pages managed by the buddy system, which</span>
+<span class="hljs-comment">	 * is calculated as (reserved_pages includes pages allocated by the</span>
+<span class="hljs-comment">	 * bootmem allocator):</span>
+<span class="hljs-comment">	 *	managed_pages = present_pages - reserved_pages;</span>
+<span class="hljs-comment">	 *</span>
+<span class="hljs-comment">	 */</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>		managed_pages;	<span class="hljs-comment">//被伙伴系统管理的所有page数量</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>		spanned_pages;	<span class="hljs-comment">//spanned_pages = zone_end_pfn - zone_start_pfn;</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>		present_pages;	<span class="hljs-comment">//真实的page数量</span>
+ 
+ 
+	<span class="hljs-type">const</span> <span class="hljs-type">char</span>		*name;
+......
+	<span class="hljs-comment">/* free areas of different sizes */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">free_area</span>	<span class="hljs-title">free_area</span>[<span class="hljs-title">MAX_ORDER</span>];</span>
+ 
+ 
+	<span class="hljs-comment">/* zone flags, see below */</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>		flags;
+ 
+ 
+	<span class="hljs-comment">/* Primarily protects free_area */</span>
+	<span class="hljs-type">spinlock_t</span>		lock;
+......
+&#125; ____cacheline_internodealigned_in_
+
+    
+<span class="hljs-comment">//zone的类型</span>
+<span class="hljs-class"><span class="hljs-keyword">enum</span> <span class="hljs-title">zone_type</span> &#123;</span>
+<span class="hljs-meta">#<span class="hljs-keyword">ifdef</span> CONFIG_ZONE_DMA</span>
+	ZONE_DMA,
+<span class="hljs-meta">#<span class="hljs-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-keyword">ifdef</span> CONFIG_ZONE_DMA32</span>
+	ZONE_DMA32,
+<span class="hljs-meta">#<span class="hljs-keyword">endif</span></span>
+	ZONE_NORMAL,
+<span class="hljs-meta">#<span class="hljs-keyword">ifdef</span> CONFIG_HIGHMEM</span>
+	ZONE_HIGHMEM,
+<span class="hljs-meta">#<span class="hljs-keyword">endif</span></span>
+	ZONE_MOVABLE,
+	__MAX_NR_ZONES
+&#125;;</code></pre></div>
+
+
+
+<p>zone的类型分别如下：</p>
+<ul>
+<li>ZONE_DMA：用作DMA的内存结构</li>
+<li>ZONE_NORMAL：直接映射区</li>
+<li>ZONE_HIGHMEM：高端内存区</li>
+<li>ZONE_MOVABLE：可移动区域，通过将内存划分为可移动区域和不可移动区域，来避免内存碎片。</li>
+</ul>
+<p><strong>冷热页面</strong>：页面是否被加载到CPU cache中，若在cache中则是<code>Hot Page</code>，CPU读取非常快。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">per_cpu_pages</span> &#123;</span>
+  <span class="hljs-type">int</span> count;    <span class="hljs-comment">// number of pages in the list</span>
+  <span class="hljs-type">int</span> high;    <span class="hljs-comment">// high watermark, emptying needed</span>
+  <span class="hljs-type">int</span> batch;    <span class="hljs-comment">// chunk size for buddy add/remove</span>
+   <span class="hljs-comment">// Lists of pages, one per migrate type stored on the pcp-lists</span>
+
+   <span class="hljs-comment">//每个CPU在每个zone上都有MIGRATE_PCPTYPES个冷热页链表（根据迁移类型划分）</span>
+   <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">list_head</span> <span class="hljs-title">lists</span>[<span class="hljs-title">MIGRATE_PCPTYPES</span>];</span>
+ &#125;;</code></pre></div>
+
+
+
+
+
+<h3 id="page"><a href="#page" class="headerlink" title="page"></a>page</h3><p>page是组成物理内存的基本单位，内部有很多<code>union</code>结构，物理页面若直接使用一整页的内存，page直接和虚拟地址空间建立映射关系，则被称为<strong>匿名页</strong>，若page用于关联一个文件，再和虚拟地址空间建立映射关系，这种文件则被称为内存映射文件。</p>
+<p>第一种模式，使用以下字段存储元数据：</p>
+<ul>
+<li>struct address_space *mapping：用于内存映射</li>
+<li>pgoff_t index：映射区的偏移量</li>
+<li>atomic_t _mapcount：记录指向该页的页表项</li>
+<li>struct list_head lru：如果页面被换出，就在换出页的链表中</li>
+</ul>
+<p>第二种模式，仅需要分配小块内存，例如一个<code>task_struct</code>结构只需要一小块内存。Linux使用<code>slab allocator</code>分配称为slab的一小块内存，其基本原理是：申请一整块内存页，然后划分成多个小块的内存存储池，并使用复杂的队列来维护状态。，由于队列的维护操作过于复杂，后来使用<code>slub allocator</code>分配，此方式不使用队列。可以看成前者的另一种的实现。</p>
+<h3 id="page整页分配"><a href="#page整页分配" class="headerlink" title="page整页分配"></a>page整页分配</h3><p>对于分配较大的内存（分配页级别的），可以使用<code>Buddy System</code>来分配。Linux中内存页大小默认为<code>4KB</code>，将所有的空闲页分组为11个页块链表，页块大小分别是1、2、4、8、16、32、64、128、256、512、1024个连续页，最大可以申请1024个连续页（共4MB），其结构如下所示：</p>
+<p>当向内核请求分配$(2^{i-1}, 2^i] $个页块时，按照$2 ^ i$个请求处理，如果该页块链表中没有足够的空闲页快，就去更大一级的链表中申请，并且会将更大一级的页块分裂，并返回所需页块大小给请求进程。</p>
+<h3 id="slab机制"><a href="#slab机制" class="headerlink" title="slab机制"></a>slab机制</h3><p>首先slab分配器是基于<code>Buddy System</code>的，slab需要从buddy分配器获取连续的物理页，然后将其内部划分为一个个小的slab。Linux内核从2.6起提供了slab和slub两种方案，两者差异上面已经记录。</p>
+<h4 id="分配流程"><a href="#分配流程" class="headerlink" title="分配流程"></a>分配流程</h4><p>slab机制主要针对一些<strong>经常被分配并释放的对象</strong>，这些对象一般比较小，使用buddy分配器会造成大量的内存碎片，并且处理速度慢，slab分配器基于对象进行管理，相同类型分为一类，每次申请时，slab分配器就从列表中分配一个该类型的对象，当要释放时，将其重新保存在该类型的列表中，而不是返回给buddy分配器，避免了重复初始化等开销。slab对象类型主要有：<code>task_struct</code>、<code>mm_struct </code>、<code>fs_struct</code>等。</p>
+<p>创建进程时，需要创建<code>task_struct</code>并复制父进程数据，需要先调用<code>alloc_task_struct_node</code>分配，其执行流程如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache</span> *<span class="hljs-title">task_struct_cachep</span>;</span>
+ 
+<span class="hljs-comment">//task_struct_cachep被kmem_cache_create创建，大小为arch_task_struct_size</span>
+task_struct_cachep = kmem_cache_create(<span class="hljs-string">&quot;task_struct&quot;</span>,
+			arch_task_struct_size, align,
+			SLAB_PANIC|SLAB_NOTRACK|SLAB_ACCOUNT, <span class="hljs-literal">NULL</span>);
+ 
+<span class="hljs-type">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">struct</span> task_struct *<span class="hljs-title function_">alloc_task_struct_node</span><span class="hljs-params">(<span class="hljs-type">int</span> node)</span>
+&#123;
+	<span class="hljs-keyword">return</span> kmem_cache_alloc_node(task_struct_cachep, GFP_KERNEL, node);
+&#125;
+ 
+<span class="hljs-type">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-type">void</span> <span class="hljs-title function_">free_task_struct</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> task_struct *tsk)</span>
+&#123;
+	kmem_cache_free(task_struct_cachep, tsk);
+&#125;</code></pre></div>
+
+
+
+<p><code>task_struct_cachep</code>被用作分配<code>task_struct</code>的缓存，每次创建该结构时，都会先查看缓存是否有直接可用的，而不用直接去内存里面分配。当进程结束后，<code>task_struct</code>不会被直接销毁，而是放回到缓存中。SLAB缓存结构信息如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache</span> &#123;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache_cpu</span> __<span class="hljs-title">percpu</span> *<span class="hljs-title">cpu_slab</span>;</span>
+	<span class="hljs-comment">/* Used for retriving partial slabs etc */</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> flags;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> min_partial;
+	<span class="hljs-type">int</span> size;		<span class="hljs-comment">//包含指针的大小</span>
+	<span class="hljs-type">int</span> object_size;	<span class="hljs-comment">//纯对象的大小</span>
+	<span class="hljs-type">int</span> offset;		<span class="hljs-comment">//下一个空闲对象指针的offset</span>
+<span class="hljs-meta">#<span class="hljs-keyword">ifdef</span> CONFIG_SLUB_CPU_PARTIAL</span>
+	<span class="hljs-type">int</span> cpu_partial;	<span class="hljs-comment">/* Number of per cpu partial objects to keep around */</span>
+<span class="hljs-meta">#<span class="hljs-keyword">endif</span></span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache_order_objects</span> <span class="hljs-title">oo</span>;</span>
+	<span class="hljs-comment">/* Allocation and freeing of slabs */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache_order_objects</span> <span class="hljs-title">max</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache_order_objects</span> <span class="hljs-title">min</span>;</span>
+	<span class="hljs-type">gfp_t</span> allocflags;	<span class="hljs-comment">/* gfp flags to use on each alloc */</span>
+	<span class="hljs-type">int</span> refcount;		<span class="hljs-comment">/* Refcount for slab cache destroy */</span>
+	<span class="hljs-type">void</span> (*ctor)(<span class="hljs-type">void</span> *);
+......
+	<span class="hljs-type">const</span> <span class="hljs-type">char</span> *name;	<span class="hljs-comment">/* Name (only for display!) */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">list_head</span> <span class="hljs-title">list</span>;</span>	<span class="hljs-comment">//slab的缓存链表</span>
+......
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache_node</span> *<span class="hljs-title">node</span>[<span class="hljs-title">MAX_NUMNODES</span>];</span>
+&#125;;</code></pre></div>
+
+
+
+<p>缓存块分为以下两种：</p>
+<ul>
+<li>kmem_cache_cpu：CPU slab块，快速通道</li>
+<li>kmem_cache_node：Node slab块，普通通道</li>
+</ul>
+<p>分配时首先从快速通道分配，若里面没有空闲块，再到普通通道分配，如果还是没有空闲块，才去Buddy System分配新的页。</p>
+<p><code>kmem_cache_cpu</code>结构如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache_cpu</span> &#123;</span>
+	<span class="hljs-type">void</span> **freelist;	<span class="hljs-comment">//指向大内存块的第一个空闲的项，形成空闲链表</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> tid;	<span class="hljs-comment">/* Globally unique transaction id */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">page</span> *<span class="hljs-title">page</span>;</span>	<span class="hljs-comment">//指向内存块的第一个页，缓存块从里面分配</span>
+<span class="hljs-meta">#<span class="hljs-keyword">ifdef</span> CONFIG_SLUB_CPU_PARTIAL</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">page</span> *<span class="hljs-title">partial</span>;</span>	<span class="hljs-comment">//部分空闲的slab缓存块</span>
+<span class="hljs-meta">#<span class="hljs-keyword">endif</span></span>
+......
+&#125;;</code></pre></div>
+
+
+
+<p><code>kmem_cache_node</code> 结构如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache_node</span> &#123;</span>
+	<span class="hljs-type">spinlock_t</span> list_lock;
+......
+<span class="hljs-meta">#<span class="hljs-keyword">ifdef</span> CONFIG_SLUB</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> nr_partial;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">list_head</span> <span class="hljs-title">partial</span>;</span>	<span class="hljs-comment">//存放部分空闲的slab块</span>
+......
+<span class="hljs-meta">#<span class="hljs-keyword">endif</span></span>
+&#125;;</code></pre></div>
+
+
+
+<p><code>kmem_cache_alloc_node</code>会调用<code>slab_alloc_node</code>，流程如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">/*</span>
+<span class="hljs-comment"> * Inlined fastpath so that allocation functions (kmalloc, kmem_cache_alloc)</span>
+<span class="hljs-comment"> * have the fastpath folded into their functions. So no function call</span>
+<span class="hljs-comment"> * overhead for requests that can be satisfied on the fastpath.</span>
+<span class="hljs-comment"> *</span>
+<span class="hljs-comment"> * The fastpath works by first checking if the lockless freelist can be used.</span>
+<span class="hljs-comment"> * If not then __slab_alloc is called for slow processing.</span>
+<span class="hljs-comment"> *</span>
+<span class="hljs-comment"> * Otherwise we can simply pick the next object from the lockless free list.</span>
+<span class="hljs-comment"> */</span>
+<span class="hljs-type">static</span> __always_inline <span class="hljs-type">void</span> *<span class="hljs-title function_">slab_alloc_node</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> kmem_cache *s,</span>
+<span class="hljs-params">		<span class="hljs-type">gfp_t</span> gfpflags, <span class="hljs-type">int</span> node, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> addr)</span>
+&#123;
+	<span class="hljs-type">void</span> *object;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache_cpu</span> *<span class="hljs-title">c</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">page</span> *<span class="hljs-title">page</span>;</span>
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> tid;
+......
+	tid = this_cpu_read(s-&gt;cpu_slab-&gt;tid);
+    <span class="hljs-comment">//取出cpu slab缓存</span>
+	c = raw_cpu_ptr(s-&gt;cpu_slab);
+......
+    <span class="hljs-comment">//取出freelist，这是第一个空闲的项</span>
+	object = c-&gt;freelist;
+	page = c-&gt;page;
+	<span class="hljs-keyword">if</span> (unlikely(!object || !node_match(page, node))) &#123;
+        <span class="hljs-comment">//若没有空闲的cpu slab，调用__slab_alloc进入普通通道。</span>
+		object = __slab_alloc(s, gfpflags, node, addr, c);
+		stat(s, ALLOC_SLOWPATH);
+	&#125; 
+......
+	<span class="hljs-keyword">return</span> object;
+&#125;
+
+<span class="hljs-comment">//__slab_alloc进入普通通道</span>
+<span class="hljs-type">static</span> <span class="hljs-type">void</span> *___slab_alloc(<span class="hljs-keyword">struct</span> kmem_cache *s, <span class="hljs-type">gfp_t</span> gfpflags, <span class="hljs-type">int</span> node,
+			  <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> addr, <span class="hljs-keyword">struct</span> kmem_cache_cpu *c)
+&#123;
+	<span class="hljs-type">void</span> *freelist;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">page</span> *<span class="hljs-title">page</span>;</span>
+......
+redo:
+......
+	<span class="hljs-comment">/* must check again c-&gt;freelist in case of cpu migration or IRQ */</span>
+    <span class="hljs-comment">//再次尝试cpu slab，万一有其他进程释放</span>
+	freelist = c-&gt;freelist;
+	<span class="hljs-keyword">if</span> (freelist)
+		<span class="hljs-keyword">goto</span> load_freelist;
+ 
+ 	
+	freelist = get_freelist(s, page);
+ 
+ 
+	<span class="hljs-keyword">if</span> (!freelist) &#123;
+		c-&gt;page = <span class="hljs-literal">NULL</span>;
+		stat(s, DEACTIVATE_BYPASS);
+        <span class="hljs-comment">//如果还是没有，调用new_slab</span>
+		<span class="hljs-keyword">goto</span> new_slab;
+	&#125;
+ 
+ 
+load_freelist:
+	c-&gt;freelist = get_freepointer(s, freelist);
+	c-&gt;tid = next_tid(c-&gt;tid);
+	<span class="hljs-keyword">return</span> freelist;
+ 
+ 
+new_slab:
+ 
+ 
+	<span class="hljs-keyword">if</span> (slub_percpu_partial(c)) &#123;
+		page = c-&gt;page = slub_percpu_partial(c);
+		slub_set_percpu_partial(c, page);
+		stat(s, CPU_PARTIAL_ALLOC);
+		<span class="hljs-keyword">goto</span> redo;
+	&#125;
+ 
+ 	<span class="hljs-comment">//调用new_slab_objects</span>
+	freelist = new_slab_objects(s, gfpflags, node, &amp;c);
+......
+	<span class="hljs-keyword">return</span> freelist
+
+<span class="hljs-comment">//创建slab块</span>
+<span class="hljs-type">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-type">void</span> *new_slab_objects(<span class="hljs-keyword">struct</span> kmem_cache *s, <span class="hljs-type">gfp_t</span> flags,
+			<span class="hljs-type">int</span> node, <span class="hljs-keyword">struct</span> kmem_cache_cpu **pc)
+&#123;
+	<span class="hljs-type">void</span> *freelist;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">kmem_cache_cpu</span> *<span class="hljs-title">c</span> =</span> *pc;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">page</span> *<span class="hljs-title">page</span>;</span>
+ 
+ 	<span class="hljs-comment">///根据node_id，找到对应的kmem_cache_node，然后调用get_partial_node</span>
+	freelist = get_partial(s, flags, node, c);
+ 
+ 
+	<span class="hljs-keyword">if</span> (freelist)
+		<span class="hljs-keyword">return</span> freelist;
+ 
+ 
+	page = new_slab(s, flags, node);
+	<span class="hljs-keyword">if</span> (page) &#123;
+		c = raw_cpu_ptr(s-&gt;cpu_slab);
+		<span class="hljs-keyword">if</span> (c-&gt;page)
+			flush_slab(s, c);
+ 
+ 
+		freelist = page-&gt;freelist;
+		page-&gt;freelist = <span class="hljs-literal">NULL</span>;
+ 
+ 
+		stat(s, ALLOC_SLAB);
+		c-&gt;page = page;
+		*pc = c;
+	&#125; <span class="hljs-keyword">else</span>
+		freelist = <span class="hljs-literal">NULL</span>;
+ 
+ 
+	<span class="hljs-keyword">return</span> freelist
+
+<span class="hljs-comment">/*</span>
+<span class="hljs-comment"> * Try to allocate a partial slab from a specific node.</span>
+<span class="hljs-comment"> */</span>
+<span class="hljs-type">static</span> <span class="hljs-type">void</span> *get_partial_node(<span class="hljs-keyword">struct</span> kmem_cache *s, <span class="hljs-keyword">struct</span> kmem_cache_node *n,
+				<span class="hljs-keyword">struct</span> kmem_cache_cpu *c, <span class="hljs-type">gfp_t</span> flags)
+&#123;
+	<span class="hljs-keyword">struct</span> page *page, *page2;
+	<span class="hljs-type">void</span> *object = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-type">int</span> available = <span class="hljs-number">0</span>;
+	<span class="hljs-type">int</span> objects;
+......
+	list_for_each_entry_safe(page, page2, &amp;n-&gt;partial, lru) &#123;
+		<span class="hljs-type">void</span> *t;
+ 
+ 		<span class="hljs-comment">//acquire_slab从普通node的partial链表中取下一大块内存，并将freelist第一块空闲内存赋给t</span>
+		t = acquire_slab(s, n, page, object == <span class="hljs-literal">NULL</span>, &amp;objects);
+		<span class="hljs-keyword">if</span> (!t)
+			<span class="hljs-keyword">break</span>;
+ 
+ 
+		available += objects;
+		<span class="hljs-keyword">if</span> (!object) &#123;
+			c-&gt;page = page;
+			stat(s, ALLOC_FROM_PARTIAL);
+			object = t;
+		&#125; <span class="hljs-keyword">else</span> &#123;
+			put_cpu_partial(s, page, <span class="hljs-number">0</span>);
+			stat(s, CPU_PARTIAL_NODE);
+		&#125;
+		<span class="hljs-keyword">if</span> (!kmem_cache_has_cpu_partial(s)
+			|| available &gt; slub_cpu_partial(s) / <span class="hljs-number">2</span>)
+			<span class="hljs-keyword">break</span>;
+	&#125;
+......
+	<span class="hljs-keyword">return</span> object;</code></pre></div>
+
+
+
+<h3 id="页面换出"><a href="#页面换出" class="headerlink" title="页面换出"></a>页面换出</h3><p>进程拥有的虚拟内存空间往往非常大，但是物理内存没有足够的空间，只有页面被使用时，才会放在物理内存中，如果一段时间不使用且用户进程没有释放，物理内存管理模块需要将这些页面换出到磁盘中，将空出的物理内存交给其他进程使用。</p>
+<p>例如，当分配内存时，发现没有足够的内存时，会试图进行回收，函数调用链为：<code>get_page_from_freelist-&gt;node_reclaim-&gt;__node_reclaim-&gt;shrink_node</code>。当然也有内核线程<strong>kswapd</strong>主动检查内存是否需要换出。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">kswapd</span><span class="hljs-params">(<span class="hljs-type">void</span> *p)</span>
+&#123;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> alloc_order, reclaim_order;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> classzone_idx = MAX_NR_ZONES - <span class="hljs-number">1</span>;
+	<span class="hljs-type">pg_data_t</span> *pgdat = (<span class="hljs-type">pg_data_t</span>*)p;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">tsk</span> =</span> current;
+ 
+ 
+    <span class="hljs-keyword">for</span> ( ; ; ) &#123;
+......
+        kswapd_try_to_sleep(pgdat, alloc_order, reclaim_order,
+					classzone_idx);
+......
+        reclaim_order = balance_pgdat(pgdat, alloc_order, classzone_idx);
+......
+    &#125;
+&#125;
+</code></pre></div>
+
+
+
+<p><code>shrink_node</code>调用<code>shrink_node_memcg</code>：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">/*</span>
+<span class="hljs-comment"> * This is a basic per-node page freer.  Used by both kswapd and direct reclaim.</span>
+<span class="hljs-comment"> */</span>
+<span class="hljs-type">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">shrink_node_memcg</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> pglist_data *pgdat, <span class="hljs-keyword">struct</span> mem_cgroup *memcg,</span>
+<span class="hljs-params">			      <span class="hljs-keyword">struct</span> scan_control *sc, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> *lru_pages)</span>
+&#123;
+......
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> nr[NR_LRU_LISTS];
+	<span class="hljs-class"><span class="hljs-keyword">enum</span> <span class="hljs-title">lru_list</span> <span class="hljs-title">lru</span>;</span>
+......
+    
+	<span class="hljs-keyword">while</span> (nr[LRU_INACTIVE_ANON] || nr[LRU_ACTIVE_FILE] ||
+					nr[LRU_INACTIVE_FILE]) &#123;
+		<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> nr_anon, nr_file, percentage;
+		<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> nr_scanned;
+ 
+ 		<span class="hljs-comment">//从LRU中检查</span>
+		for_each_evictable_lru(lru) &#123;
+			<span class="hljs-keyword">if</span> (nr[lru]) &#123;
+				nr_to_scan = min(nr[lru], SWAP_CLUSTER_MAX);
+				nr[lru] -= nr_to_scan;
+ 
+ 
+				nr_reclaimed += shrink_list(lru, nr_to_scan,
+							    lruvec, memcg, sc);
+			&#125;
+		&#125;
+......
+	&#125;
+......</code></pre></div>
+
+
+
+<p>所有页面都挂在LRU列表上，页面划分为匿名页和内存映射页两种，并且都存在active和inactive两种状态的LRU列表，如果要换出内存，找出不活跃列表中最不活跃的，换出到硬盘。</p>
+<h2 id="mmap用户态内存映射"><a href="#mmap用户态内存映射" class="headerlink" title="mmap用户态内存映射"></a>mmap用户态内存映射</h2><p>mmap是一个系统调用，本质是一个用户态进程的虚拟内存映射方法，基本作用如下：</p>
+<ul>
+<li>将文件映射到进程的虚拟内存空间<ul>
+<li>可以通过文件实现进程间通信、IO优化（零拷贝）等</li>
+</ul>
+</li>
+<li>进程申请内存时，例如堆内存，mmap将内存空间映射到物理内存。</li>
+</ul>
+<p>mmap系统调用如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c">SYSCALL_DEFINE6(mmap, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, addr, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, len,
+                <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, prot, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, flags,
+                <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, fd, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, off)
+    
+......
+        error = sys_mmap_pgoff(addr, len, prot, flags, fd, off &gt;&gt; PAGE_SHIFT);
+......
+&#125;
+ 
+ 
+SYSCALL_DEFINE6(mmap_pgoff, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, addr, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, len,
+		<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, prot, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, flags,
+		<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, fd, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, pgoff)
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">file</span> *<span class="hljs-title">file</span> =</span> <span class="hljs-literal">NULL</span>;
+......
+	file = fget(fd);
+......
+	retval = vm_mmap_pgoff(file, addr, len, prot, flags, pgoff);
+	<span class="hljs-keyword">return</span> retval;
+&#125;</code></pre></div>
+
+
+
+<p>如果映射到文件，fd传入一个文件描述符，通过<code>mmap_pgoff-&gt;fget</code>根据fd获取<code>struct_file</code>，接下来调用<code> vm_mmap_pgoff-&gt;do_mmap_pgoff-&gt;do_mmap</code>，这里主要调用了两个方法：</p>
+<ul>
+<li>get_unmapped_area：找到一个没有映射的内存区域</li>
+<li>mmap_region：映射到这个内存区域</li>
+</ul>
+<p><code>get_unmapped_area</code>流程如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>
+<span class="hljs-title function_">get_unmapped_area</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> file *file, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> addr, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> len,</span>
+<span class="hljs-params">		<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> pgoff, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> flags)</span>
+&#123;
+	<span class="hljs-type">unsigned</span> <span class="hljs-title function_">long</span> <span class="hljs-params">(*get_area)</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> file *, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>,</span>
+<span class="hljs-params">				  <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span>)</span>;
+......
+    <span class="hljs-comment">//如果是匿名页，直接调用mm-&gt;get_unmapped_area找到vm_area_struct红黑树上对应的位置</span>
+	get_area = current-&gt;mm-&gt;get_unmapped_area;
+    <span class="hljs-comment">//如果是映射到文件，找到file_operations并调用get_unmapped_area</span>
+	<span class="hljs-keyword">if</span> (file) &#123;
+		<span class="hljs-keyword">if</span> (file-&gt;f_op-&gt;get_unmapped_area)
+			get_area = file-&gt;f_op-&gt;get_unmapped_area;
+	&#125; 
+......
+&#125;</code></pre></div>
+
+
+
+<p><code>mmap_region</code>流程如下：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> <span class="hljs-title function_">mmap_region</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> file *file, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> addr,</span>
+<span class="hljs-params">		<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> len, <span class="hljs-type">vm_flags_t</span> vm_flags, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> pgoff,</span>
+<span class="hljs-params">		<span class="hljs-keyword">struct</span> list_head *uf)</span>
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">mm_struct</span> *<span class="hljs-title">mm</span> =</span> current-&gt;mm;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vm_area_struct</span> *<span class="hljs-title">vma</span>, *<span class="hljs-title">prev</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rb_node</span> **<span class="hljs-title">rb_link</span>, *<span class="hljs-title">rb_parent</span>;</span>
+ 
+ 
+	<span class="hljs-comment">/*</span>
+<span class="hljs-comment">	 * Can we just expand an old mapping?</span>
+<span class="hljs-comment">	 */</span>
+    <span class="hljs-comment">//首先看是否能和前一个vm_area_struct合并</span>
+	vma = vma_merge(mm, prev, addr, addr + len, vm_flags,
+			<span class="hljs-literal">NULL</span>, file, pgoff, <span class="hljs-literal">NULL</span>, NULL_VM_UFFD_CTX);
+	<span class="hljs-keyword">if</span> (vma)
+		<span class="hljs-keyword">goto</span> out;
+ 
+ 
+	<span class="hljs-comment">/*</span>
+<span class="hljs-comment">	 * Determine the object being mapped and call the appropriate</span>
+<span class="hljs-comment">	 * specific mapper. the address has already been validated, but</span>
+<span class="hljs-comment">	 * not unmapped, but the maps are removed from the list.</span>
+<span class="hljs-comment">	 */</span>
+    <span class="hljs-comment">//不能则调用kmem_cache_zalloc在slab里面创建一个vm_area_struct </span>
+	vma = kmem_cache_zalloc(vm_area_cachep, GFP_KERNEL);
+	<span class="hljs-keyword">if</span> (!vma) &#123;
+		error = -ENOMEM;
+		<span class="hljs-keyword">goto</span> unacct_error;
+	&#125;
+ 
+ 
+	vma-&gt;vm_mm = mm;
+	vma-&gt;vm_start = addr;
+	vma-&gt;vm_end = addr + len;
+	vma-&gt;vm_flags = vm_flags;
+	vma-&gt;vm_page_prot = vm_get_page_prot(vm_flags);
+	vma-&gt;vm_pgoff = pgoff;
+	INIT_LIST_HEAD(&amp;vma-&gt;anon_vma_chain);
+ 
+ 	<span class="hljs-comment">//如果是文件，则设置vm_file为目标文件，调用call_mmap</span>
+	<span class="hljs-keyword">if</span> (file) &#123;
+		vma-&gt;vm_file = get_file(file);
+		error = call_mmap(file, vma);
+		addr = vma-&gt;vm_start;
+		vm_flags = vma-&gt;vm_flags;
+	&#125; 
+......
+    <span class="hljs-comment">//vma_link将创建的vm_area_struct存放在mm_struct里面的红黑树上面</span>
+	vma_link将创建的(mm, vma, prev, rb_link, rb_parent);
+	<span class="hljs-keyword">return</span> addr;
+.....</code></pre></div>
+
+
+
+<p><code>vma_link</code>将内存到文件的映射关系建立后，文件到内存的映射通过<code>struct file</code>里面成员指向<code>struct address_space</code>，这个结构中有一个红黑树，内存区域<code>vm_area_struct</code>挂在这棵树上。</p>
+<h3 id="缺页异常"><a href="#缺页异常" class="headerlink" title="缺页异常"></a>缺页异常</h3><p>上述流程仍然在虚拟内存中进行操作，只有真正使用时，才回去分配物理内存，当进程开始访问虚拟内存中某个地址，如果没有找到对应的物理页，就会触发缺页中断，调用<code>do_page_fault</code>，页表存储在<code>mm_struct</code>中。</p>
+<div class="code-wrapper"><pre><code class="hljs c">dotraplinkage <span class="hljs-type">void</span> notrace
+<span class="hljs-title function_">do_page_fault</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> pt_regs *regs, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> error_code)</span>
+&#123;
+	<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> address = read_cr2(); <span class="hljs-comment">/* Get the faulting address */</span>
+......
+	__do_page_fault(regs, error_code, address);
+......
+&#125;
+ 
+ 
+<span class="hljs-comment">/*</span>
+<span class="hljs-comment"> * This routine handles page faults.  It determines the address,</span>
+<span class="hljs-comment"> * and the problem, and then passes it off to one of the appropriate</span>
+<span class="hljs-comment"> * routines.</span>
+<span class="hljs-comment"> */</span>
+<span class="hljs-type">static</span> noinline <span class="hljs-type">void</span>
+__do_page_fault(<span class="hljs-keyword">struct</span> pt_regs *regs, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> error_code,
+		<span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> address)
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vm_area_struct</span> *<span class="hljs-title">vma</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">task_struct</span> *<span class="hljs-title">tsk</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">mm_struct</span> *<span class="hljs-title">mm</span>;</span>
+	tsk = current;
+	mm = tsk-&gt;mm;
+ 
+ 	<span class="hljs-comment">//首先判断终端是否发生在内核中</span>
+	<span class="hljs-keyword">if</span> (unlikely(fault_in_kernel_space(address))) &#123;
+        <span class="hljs-comment">//内核中断调用vmalloc_fault</span>
+		<span class="hljs-keyword">if</span> (vmalloc_fault(address) &gt;= <span class="hljs-number">0</span>)
+			<span class="hljs-keyword">return</span>;
+	&#125;
+......
+    <span class="hljs-comment">//若是用户态中断，查找地址所在的vm_area_struct</span>
+	vma = find_vma(mm, address);
+......
+    <span class="hljs-comment">//调用handle_mm_fault完成映射</span>
+	fault = handle_mm_fault(vma, address, flags);
+......
+    
+    
+<span class="hljs-type">static</span> <span class="hljs-type">int</span> __handle_mm_fault(<span class="hljs-keyword">struct</span> vm_area_struct *vma, <span class="hljs-type">unsigned</span> <span class="hljs-type">long</span> address,
+		<span class="hljs-type">unsigned</span> <span class="hljs-type">int</span> flags)
+&#123;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vm_fault</span> <span class="hljs-title">vmf</span> =</span> &#123;
+		.vma = vma,
+		.address = address &amp; PAGE_MASK,
+		.flags = flags,
+		.pgoff = linear_page_index(vma, address),
+		.gfp_mask = __get_fault_gfp_mask(vma),
+	&#125;;
+    <span class="hljs-comment">//设置四级页表</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">mm_struct</span> *<span class="hljs-title">mm</span> =</span> vma-&gt;vm_mm;
+	<span class="hljs-type">pgd_t</span> *pgd;
+	<span class="hljs-type">p4d_t</span> *p4d;
+	<span class="hljs-type">int</span> ret;
+ 
+ 
+	pgd = pgd_offset(mm, address);
+	p4d = p4d_alloc(mm, pgd, address);
+......
+	vmf.pud = pud_alloc(mm, p4d, address);
+......
+	vmf.pmd = pmd_alloc(mm, vmf.pud, address);
+......
+	<span class="hljs-keyword">return</span> handle_pte_fault(&amp;vmf);
+&#125;
+    
+<span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">handle_pte_fault</span><span class="hljs-params">(<span class="hljs-keyword">struct</span> vm_fault *vmf)</span>
+&#123;
+	<span class="hljs-type">pte_t</span> entry;
+......
+	vmf-&gt;pte = pte_offset_map(vmf-&gt;pmd, vmf-&gt;address);
+	vmf-&gt;orig_pte = *vmf-&gt;pte;
+......
+	<span class="hljs-keyword">if</span> (!vmf-&gt;pte) &#123;
+		<span class="hljs-keyword">if</span> (vma_is_anonymous(vmf-&gt;vma))
+			<span class="hljs-keyword">return</span> do_anonymous_page(vmf);
+		<span class="hljs-keyword">else</span>
+			<span class="hljs-keyword">return</span> do_fault(vmf);
+	&#125;
+ 
+ 
+	<span class="hljs-keyword">if</span> (!pte_present(vmf-&gt;orig_pte))
+		<span class="hljs-keyword">return</span> do_swap_page(vmf);
+......
+&#125;</code></pre></div>
+
+
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>内存管理的体系可以总结为：</p>
+<ul>
+<li><p>物理内存根据NUMA架构分节点，节点内部再分区域，区域内再分页</p>
+</li>
+<li><p>物理页面通过buddy system进行分配，物理页面可以映射到虚拟内存空间，内核进程kswapd根据物理页面使用情况，按照LRU等缓存算法对页面进行换入换出。</p>
+</li>
+<li><p>内核态内存分配</p>
+<ul>
+<li><strong>大内存块的情况</strong>：kmalloc分配大内存时，以及vmalloc分配不连续物理页，直接用buddy system，分配后转为虚拟地址，访问时通过内核页表进行地址映射。<ul>
+<li>该部分会被换出，当访问发生缺页时，通过调用<code>dp_page_fault</code>处理缺页中断。</li>
+</ul>
+</li>
+<li><strong>小内存块的情况</strong>：对于 kmem_cache 以及 kmalloc 分配小内存时，使用slab分配器，当slab缓存块不足时，从buddy system申请大块内存，然后切分成小块进行分配。<ul>
+<li>该部分不会被换出，因为slab保存的是常用且关键的struct。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>用户态内存分配：调用mmap系统调用或brk系统调用，用户态内存都会被换出，缺页时使用中断调入内存。</p>
+<ul>
+<li>申请内存小于128k时，调用<code>brk()</code>完成，通过<code>sys_brk</code>系统调用实现。</li>
+<li>申请内存大于128k时，调用<code>mmap()</code>在堆栈之间的映射区分配。</li>
+</ul>
+</li>
+</ul>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/memory.png" srcset="/img/loading.gif" lazyload alt="memory"></p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/Linux/" class="category-chain-item">Linux</a>
+  
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Linux内存管理模块分析</div>
+      <div>https://l1n.wang/2022/Linux/Linux内存管理模块分析/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2022年7月17日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2022/Linux/Linux%E6%96%87%E4%BB%B6%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90/" title="Linux文件管理模块分析">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">Linux文件管理模块分析</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2022/Linux/Linux%E8%BF%9B%E7%A8%8B%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90/" title="Linux进程管理模块分析">
+                        <span class="hidden-mobile">Linux进程管理模块分析</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

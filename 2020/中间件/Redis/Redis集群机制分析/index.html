@@ -1,0 +1,990 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="主从复制模式Redis集群实现数据同步，保证服务高可用。  一主多从  数据流向是单向的，master-&gt;slave   开启指令： slaveof 192.168.1.10 6379		&#x2F;&#x2F;当前服务节点称为指定IP的从节点 slaveof no one                  &#x2F;&#x2F;取消从属关系    配置文件： slaveof ip port slave-read-only ye">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Redis集群机制分析">
+<meta property="og:url" content="https://l1n.wang/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/Redis%E9%9B%86%E7%BE%A4%E6%9C%BA%E5%88%B6%E5%88%86%E6%9E%90/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="主从复制模式Redis集群实现数据同步，保证服务高可用。  一主多从  数据流向是单向的，master-&gt;slave   开启指令： slaveof 192.168.1.10 6379		&#x2F;&#x2F;当前服务节点称为指定IP的从节点 slaveof no one                  &#x2F;&#x2F;取消从属关系    配置文件： slaveof ip port slave-read-only ye">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2020-07-13T10:12:10.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.357Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="l1nker4">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  
+  <title>Redis集群机制分析 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="Redis集群机制分析"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2020-07-13 18:12" pubdate>
+          2020年7月13日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          2.6k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          22 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">Redis集群机制分析</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h2 id="主从复制模式"><a href="#主从复制模式" class="headerlink" title="主从复制模式"></a>主从复制模式</h2><p>Redis集群实现数据同步，保证服务高可用。</p>
+<ul>
+<li><p>一主多从</p>
+</li>
+<li><p>数据流向是单向的，master-&gt;slave</p>
+</li>
+</ul>
+<p>开启指令：</p>
+<div class="code-wrapper"><pre><code class="hljs stata">slaveof 192.168.1.10 6379		<span class="hljs-comment">//当前服务节点称为指定IP的从节点</span>
+slaveof <span class="hljs-keyword">no</span> <span class="hljs-keyword">one</span>                  <span class="hljs-comment">//取消从属关系</span></code></pre></div>
+
+
+
+<p>配置文件：</p>
+<div class="code-wrapper"><pre><code class="hljs arduino">slaveof ip port
+slave-read-only yes             <span class="hljs-comment">//从节点只读</span></code></pre></div>
+
+
+
+<p>全量复制的开销：</p>
+<ul>
+<li>bgsave的时间</li>
+<li>RDB文件网络传输时间</li>
+<li>从节点清空数据时间</li>
+<li>从节点加载RDB的时间</li>
+<li>可能的AOF重写时间</li>
+</ul>
+<h3 id="实现"><a href="#实现" class="headerlink" title="实现"></a>实现</h3><p>Redis复制分为同步和命令传播两个操作：</p>
+<ul>
+<li>同步：将从服务器的数据库状态更新为主库状态</li>
+<li>命令传播：同步完后，主库状态又发生变化，此时使用命令传播完成状态同步。</li>
+</ul>
+<p>Redis使用<code>PSYNC</code>可以同时解决全量复制和部分复制两种情况。</p>
+<p>需要维护的变量包括 ：</p>
+<ul>
+<li>runID：每个Redis实例启动生成的随机ID</li>
+<li>offset：复制进度</li>
+</ul>
+<p>执行<code>slaveof</code>时，slave节点会将master的地址保存在：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">redisServer</span> &#123;</span>
+    <span class="hljs-type">char</span> *masterhost;
+    <span class="hljs-type">int</span> masterport;
+&#125;</code></pre></div>
+
+<p>slave节点会将该命令封装成通信协议并发给master，完成socket建立，并发送PING检查socket是否正常。</p>
+<h3 id="心跳检测"><a href="#心跳检测" class="headerlink" title="心跳检测"></a>心跳检测</h3><p>命令传播的阶段，slave默认每秒一次的频率，向master发送心跳：</p>
+<div class="code-wrapper"><pre><code class="hljs xml">REPLCONF ACK <span class="hljs-tag">&lt;<span class="hljs-name">replication_offset</span>&gt;</span>
+
+replication_offset为slave当前的复制偏移量</code></pre></div>
+
+
+
+<p>心跳主要有三个作用：</p>
+<ul>
+<li>检测主从之间连接状态：节点保活机制</li>
+<li>辅助实现min-slaves：防止master在不安全的情况下执行写命令。<ul>
+<li><code>min-slaves-to-write</code></li>
+<li><code>min-slaves-max-log</code></li>
+</ul>
+</li>
+<li>检测命令丢失：如果因为网络原因产生命令丢失，master发现slave的offset小于自己当前offset，则认为产生命令丢失，并按照slave的offset传递数据。</li>
+</ul>
+<h2 id="sentinel机制"><a href="#sentinel机制" class="headerlink" title="sentinel机制"></a>sentinel机制</h2><p>主从复制存在的问题</p>
+<ul>
+<li>手动故障转移：master发生宕机，需要手动切换</li>
+<li>写能力和存储能力受限</li>
+</ul>
+<p>Sentinel（机制）是Redis官方推荐的高可用性(HA)解决方案，由一个或多个sentinel组成的sentinel system，可以监视主从集群的状态，当master发生宕机，自动将master下面的某个slave升级为新的master。</p>
+<h3 id="启动"><a href="#启动" class="headerlink" title="启动"></a>启动</h3><div class="code-wrapper"><pre><code class="hljs awk">.<span class="hljs-regexp">/redis-sentinel /</span>path<span class="hljs-regexp">/to/</span>sentinel.conf</code></pre></div>
+
+<p>启动流程会执行以下步骤：</p>
+<ul>
+<li>初始化server：sentinel本质上是一个运行在特殊模式的Redis服务器。</li>
+<li>代码：sentinel使用<code>sentinel.c/REDIS_SENTINEL_PORT</code>作为默认端口，使用<code>sentinel.c/sentinelcmds</code>作为命令表</li>
+<li>初始化sentinel状态：<code>sentinel.c/sentinelState</code>结构</li>
+<li>根据配置文件，初始化sentinel监视的主服务器列表：上面的结构使用<code>dict</code>保存master信息，key为master的名称，value为master对应的<code>sentinel.c/sentinelRedisInstance</code>，每个被监视的Redis服务器实例都被使用该结构存储。master的IP端口信息使用<code>struct sentinelAddr</code>进行存储。该数据sentinel初始化时从<code>sentinel.conf</code>完成加载。</li>
+<li>创建连向master的socket连接：sentinel节点对master创建两个异步连接：<ul>
+<li>命令连接：专门向master发送命令，并接收回复</li>
+<li>订阅连接：订阅master的<code>__sentinel__:hello</code>频道，用于sentinel发现其他sentinel节点</li>
+</ul>
+</li>
+</ul>
+<h3 id="获取信息"><a href="#获取信息" class="headerlink" title="获取信息"></a>获取信息</h3><p>每10s每个sentinel会对master发送<code>info</code>命令，sentinel主要获取两方面信息：</p>
+<ul>
+<li>master信息：run ID、role</li>
+<li>master对应的slave信息，包括IP端口、状态，偏移量等</li>
+</ul>
+<p>当获取到对应slave节点信息后，sentinel会创建到slave的两个连接，创建完命令连接后， 每10s对slave发送<code>info</code>命令，sentinel会获取以下信息：</p>
+<ul>
+<li>slave：run ID、role、master_port、master_host、主从之间的连接状态</li>
+</ul>
+<p>sentinel默认每2s向所有节点的<code>__sentinel__:hello</code>发送消息，主要是sentinel本身信息和master的信息。并且sentinel会通过订阅连接不断接收主从节点发来的消息，这里面是sentinel信息，如果与当前sentinel不同，说明是其他sentinel，那么当前sentinel会更新sentinel字典信息，并创建连向新sentinel的命令连接。</p>
+<h3 id="主观下线"><a href="#主观下线" class="headerlink" title="主观下线"></a>主观下线</h3><p>sentinel每1s向所有实例发送PING，包括主从、其他sentinel，并通过实例是否返回PONG判断是否在线。配置文件中的<code>down-after-milliseconds</code>内，未收到回复，sentinel就会将该实例标记为主观下线状态。但是多个sentinel的主线下线阈值不同，可能存在某节点在sentinelA是离线，在sentinelB是在线。</p>
+<h3 id="客观下线"><a href="#客观下线" class="headerlink" title="客观下线"></a>客观下线</h3><p>多个sentinel实例对同一台服务器做出SDOWN判断，并且通过<code>sentinel is-master-down-by-addr ip</code>命令互相交流之后，得出服务器下线的判断。客观下线是足够的sentinel都将服务器标记为主观下线之后，服务器才会标记为客观下线。</p>
+<h3 id="sentinel选举"><a href="#sentinel选举" class="headerlink" title="sentinel选举"></a>sentinel选举</h3><p>当某个master被判断为客观下线后，各个sentinel会进行协商，选举出一个主sentinel，并由主sentinel完成故障转移等操作。选举算法是Raft，<strong>选举规则</strong>如下：</p>
+<ul>
+<li>所有sentinel拥有相同资格参与选举、每次完成选举后，epoch都会自增一次</li>
+<li>当A向B发送<code>sentinel is-master-down-by-addr ip</code>时，A要求B将其设置为主sentinel。最先向B发送的将会成为B的局部主sentinel。</li>
+<li>B接收到A的命令，回复信息中分别由局部主sentinel的run ID和<code>leader_epoch</code>。</li>
+<li>A接收到回复，B的局部主sentinel是否为自己，如果A称为半数以上的局部主sentinel，则会成为全局主sentinel。</li>
+<li>规定时间内未完成选举，则会再进行。</li>
+</ul>
+<h3 id="故障转移"><a href="#故障转移" class="headerlink" title="故障转移"></a>故障转移</h3><p>选举出主sentinel后，主sentinel会将已下线的master进行故障转移，步骤如下：</p>
+<ul>
+<li>已下线的master从属的slave列表中挑选一个，并将其转换为master。挑选其中状态良好、数据完整的slave。</li>
+<li>让其他slave改为复制新的master的数据。向其他slave发送<code>SLAVEOF</code>。</li>
+</ul>
+<h2 id="Redis-Cluster"><a href="#Redis-Cluster" class="headerlink" title="Redis Cluster"></a>Redis Cluster</h2><p>Redis集群是Redis提供的分布式数据库方案，通过sharding完成数据共享，并通过复制、故障转移来提供高可用特性。</p>
+<h3 id="Node"><a href="#Node" class="headerlink" title="Node"></a>Node</h3><p>一个集群由多个Node构成，刚运行时都是独立的Node，需要通过<code>CLUSTER MEET &lt;ip&gt; &lt;port&gt;</code>指令来构成集群。<code>CLUSTER NODE</code>可以查询集群信息。Node通过以下配置参数判断是否以集群模式启动：</p>
+<div class="code-wrapper"><pre><code class="hljs bash">cluster-enabled <span class="hljs-built_in">yes</span></code></pre></div>
+
+<p>Node使用以下struct来定义：</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">// 节点状态</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">clusterNode</span> &#123;</span>
+
+    <span class="hljs-comment">// 创建节点的时间</span>
+    <span class="hljs-type">mstime_t</span> ctime; <span class="hljs-comment">/* Node object creation time. */</span>
+
+    <span class="hljs-comment">// 节点的名字，由 40 个十六进制字符组成</span>
+    <span class="hljs-comment">// 例如 68eef66df23420a5862208ef5b1a7005b806f2ff</span>
+    <span class="hljs-type">char</span> name[REDIS_CLUSTER_NAMELEN]; <span class="hljs-comment">/* Node name, hex string, sha1-size */</span>
+
+    <span class="hljs-comment">// 节点标识</span>
+    <span class="hljs-comment">// 使用各种不同的标识值记录节点的角色（比如主节点或者从节点），</span>
+    <span class="hljs-comment">// 以及节点目前所处的状态（比如在线或者下线）。</span>
+    <span class="hljs-type">int</span> flags;      <span class="hljs-comment">/* REDIS_NODE_... */</span>
+
+    <span class="hljs-comment">// 节点当前的配置纪元，用于实现故障转移</span>
+    <span class="hljs-type">uint64_t</span> configEpoch; <span class="hljs-comment">/* Last configEpoch observed for this node */</span>
+    
+    <span class="hljs-comment">// 该节点负责处理的槽数量</span>
+    <span class="hljs-type">int</span> numslots;   <span class="hljs-comment">/* Number of slots handled by this node */</span>
+
+    <span class="hljs-comment">// 如果本节点是主节点，那么用这个属性记录从节点的数量</span>
+    <span class="hljs-type">int</span> numslaves;  <span class="hljs-comment">/* Number of slave nodes, if this is a master */</span>
+
+    <span class="hljs-comment">// 指针数组，指向各个从节点</span>
+    <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">clusterNode</span> **<span class="hljs-title">slaves</span>;</span> <span class="hljs-comment">/* pointers to slave nodes */</span>
+
+    <span class="hljs-comment">// 如果这是一个从节点，那么指向主节点</span>
+    <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">clusterNode</span> *<span class="hljs-title">slaveof</span>;</span> <span class="hljs-comment">/* pointer to the master node */</span>
+
+    <span class="hljs-comment">// 最后一次发送 PING 命令的时间</span>
+    <span class="hljs-type">mstime_t</span> ping_sent;      <span class="hljs-comment">/* Unix time we sent latest ping */</span>
+
+    <span class="hljs-comment">// 最后一次接收 PONG 回复的时间戳</span>
+    <span class="hljs-type">mstime_t</span> pong_received;  <span class="hljs-comment">/* Unix time we received the pong */</span>
+
+    <span class="hljs-comment">// 最后一次被设置为 FAIL 状态的时间</span>
+    <span class="hljs-type">mstime_t</span> fail_time;      <span class="hljs-comment">/* Unix time when FAIL flag was set */</span>
+
+    <span class="hljs-comment">// 最后一次给某个从节点投票的时间</span>
+    <span class="hljs-type">mstime_t</span> voted_time;     <span class="hljs-comment">/* Last time we voted for a slave of this master */</span>
+
+    <span class="hljs-comment">// 最后一次从这个节点接收到复制偏移量的时间</span>
+    <span class="hljs-type">mstime_t</span> repl_offset_time;  <span class="hljs-comment">/* Unix time we received offset for this node */</span>
+
+    <span class="hljs-comment">// 这个节点的复制偏移量</span>
+    <span class="hljs-type">long</span> <span class="hljs-type">long</span> repl_offset;      <span class="hljs-comment">/* Last known repl offset for this node. */</span>
+
+    <span class="hljs-comment">// 节点的 IP 地址</span>
+    <span class="hljs-type">char</span> ip[REDIS_IP_STR_LEN];  <span class="hljs-comment">/* Latest known IP address of this node */</span>
+
+    <span class="hljs-comment">// 节点的端口号</span>
+    <span class="hljs-type">int</span> port;                   <span class="hljs-comment">/* Latest known port of this node */</span>
+
+    <span class="hljs-comment">// 保存连接节点所需的有关信息</span>
+    clusterLink *link;          <span class="hljs-comment">/* TCP/IP link with this node */</span>
+
+    <span class="hljs-comment">// 一个链表，记录了所有其他节点对该节点的下线报告</span>
+    <span class="hljs-built_in">list</span> *fail_reports;         <span class="hljs-comment">/* List of nodes signaling this as failing */</span>
+
+&#125;;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">clusterLink</span> &#123;</span>
+
+    <span class="hljs-comment">// 连接的创建时间</span>
+    <span class="hljs-type">mstime_t</span> ctime;             <span class="hljs-comment">/* Link creation time */</span>
+
+    <span class="hljs-comment">// TCP 套接字描述符</span>
+    <span class="hljs-type">int</span> fd;                     <span class="hljs-comment">/* TCP socket file descriptor */</span>
+
+    <span class="hljs-comment">// 输出缓冲区，保存着等待发送给其他节点的消息（message）。</span>
+    sds sndbuf;                 <span class="hljs-comment">/* Packet send buffer */</span>
+
+    <span class="hljs-comment">// 输入缓冲区，保存着从其他节点接收到的消息。</span>
+    sds rcvbuf;                 <span class="hljs-comment">/* Packet reception buffer */</span>
+
+    <span class="hljs-comment">// 与这个连接相关联的节点，如果没有的话就为 NULL</span>
+    <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">clusterNode</span> *<span class="hljs-title">node</span>;</span>   <span class="hljs-comment">/* Node related to this link if any, or NULL */</span>
+
+&#125; clusterLink;</code></pre></div>
+
+
+
+
+
+<h3 id="分片方式"><a href="#分片方式" class="headerlink" title="分片方式"></a>分片方式</h3><p>集群通过<strong>分片</strong>的方式保存数据，当请求进入，计算key的hash值，并对16383进行取余，得到指定slot位置 。整个数据库被分为16384个slot，这些slot会被平均分配给各个节点。slot被定义在<code>clusterNode</code>中，整个slot数组长度为2048 bytes，以<code>bitmap</code>形式进行存储。处理slot的node的映射信息存储在<code>clusterState</code>中。</p>
+<div class="code-wrapper"><pre><code class="hljs c"><span class="hljs-comment">// 槽数量</span>
+<span class="hljs-meta">#<span class="hljs-keyword">define</span> REDIS_CLUSTER_SLOTS 16384</span>
+
+<span class="hljs-comment">// 由这个节点负责处理的槽</span>
+<span class="hljs-comment">// 一共有 REDIS_CLUSTER_SLOTS / 8 个字节长</span>
+<span class="hljs-comment">// 每个字节的每个位记录了一个槽的保存状态</span>
+<span class="hljs-comment">// 位的值为 1 表示槽正由本节点处理，值为 0 则表示槽并非本节点处理</span>
+<span class="hljs-comment">// 比如 slots[0] 的第一个位保存了槽 0 的保存情况</span>
+<span class="hljs-comment">// slots[0] 的第二个位保存了槽 1 的保存情况，以此类推</span>
+<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> slots[REDIS_CLUSTER_SLOTS/<span class="hljs-number">8</span>];
+
+<span class="hljs-comment">// 该节点负责处理的槽数量</span>
+<span class="hljs-type">int</span> numslots;
+
+
+<span class="hljs-comment">// 存储处理各个槽的节点</span>
+<span class="hljs-comment">// 例如 slots[i] = clusterNode_A 表示槽 i 由节点 A 处理</span>
+clusterNode *slots[REDIS_CLUSTER_SLOTS];</code></pre></div>
+
+<p>至于为什么需要存储slot-&gt;node的映射，是为了解决<strong>想知道slot[i]由哪个node存储</strong>，使用该映射能在$O(1)$内查询到，否则需要遍历<code>clusterState.nodes</code>字典中的所有<code>clusterNode</code>结构，检查这些结构的slots数组，直到找到负责处理slot{i]的节点为止。</p>
+<div class="code-wrapper"><pre><code class="hljs apache"><span class="hljs-comment"># 将slot分配给指定节点</span>
+<span class="hljs-attribute">CLUSTER</span> ADDSLOTS ＜slot＞<span class="hljs-meta"> [slot ...]</span></code></pre></div>
+
+
+
+<h3 id="命令处理"><a href="#命令处理" class="headerlink" title="命令处理"></a>命令处理</h3><p>假设客户端向集群发送key相关指令，处理流程如下：</p>
+<ol>
+<li>接受命令的Node计算出key属于哪个slot，并判断当前slot是否属于自己，是则执行<ul>
+<li>通过<code>CRC16(key) &amp; 16383</code>计算key的所属slot</li>
+</ul>
+</li>
+<li>否则给客户端返回MOVED错误（附带处理该slot的Node信息），客户端重新给正确Node发送请求。<ul>
+<li><code>MOVED ＜slot＞ ＜ip＞:＜port＞</code></li>
+</ul>
+</li>
+</ol>
+<h3 id="Gossip协议"><a href="#Gossip协议" class="headerlink" title="Gossip协议"></a>Gossip协议</h3><p>Cluster底层通信协议为Gossip协议，集群中每个节点定期向其他节点发送PING，以此交换各个节点状态。</p>
+<h3 id="故障转移-1"><a href="#故障转移-1" class="headerlink" title="故障转移"></a>故障转移</h3><p>集群中节点定期向其他节点发送PING，检测对方是否在线，如果未收到PONG，则会将其标记为<code>probable fail</code>，如果集群中半数以上认为某节点疑似下线。则会向其他节点广播某节点<code>fail</code>的情况。</p>
+<p>当某个slave发现自己正在复制的master进入fail状态，则会进行故障转移：</p>
+<ul>
+<li>选取master中一个slave，并执行<code>SLAVEOF no one</code>，成为新的master</li>
+<li>新的master会撤销所有已下线的master的指派slot，并将这些都指派给自己</li>
+<li>新的master广播一条PONG消息，通知其他节点其已成为master</li>
+</ul>
+<h3 id="集群选主"><a href="#集群选主" class="headerlink" title="集群选主"></a>集群选主</h3><p>Redis Cluster的选举算法基于Raft实现。</p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/" class="category-chain-item">中间件</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/" class="category-chain-item">Redis</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>Redis集群机制分析</div>
+      <div>https://l1n.wang/2020/中间件/Redis/Redis集群机制分析/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2020年7月13日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/Redis%E5%86%85%E5%AD%98%E4%BC%98%E5%8C%96/" title="Redis内存优化">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">Redis内存优化</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2020/%E4%B8%AD%E9%97%B4%E4%BB%B6/Redis/Redis%E6%8C%81%E4%B9%85%E5%8C%96%E6%9C%BA%E5%88%B6%E5%88%86%E6%9E%90/" title="Redis持久化机制分析">
+                        <span class="hidden-mobile">Redis持久化机制分析</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

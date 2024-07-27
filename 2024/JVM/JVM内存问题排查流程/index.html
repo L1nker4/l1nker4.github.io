@@ -1,0 +1,861 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" >
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="Lin Wang">
+  <meta name="keywords" content="l1nker4">
+  
+    <meta name="description" content="确认问题现象可以通过服务状态，监控面板、日志信息、监控工具（VisualVM）等，确认问题类型：  内存使用率居高不下、内存缓慢增加、OOM等 频繁GC：Full GC等  发现问题不建议重启，留存状态。 保留数据heapdump文件#arthas导出方式 heapdump &#x2F;tmp&#x2F;dump.hprof  #jmap命令保存整个Java堆 jmap -dump:format&#x3D;b,file&#x3D;hea">
+<meta property="og:type" content="article">
+<meta property="og:title" content="JVM内存问题排查流程">
+<meta property="og:url" content="https://l1n.wang/2024/JVM/JVM%E5%86%85%E5%AD%98%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5%E6%B5%81%E7%A8%8B/index.html">
+<meta property="og:site_name" content="l1nker4&#39;s Blog">
+<meta property="og:description" content="确认问题现象可以通过服务状态，监控面板、日志信息、监控工具（VisualVM）等，确认问题类型：  内存使用率居高不下、内存缓慢增加、OOM等 频繁GC：Full GC等  发现问题不建议重启，留存状态。 保留数据heapdump文件#arthas导出方式 heapdump &#x2F;tmp&#x2F;dump.hprof  #jmap命令保存整个Java堆 jmap -dump:format&#x3D;b,file&#x3D;hea">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://cdn.nlark.com/yuque/0/2023/png/406326/1675906799781-537c7346-3eb0-4b60-91e9-64ca73e0b215.png#averageHue=%230b0806&clientId=u200445ac-f1ae-4&from=paste&height=241&id=ub7219716&originHeight=316&originWidth=960&originalType=binary&ratio=1&rotation=0&showTitle=false&size=63366&status=done&style=none&taskId=ue414be00-c4c6-4321-ba74-055bf4a9997&title=&width=731">
+<meta property="article:published_time" content="2024-03-03T13:34:49.000Z">
+<meta property="article:modified_time" content="2024-07-26T15:47:11.351Z">
+<meta property="article:author" content="Lin Wang">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="JVM">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://cdn.nlark.com/yuque/0/2023/png/406326/1675906799781-537c7346-3eb0-4b60-91e9-64ca73e0b215.png#averageHue=%230b0806&clientId=u200445ac-f1ae-4&from=paste&height=241&id=ub7219716&originHeight=316&originWidth=960&originalType=binary&ratio=1&rotation=0&showTitle=false&size=63366&status=done&style=none&taskId=ue414be00-c4c6-4321-ba74-055bf4a9997&title=&width=731">
+  
+  
+  
+  <title>JVM内存问题排查流程 - l1nker4&#39;s Blog</title>
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@4/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/hint.css@2/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/font_1736178_lbnruvf0jn.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+
+
+
+  
+<link rel="stylesheet" href="/css/custom.css">
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"l1n.wang","root":"/","version":"1.9.8","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"right","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":true,"follow_dnt":true,"baidu":"612bbac3c11e86af5c472b8381f09fa7","google":null,"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null},"gtag":null,"woyaola":null,"cnzz":null},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+  
+    <!-- Baidu Analytics -->
+    <script async>
+      if (!Fluid.ctx.dnt) {
+        var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?612bbac3c11e86af5c472b8381f09fa7";
+          var s = document.getElementsByTagName("script")[0];
+          s.parentNode.insertBefore(hm, s);
+        })();
+      }
+    </script>
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+  
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>l1nker4&#39;s Blog</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/links/" target="_self">
+                <i class="iconfont icon-link-fill"></i>
+                <span>友链</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('https://blog-1251613845.cos.ap-shanghai.myqcloud.com/bg/bg1.jpg') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="JVM内存问题排查流程"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2024-03-03 21:34" pubdate>
+          2024年3月3日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          <!-- compatible with older versions-->
+          933 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          <!-- compatible with older versions-->
+          8 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">JVM内存问题排查流程</h1>
+            
+            
+              <div class="markdown-body">
+                
+                <h2 id="确认问题现象"><a href="#确认问题现象" class="headerlink" title="确认问题现象"></a>确认问题现象</h2><p>可以通过服务状态，监控面板、日志信息、监控工具（VisualVM）等，确认问题类型：</p>
+<ol>
+<li>内存使用率居高不下、内存缓慢增加、OOM等</li>
+<li>频繁GC：Full GC等</li>
+</ol>
+<p>发现问题不建议重启，留存状态。</p>
+<h2 id="保留数据"><a href="#保留数据" class="headerlink" title="保留数据"></a>保留数据</h2><h3 id="heapdump文件"><a href="#heapdump文件" class="headerlink" title="heapdump文件"></a>heapdump文件</h3><div class="code-wrapper"><pre><code class="hljs ruby"><span class="hljs-comment">#arthas导出方式</span>
+heapdump /tmp/dump.hprof
+
+<span class="hljs-comment">#jmap命令保存整个Java堆</span>
+jmap -<span class="hljs-symbol">dump:</span>format=b,file=heap.bin &lt;pid&gt; 
+
+<span class="hljs-comment">#jmap命令只保存Java堆中的存活对象, 包含live选项，会在堆转储前执行一次Full GC</span>
+jmap -<span class="hljs-symbol">dump:</span>live,format=b,file=heap.bin &lt;pid&gt;
+
+<span class="hljs-comment">#jcmd命令保存整个Java堆,Jdk1.7后有效</span>
+jcmd &lt;pid&gt; <span class="hljs-variable constant_">GC</span>.heap_dump filename=heap.bin
+
+<span class="hljs-comment">#在出现OutOfMemoryError的时候JVM自动生成（推荐）节点剩余内存不足heapdump会生成失败</span>
+-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpOnOutOfMemoryError</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:HeapDumpPath=/tmp/heap</span>.bin
+
+<span class="hljs-comment">#编程的方式生成</span>
+使用<span class="hljs-title class_">HotSpotDiagnosticMXBean</span>.dumpHeap()方法
+
+<span class="hljs-comment">#在出现Full GC前后JVM自动生成，本地快速调试可用</span>
+-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpBeforeFullGC</span>或 -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpAfterFullGC</span></code></pre></div>
+
+<p>JVM参数：</p>
+<div class="code-wrapper"><pre><code class="hljs ruby">-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:printGCDetails</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+UseConcMarkSweepGC</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+HeapDumpOnOutOfMemoryError</span></code></pre></div>
+
+
+
+<h3 id="GC日志"><a href="#GC日志" class="headerlink" title="GC日志"></a>GC日志</h3><p>JVM启动参数如下：</p>
+<div class="code-wrapper"><pre><code class="hljs ruby"><span class="hljs-comment"># Java8及以下</span>
+-<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+PrintGCDetails</span> -<span class="hljs-variable constant_">XX</span><span class="hljs-symbol">:+PrintGCDateStamps</span> -<span class="hljs-title class_">Xloggc</span><span class="hljs-symbol">:&lt;path&gt;</span>
+
+<span class="hljs-comment"># Java9及以上</span>
+-<span class="hljs-title class_">Xlog</span><span class="hljs-symbol">:gc*</span><span class="hljs-symbol">:&lt;path&gt;</span><span class="hljs-symbol">:time</span></code></pre></div>
+
+<p>可以通过EasyGC进行日志分析。</p>
+<h3 id="服务日志"><a href="#服务日志" class="headerlink" title="服务日志"></a>服务日志</h3><p>通常由日志组件（Promtail &amp; loki）进行采集、存储、展示。</p>
+<h2 id="实际问题"><a href="#实际问题" class="headerlink" title="实际问题"></a>实际问题</h2><h3 id="堆内存溢出"><a href="#堆内存溢出" class="headerlink" title="堆内存溢出"></a>堆内存溢出</h3><p>问题现象：</p>
+<ol>
+<li>OutOfMemoryError</li>
+</ol>
+<h3 id="直接内存溢出"><a href="#直接内存溢出" class="headerlink" title="直接内存溢出"></a>直接内存溢出</h3><p>问题现象：top指令中相关Java进程占用的RES超过了-Xmx的大小，并且内存占用不断上升。</p>
+<p>问题定位方法：</p>
+<ol>
+<li>可通过开启NMT（**-XX:NativeMemoryTracking&#x3D;detail**）定位问题</li>
+<li>jcmd查看直接内存情况：jcmd pid VM.native_memory detail</li>
+</ol>
+<p>NIO、Netty等常用直接内存，Netty可以通过<code>-Dio.netty.leakDetectionLevel</code>开启</p>
+<h3 id="栈空间溢出"><a href="#栈空间溢出" class="headerlink" title="栈空间溢出"></a>栈空间溢出</h3><p>问题现象：</p>
+<ol>
+<li>StackOverflow</li>
+<li>OutOfMemoryError：unable to create new native thread</li>
+</ol>
+<p>问题定位方法：</p>
+<ol>
+<li>分析Java调用栈</li>
+<li>开启Linux coredump日志</li>
+</ol>
+<h3 id="频繁GC"><a href="#频繁GC" class="headerlink" title="频繁GC"></a>频繁GC</h3><p>问题现象：通过监控面板、jstat等方式，发生频繁GC现象：</p>
+<ol>
+<li>Minor GC：回收新生代区域</li>
+<li>Major GC：回收老年代区域</li>
+<li>Full GC：回收整个堆区和方法区</li>
+<li>Mixed GC：回收整个新生代和部分老年代，部分GC实现（G1）</li>
+</ol>
+<h2 id="工具使用"><a href="#工具使用" class="headerlink" title="工具使用"></a>工具使用</h2><h3 id="jstat"><a href="#jstat" class="headerlink" title="jstat"></a>jstat</h3><p>用于查看虚拟机垃圾回收的情况，主要是堆内存使用、垃圾回收次数和占用时间</p>
+<div class="code-wrapper"><pre><code class="hljs shell">jstat -gcutil  -h 20 pid 1000 100
+
+各列分别为：S0使用率、S1使用率、Eden使用率、Old使用率
+Method方法区使用率、CCS压缩使用率
+YGC年轻代垃圾回收次数、YGCT年轻代垃圾回收占用时间
+FGC全局垃圾回收次数、FGCT全局垃圾回收消耗时间
+GCT总共垃圾回收时间</code></pre></div>
+<p><img src="https://cdn.nlark.com/yuque/0/2023/png/406326/1675906799781-537c7346-3eb0-4b60-91e9-64ca73e0b215.png#averageHue=%230b0806&clientId=u200445ac-f1ae-4&from=paste&height=241&id=ub7219716&originHeight=316&originWidth=960&originalType=binary&ratio=1&rotation=0&showTitle=false&size=63366&status=done&style=none&taskId=ue414be00-c4c6-4321-ba74-055bf4a9997&title=&width=731" srcset="/img/loading.gif" lazyload alt="image.png"></p>
+<h3 id="jmap"><a href="#jmap" class="headerlink" title="jmap"></a>jmap</h3><p>用于保存虚拟机内存镜像到文件中，可以使用JVisualVM或MAT进行分析</p>
+<div class="code-wrapper"><pre><code class="hljs shell">jmap -dump:format=b,file=filename.hprof pid</code></pre></div>
+
+<p>也可以通过运行参数，当发生OOM时，主动保存堆dump文件。</p>
+<div class="code-wrapper"><pre><code class="hljs shell">-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof</code></pre></div>
+
+<h3 id="JMC"><a href="#JMC" class="headerlink" title="JMC"></a>JMC</h3><p>Java Mission Control：用于追踪热点代码和热点线程</p>
+<h2 id="附JVM参数"><a href="#附JVM参数" class="headerlink" title="附JVM参数"></a>附JVM参数</h2><h4 id="Xms512m"><a href="#Xms512m" class="headerlink" title="-Xms512m"></a>-Xms512m</h4><ul>
+<li>意义： 设置堆内存初始值大小。</li>
+<li>默认值：如果未设置，初始值将是老年代和年轻代分配制内存之和。</li>
+</ul>
+<h4 id="Xmx1024m"><a href="#Xmx1024m" class="headerlink" title="-Xmx1024m"></a>-Xmx1024m</h4><ul>
+<li>意义： 设置堆内存最大值。</li>
+</ul>
+<h4 id="XX-NewRatio-n"><a href="#XX-NewRatio-n" class="headerlink" title="-XX:NewRatio&#x3D;n"></a>-XX:NewRatio&#x3D;n</h4><ul>
+<li>意义：设置老年代和年轻代的比例。比如：-XX:NewRatio&#x3D;2</li>
+</ul>
+<p>-XX:SurvivorRatio<br>年轻代分配：默认情况下Eden、From、To的比例是8:1:1。SurvivorRatio默认值是8，如果SurvivorRatio修改成4，那么其比例就是4:1:1</p>
+<h4 id="XX-MaxRAMPercentage-85-0"><a href="#XX-MaxRAMPercentage-85-0" class="headerlink" title="-XX:MaxRAMPercentage&#x3D;85.0"></a>-XX:MaxRAMPercentage&#x3D;85.0</h4><p>堆的最大值百分比</p>
+<h4 id="Xalwaysclassgc"><a href="#Xalwaysclassgc" class="headerlink" title="-Xalwaysclassgc"></a>-Xalwaysclassgc</h4><p>在全局垃圾回收期间始终执行动态类卸载检查。</p>
+<h4 id="Xaggressive"><a href="#Xaggressive" class="headerlink" title="-Xaggressive"></a>-Xaggressive</h4><p>Enables performance optimizations and new platform exploitation that are expected to be the default in future releases.</p>
+<h4 id="XX-PrintGCDetails"><a href="#XX-PrintGCDetails" class="headerlink" title="-XX:+PrintGCDetails"></a>-XX:+PrintGCDetails</h4><p>打印GC日志</p>
+<h4 id="XX-PrintGCTimeStamps"><a href="#XX-PrintGCTimeStamps" class="headerlink" title="-XX:+PrintGCTimeStamps"></a>-XX:+PrintGCTimeStamps</h4><p>打印GC时间戳</p>
+<h4 id="Xloggc"><a href="#Xloggc" class="headerlink" title="-Xloggc"></a>-Xloggc</h4><p>GC日志存储位置</p>
+<h4 id="verbose-class"><a href="#verbose-class" class="headerlink" title="-verbose:class"></a>-verbose:class</h4><p>用于同时跟踪类的加载和卸载 </p>
+<h4 id="XX-TraceClassLoading"><a href="#XX-TraceClassLoading" class="headerlink" title="-XX:+TraceClassLoading"></a>-XX:+TraceClassLoading</h4><p>单独跟踪类的加载</p>
+<h4 id="XX-TraceClassUnloading"><a href="#XX-TraceClassUnloading" class="headerlink" title="-XX:+TraceClassUnloading"></a>-XX:+TraceClassUnloading</h4><p>单独跟踪类的卸载</p>
+<h4 id="XX-NativeMemoryTracking-off-summary-detail"><a href="#XX-NativeMemoryTracking-off-summary-detail" class="headerlink" title="-XX:NativeMemoryTracking&#x3D;[off | summary | detail ]"></a>-XX:NativeMemoryTracking&#x3D;[off | summary | detail ]</h4><p>开启直接内存追踪</p>
+<h4 id="XX-MaxDirectMemorySize"><a href="#XX-MaxDirectMemorySize" class="headerlink" title="-XX:MaxDirectMemorySize"></a>-XX:MaxDirectMemorySize</h4><p>最大直接内存</p>
+<h4 id="XX-MaxJavaStackTraceDepth"><a href="#XX-MaxJavaStackTraceDepth" class="headerlink" title="-XX:MaxJavaStackTraceDepth"></a>-XX:MaxJavaStackTraceDepth</h4><p>栈帧输出数量</p>
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/Java/" class="category-chain-item">Java</a>
+  
+  
+    <span>></span>
+    
+  <a href="/categories/Java/JVM/" class="category-chain-item">JVM</a>
+  
+  
+
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/Java/" class="print-no-link">#Java</a>
+      
+        <a href="/tags/JVM/" class="print-no-link">#JVM</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>JVM内存问题排查流程</div>
+      <div>https://l1n.wang/2024/JVM/JVM内存问题排查流程/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>Lin Wang</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2024年3月3日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2024/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/%E3%80%8A%E8%BD%AF%E4%BB%B6%E7%A0%94%E5%8F%91%E6%95%88%E8%83%BD%E4%B9%8B%E7%BE%8E%E3%80%8B%E6%80%9D%E7%BB%B4%E5%AF%BC%E5%9B%BE/" title="《软件研发效能之美》思维导图">
+                        <span class="hidden-mobile">《软件研发效能之美》思维导图</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+  
+  
+    <article id="comments" lazyload>
+      
+  <script type="text/javascript">
+    Fluid.utils.loadComments('#comments', function() {
+      var light = 'github-light';
+      var dark = 'github-dark';
+      var schema = document.documentElement.getAttribute('data-user-color-scheme');
+      if (schema === 'dark') {
+        schema = dark;
+      } else {
+        schema = light;
+      }
+      window.UtterancesThemeLight = light;
+      window.UtterancesThemeDark = dark;
+      var s = document.createElement('script');
+      s.setAttribute('src', 'https://utteranc.es/client.js');
+      s.setAttribute('repo', 'L1nker4/blog_comment');
+      s.setAttribute('issue-term', 'title');
+      
+      s.setAttribute('label', 'utterances');
+      
+      s.setAttribute('theme', schema);
+      s.setAttribute('crossorigin', 'anonymous');
+      document.getElementById('comments').appendChild(s);
+    })
+  </script>
+  <noscript>Please enable JavaScript to view the comments</noscript>
+
+
+    </article>
+  
+
+
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       2018 - 2024 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js" ></script>
+<script  src="https://cdn.jsdelivr.net/npm/bootstrap@4/dist/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://cdn.jsdelivr.net/npm/typed.js@2/lib/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/tocbot@4/dist/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    window.tocbot.init(Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc));
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/anchor-js@4/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3/dist/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="//cdn.jsdelivr.net/gh/EmoryHuang/BlogBeautify@1.1/love.min.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>
