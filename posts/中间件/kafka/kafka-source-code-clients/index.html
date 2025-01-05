@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="https://example.org/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-clients/" />
+  <link rel="canonical" href="https://example.org/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-clients/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="https://example.org/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "https:\/\/example.org\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Kafka源码分析(一)- clients模块",
+      "headline" : "Kafka源码分析(一)- clients模块",
+      "description" : "前言 clients模块是Kafka官方提供的默认Java客户端，该模块分为三部分：\nAdmin：提供了管理topic、partition、config的相关API Consumer：提供了消费topic的API Producer：提供了向topic投递消息的功能 Kafka源码以3.9为例。\nProducer send流程 send支持异步方式向Kafka broker端发送消息，并有后台sender线程按批向broker写入。\ninterceptor机制 send流程中首先会检查用户是否自定义interceptor实现，用于处理send前置逻辑，具体业务场景不多赘述。\n@Override public Future\u0026lt;RecordMetadata\u0026gt; send(ProducerRecord\u0026lt;K, V\u0026gt; record, Callback callback) { \/\/ 拦截器前置send动作 ProducerRecord\u0026lt;K, V\u0026gt; interceptedRecord = this.interceptors.onSend(record); return doSend(interceptedRecord, callback); } 其中ProducerInterceptor提供了以下接口：\nProducerRecord\u0026lt;K, V\u0026gt; onSend(ProducerRecord\u0026lt;K, V\u0026gt; record)：send前置处理逻辑 onAcknowledgement(RecordMetadata metadata, Exception exception)：消息被应答之后或发送消息失败时调用。 close()：用于关闭interceptor资源。 自定义interceptor需要考虑线程安全。\ndoSend流程 private Future\u0026lt;RecordMetadata\u0026gt; doSend(ProducerRecord\u0026lt;K, V\u0026gt; record, Callback callback) { \/\/ 1.1 创建callback对象 AppendCallbacks appendCallbacks = new AppendCallbacks(callback, this.interceptors, record); try { \/\/1.2 检查producer是否被close throwIfProducerClosed(); \/\/ first make sure the metadata for the topic is available long nowMs = time.milliseconds(); ClusterAndWaitTime clusterAndWaitTime; \/\/1.3 拉取指定topic、分区的元数据，和等待时间 try { clusterAndWaitTime = waitOnMetadata(record.topic(), record.partition(), nowMs, maxBlockTimeMs); } catch (KafkaException e) { if (metadata.isClosed()) throw new KafkaException(\u0026#34;Producer closed while send in progress\u0026#34;, e); throw e; } nowMs \u002b= clusterAndWaitTime.waitedOnMetadataMs; long remainingWaitMs = Math.max(0, maxBlockTimeMs - clusterAndWaitTime.waitedOnMetadataMs); Cluster cluster = clusterAndWaitTime.cluster; \/\/1.4 key value进行序列化 byte[] serializedKey; try { serializedKey = keySerializer.serialize(record.topic(), record.headers(), record.key()); } catch (ClassCastException cce) { throw new SerializationException(\u0026#34;Can\u0026#39;t convert key of class \u0026#34; \u002b record.key().getClass().getName() \u002b \u0026#34; to class \u0026#34; \u002b producerConfig.getClass(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG).getName() \u002b \u0026#34; specified in key.serializer\u0026#34;, cce); } byte[] serializedValue; try { serializedValue = valueSerializer.serialize(record.topic(), record.headers(), record.value()); } catch (ClassCastException cce) { throw new SerializationException(\u0026#34;Can\u0026#39;t convert value of class \u0026#34; \u002b record.value().getClass().getName() \u002b \u0026#34; to class \u0026#34; \u002b producerConfig.getClass(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG).getName() \u002b \u0026#34; specified in value.serializer\u0026#34;, cce); } \/\/ 1.5 计算当前消息所属的partition int partition = partition(record, serializedKey, serializedValue, cluster); \/\/ 1.6 设置消息header为readOnly setReadOnly(record.headers()); Header[] headers = record.headers().toArray(); \/\/1.7 检查消息大小是否符合 int serializedSize = AbstractRecords.estimateSizeInBytesUpperBound(apiVersions.maxUsableProduceMagic(), compression.type(), serializedKey, serializedValue, headers); ensureValidRecordSize(serializedSize); long timestamp = record.timestamp() == null ? nowMs : record.timestamp(); \/\/ 自定义partitioner boolean abortOnNewBatch = partitioner != null; \/\/ 1.8 将消息追加到accumulator中 RecordAccumulator.RecordAppendResult result = accumulator.append(record.topic(), partition, timestamp, serializedKey, serializedValue, headers, appendCallbacks, remainingWaitMs, abortOnNewBatch, nowMs, cluster); assert appendCallbacks.getPartition() != RecordMetadata.UNKNOWN_PARTITION; \/\/ 1.9 消息入新batch的情况 if (result.abortForNewBatch) { int prevPartition = partition; onNewBatch(record.topic(), cluster, prevPartition); partition = partition(record, serializedKey, serializedValue, cluster); if (log.isTraceEnabled()) { log.trace(\u0026#34;Retrying append due to new batch creation for topic {} partition {}. The old partition was {}\u0026#34;, record.topic(), partition, prevPartition); } result = accumulator.append(record.topic(), partition, timestamp, serializedKey, serializedValue, headers, appendCallbacks, remainingWaitMs, false, nowMs, cluster); } \/\/ 2.1 开启事务的情况 if (transactionManager != null) { transactionManager.maybeAddPartition(appendCallbacks.topicPartition()); } \/\/ 2.2 如果batch满了，或者新batch被创建，唤醒后台sender线程 if (result.batchIsFull || result.newBatchCreated) { log.trace(\u0026#34;Waking up the sender since topic {} partition {} is either full or getting a new batch\u0026#34;, record.topic(), appendCallbacks.getPartition()); this.sender.wakeup(); } return result.future; \/\/ handling exceptions and record the errors; \/\/ for API exceptions return them in the future, \/\/ for other exceptions throw directly } catch (ApiException e) { log.debug(\u0026#34;Exception occurred during message send:\u0026#34;, e); if (callback != null) { TopicPartition tp = appendCallbacks.topicPartition(); RecordMetadata nullMetadata = new RecordMetadata(tp, -1, -1, RecordBatch.NO_TIMESTAMP, -1, -1); callback.onCompletion(nullMetadata, e); } this.errors.record(); this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); if (transactionManager != null) { transactionManager.maybeTransitionToErrorState(e); } return new FutureFailure(e); } catch (InterruptedException e) { this.errors.record(); this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); throw new InterruptException(e); } catch (KafkaException e) { this.errors.record(); this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); throw e; } catch (Exception e) { \/\/ we notify interceptor about all exceptions, since onSend is called before anything else in this method this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); throw e; } } partition机制 Producer中计算消息partition的流程较为简单：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2025",
+      "datePublished": "2025-01-05 21:47:13 \u002b0800 CST",
+      "dateModified" : "2025-01-05 21:47:13 \u002b0800 CST",
+      "url" : "https:\/\/example.org\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/kafka\/kafka-source-code-clients\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Kafka源码分析(一)- clients模块</title>
+  <meta property="og:title" content="Kafka源码分析(一)- clients模块" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="前言 clients模块是Kafka官方提供的默认Java客户端，该模块分为三部分：
+Admin：提供了管理topic、partition、config的相关API Consumer：提供了消费topic的API Producer：提供了向topic投递消息的功能 Kafka源码以3.9为例。
+Producer send流程 send支持异步方式向Kafka broker端发送消息，并有后台sender线程按批向broker写入。
+interceptor机制 send流程中首先会检查用户是否自定义interceptor实现，用于处理send前置逻辑，具体业务场景不多赘述。
+@Override public Future&lt;RecordMetadata&gt; send(ProducerRecord&lt;K, V&gt; record, Callback callback) { // 拦截器前置send动作 ProducerRecord&lt;K, V&gt; interceptedRecord = this.interceptors.onSend(record); return doSend(interceptedRecord, callback); } 其中ProducerInterceptor提供了以下接口：
+ProducerRecord&lt;K, V&gt; onSend(ProducerRecord&lt;K, V&gt; record)：send前置处理逻辑 onAcknowledgement(RecordMetadata metadata, Exception exception)：消息被应答之后或发送消息失败时调用。 close()：用于关闭interceptor资源。 自定义interceptor需要考虑线程安全。
+doSend流程 private Future&lt;RecordMetadata&gt; doSend(ProducerRecord&lt;K, V&gt; record, Callback callback) { // 1.1 创建callback对象 AppendCallbacks appendCallbacks = new AppendCallbacks(callback, this.interceptors, record); try { //1.2 检查producer是否被close throwIfProducerClosed(); // first make sure the metadata for the topic is available long nowMs = time.milliseconds(); ClusterAndWaitTime clusterAndWaitTime; //1.3 拉取指定topic、分区的元数据，和等待时间 try { clusterAndWaitTime = waitOnMetadata(record.topic(), record.partition(), nowMs, maxBlockTimeMs); } catch (KafkaException e) { if (metadata.isClosed()) throw new KafkaException(&#34;Producer closed while send in progress&#34;, e); throw e; } nowMs &#43;= clusterAndWaitTime.waitedOnMetadataMs; long remainingWaitMs = Math.max(0, maxBlockTimeMs - clusterAndWaitTime.waitedOnMetadataMs); Cluster cluster = clusterAndWaitTime.cluster; //1.4 key value进行序列化 byte[] serializedKey; try { serializedKey = keySerializer.serialize(record.topic(), record.headers(), record.key()); } catch (ClassCastException cce) { throw new SerializationException(&#34;Can&#39;t convert key of class &#34; &#43; record.key().getClass().getName() &#43; &#34; to class &#34; &#43; producerConfig.getClass(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG).getName() &#43; &#34; specified in key.serializer&#34;, cce); } byte[] serializedValue; try { serializedValue = valueSerializer.serialize(record.topic(), record.headers(), record.value()); } catch (ClassCastException cce) { throw new SerializationException(&#34;Can&#39;t convert value of class &#34; &#43; record.value().getClass().getName() &#43; &#34; to class &#34; &#43; producerConfig.getClass(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG).getName() &#43; &#34; specified in value.serializer&#34;, cce); } // 1.5 计算当前消息所属的partition int partition = partition(record, serializedKey, serializedValue, cluster); // 1.6 设置消息header为readOnly setReadOnly(record.headers()); Header[] headers = record.headers().toArray(); //1.7 检查消息大小是否符合 int serializedSize = AbstractRecords.estimateSizeInBytesUpperBound(apiVersions.maxUsableProduceMagic(), compression.type(), serializedKey, serializedValue, headers); ensureValidRecordSize(serializedSize); long timestamp = record.timestamp() == null ? nowMs : record.timestamp(); // 自定义partitioner boolean abortOnNewBatch = partitioner != null; // 1.8 将消息追加到accumulator中 RecordAccumulator.RecordAppendResult result = accumulator.append(record.topic(), partition, timestamp, serializedKey, serializedValue, headers, appendCallbacks, remainingWaitMs, abortOnNewBatch, nowMs, cluster); assert appendCallbacks.getPartition() != RecordMetadata.UNKNOWN_PARTITION; // 1.9 消息入新batch的情况 if (result.abortForNewBatch) { int prevPartition = partition; onNewBatch(record.topic(), cluster, prevPartition); partition = partition(record, serializedKey, serializedValue, cluster); if (log.isTraceEnabled()) { log.trace(&#34;Retrying append due to new batch creation for topic {} partition {}. The old partition was {}&#34;, record.topic(), partition, prevPartition); } result = accumulator.append(record.topic(), partition, timestamp, serializedKey, serializedValue, headers, appendCallbacks, remainingWaitMs, false, nowMs, cluster); } // 2.1 开启事务的情况 if (transactionManager != null) { transactionManager.maybeAddPartition(appendCallbacks.topicPartition()); } // 2.2 如果batch满了，或者新batch被创建，唤醒后台sender线程 if (result.batchIsFull || result.newBatchCreated) { log.trace(&#34;Waking up the sender since topic {} partition {} is either full or getting a new batch&#34;, record.topic(), appendCallbacks.getPartition()); this.sender.wakeup(); } return result.future; // handling exceptions and record the errors; // for API exceptions return them in the future, // for other exceptions throw directly } catch (ApiException e) { log.debug(&#34;Exception occurred during message send:&#34;, e); if (callback != null) { TopicPartition tp = appendCallbacks.topicPartition(); RecordMetadata nullMetadata = new RecordMetadata(tp, -1, -1, RecordBatch.NO_TIMESTAMP, -1, -1); callback.onCompletion(nullMetadata, e); } this.errors.record(); this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); if (transactionManager != null) { transactionManager.maybeTransitionToErrorState(e); } return new FutureFailure(e); } catch (InterruptedException e) { this.errors.record(); this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); throw new InterruptException(e); } catch (KafkaException e) { this.errors.record(); this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); throw e; } catch (Exception e) { // we notify interceptor about all exceptions, since onSend is called before anything else in this method this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); throw e; } } partition机制 Producer中计算消息partition的流程较为简单：
+" />
+  <meta name="description" content="前言 clients模块是Kafka官方提供的默认Java客户端，该模块分为三部分：
+Admin：提供了管理topic、partition、config的相关API Consumer：提供了消费topic的API Producer：提供了向topic投递消息的功能 Kafka源码以3.9为例。
+Producer send流程 send支持异步方式向Kafka broker端发送消息，并有后台sender线程按批向broker写入。
+interceptor机制 send流程中首先会检查用户是否自定义interceptor实现，用于处理send前置逻辑，具体业务场景不多赘述。
+@Override public Future&lt;RecordMetadata&gt; send(ProducerRecord&lt;K, V&gt; record, Callback callback) { // 拦截器前置send动作 ProducerRecord&lt;K, V&gt; interceptedRecord = this.interceptors.onSend(record); return doSend(interceptedRecord, callback); } 其中ProducerInterceptor提供了以下接口：
+ProducerRecord&lt;K, V&gt; onSend(ProducerRecord&lt;K, V&gt; record)：send前置处理逻辑 onAcknowledgement(RecordMetadata metadata, Exception exception)：消息被应答之后或发送消息失败时调用。 close()：用于关闭interceptor资源。 自定义interceptor需要考虑线程安全。
+doSend流程 private Future&lt;RecordMetadata&gt; doSend(ProducerRecord&lt;K, V&gt; record, Callback callback) { // 1.1 创建callback对象 AppendCallbacks appendCallbacks = new AppendCallbacks(callback, this.interceptors, record); try { //1.2 检查producer是否被close throwIfProducerClosed(); // first make sure the metadata for the topic is available long nowMs = time.milliseconds(); ClusterAndWaitTime clusterAndWaitTime; //1.3 拉取指定topic、分区的元数据，和等待时间 try { clusterAndWaitTime = waitOnMetadata(record.topic(), record.partition(), nowMs, maxBlockTimeMs); } catch (KafkaException e) { if (metadata.isClosed()) throw new KafkaException(&#34;Producer closed while send in progress&#34;, e); throw e; } nowMs &#43;= clusterAndWaitTime.waitedOnMetadataMs; long remainingWaitMs = Math.max(0, maxBlockTimeMs - clusterAndWaitTime.waitedOnMetadataMs); Cluster cluster = clusterAndWaitTime.cluster; //1.4 key value进行序列化 byte[] serializedKey; try { serializedKey = keySerializer.serialize(record.topic(), record.headers(), record.key()); } catch (ClassCastException cce) { throw new SerializationException(&#34;Can&#39;t convert key of class &#34; &#43; record.key().getClass().getName() &#43; &#34; to class &#34; &#43; producerConfig.getClass(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG).getName() &#43; &#34; specified in key.serializer&#34;, cce); } byte[] serializedValue; try { serializedValue = valueSerializer.serialize(record.topic(), record.headers(), record.value()); } catch (ClassCastException cce) { throw new SerializationException(&#34;Can&#39;t convert value of class &#34; &#43; record.value().getClass().getName() &#43; &#34; to class &#34; &#43; producerConfig.getClass(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG).getName() &#43; &#34; specified in value.serializer&#34;, cce); } // 1.5 计算当前消息所属的partition int partition = partition(record, serializedKey, serializedValue, cluster); // 1.6 设置消息header为readOnly setReadOnly(record.headers()); Header[] headers = record.headers().toArray(); //1.7 检查消息大小是否符合 int serializedSize = AbstractRecords.estimateSizeInBytesUpperBound(apiVersions.maxUsableProduceMagic(), compression.type(), serializedKey, serializedValue, headers); ensureValidRecordSize(serializedSize); long timestamp = record.timestamp() == null ? nowMs : record.timestamp(); // 自定义partitioner boolean abortOnNewBatch = partitioner != null; // 1.8 将消息追加到accumulator中 RecordAccumulator.RecordAppendResult result = accumulator.append(record.topic(), partition, timestamp, serializedKey, serializedValue, headers, appendCallbacks, remainingWaitMs, abortOnNewBatch, nowMs, cluster); assert appendCallbacks.getPartition() != RecordMetadata.UNKNOWN_PARTITION; // 1.9 消息入新batch的情况 if (result.abortForNewBatch) { int prevPartition = partition; onNewBatch(record.topic(), cluster, prevPartition); partition = partition(record, serializedKey, serializedValue, cluster); if (log.isTraceEnabled()) { log.trace(&#34;Retrying append due to new batch creation for topic {} partition {}. The old partition was {}&#34;, record.topic(), partition, prevPartition); } result = accumulator.append(record.topic(), partition, timestamp, serializedKey, serializedValue, headers, appendCallbacks, remainingWaitMs, false, nowMs, cluster); } // 2.1 开启事务的情况 if (transactionManager != null) { transactionManager.maybeAddPartition(appendCallbacks.topicPartition()); } // 2.2 如果batch满了，或者新batch被创建，唤醒后台sender线程 if (result.batchIsFull || result.newBatchCreated) { log.trace(&#34;Waking up the sender since topic {} partition {} is either full or getting a new batch&#34;, record.topic(), appendCallbacks.getPartition()); this.sender.wakeup(); } return result.future; // handling exceptions and record the errors; // for API exceptions return them in the future, // for other exceptions throw directly } catch (ApiException e) { log.debug(&#34;Exception occurred during message send:&#34;, e); if (callback != null) { TopicPartition tp = appendCallbacks.topicPartition(); RecordMetadata nullMetadata = new RecordMetadata(tp, -1, -1, RecordBatch.NO_TIMESTAMP, -1, -1); callback.onCompletion(nullMetadata, e); } this.errors.record(); this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); if (transactionManager != null) { transactionManager.maybeTransitionToErrorState(e); } return new FutureFailure(e); } catch (InterruptedException e) { this.errors.record(); this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); throw new InterruptException(e); } catch (KafkaException e) { this.errors.record(); this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); throw e; } catch (Exception e) { // we notify interceptor about all exceptions, since onSend is called before anything else in this method this.interceptors.onSendError(record, appendCallbacks.topicPartition(), e); throw e; } } partition机制 Producer中计算消息partition的流程较为简单：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:80%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Kafka源码分析(一)- clients模块</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2025-01-05 21:47:13 CST">
+                05 Jan 2025
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="前言">前言</h2>
+<p>clients模块是Kafka官方提供的默认Java客户端，该模块分为三部分：</p>
+<ol>
+<li>Admin：提供了管理topic、partition、config的相关API</li>
+<li>Consumer：提供了消费topic的API</li>
+<li>Producer：提供了向topic投递消息的功能</li>
+</ol>
+<p>Kafka源码以3.9为例。</p>
+<h2 id="producer">Producer</h2>
+<h3 id="send流程">send流程</h3>
+<p>send支持异步方式向Kafka broker端发送消息，并有后台sender线程按批向broker写入。</p>
+<h4 id="interceptor机制">interceptor机制</h4>
+<p>send流程中首先会检查用户是否自定义interceptor实现，用于处理send前置逻辑，具体业务场景不多赘述。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#a6e22e">@Override</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> Future<span style="color:#f92672">&lt;</span>RecordMetadata<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">send</span>(ProducerRecord<span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> record, Callback callback) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 拦截器前置send动作  </span>
+</span></span><span style="display:flex;"><span>    ProducerRecord<span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> interceptedRecord <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">interceptors</span>.<span style="color:#a6e22e">onSend</span>(record);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> doSend(interceptedRecord, callback);  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>其中ProducerInterceptor提供了以下接口：</p>
+<ul>
+<li>ProducerRecord&lt;K, V&gt; onSend(ProducerRecord&lt;K, V&gt; record)：send前置处理逻辑</li>
+<li>onAcknowledgement(RecordMetadata metadata, Exception exception)：消息被应答之后或发送消息失败时调用。</li>
+<li>close()：用于关闭interceptor资源。</li>
+</ul>
+<p>自定义interceptor需要考虑线程安全。</p>
+<h4 id="dosend流程">doSend流程</h4>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> Future<span style="color:#f92672">&lt;</span>RecordMetadata<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">doSend</span>(ProducerRecord<span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> record, Callback callback) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 1.1 创建callback对象  </span>
+</span></span><span style="display:flex;"><span>    AppendCallbacks appendCallbacks <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> AppendCallbacks(callback, <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">interceptors</span>, record);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.2 检查producer是否被close  </span>
+</span></span><span style="display:flex;"><span>        throwIfProducerClosed();  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// first make sure the metadata for the topic is available  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> nowMs <span style="color:#f92672">=</span> time.<span style="color:#a6e22e">milliseconds</span>();  
+</span></span><span style="display:flex;"><span>        ClusterAndWaitTime clusterAndWaitTime;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.3 拉取指定topic、分区的元数据，和等待时间  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>            clusterAndWaitTime <span style="color:#f92672">=</span> waitOnMetadata(record.<span style="color:#a6e22e">topic</span>(), record.<span style="color:#a6e22e">partition</span>(), nowMs, maxBlockTimeMs);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">catch</span> (KafkaException e) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (metadata.<span style="color:#a6e22e">isClosed</span>())  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> KafkaException(<span style="color:#e6db74">&#34;Producer closed while send in progress&#34;</span>, e);  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> e;  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        nowMs <span style="color:#f92672">+=</span> clusterAndWaitTime.<span style="color:#a6e22e">waitedOnMetadataMs</span>;  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> remainingWaitMs <span style="color:#f92672">=</span> Math.<span style="color:#a6e22e">max</span>(0, maxBlockTimeMs <span style="color:#f92672">-</span> clusterAndWaitTime.<span style="color:#a6e22e">waitedOnMetadataMs</span>);  
+</span></span><span style="display:flex;"><span>        Cluster cluster <span style="color:#f92672">=</span> clusterAndWaitTime.<span style="color:#a6e22e">cluster</span>;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.4 key value进行序列化  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">byte</span><span style="color:#f92672">[]</span> serializedKey;  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>            serializedKey <span style="color:#f92672">=</span> keySerializer.<span style="color:#a6e22e">serialize</span>(record.<span style="color:#a6e22e">topic</span>(), record.<span style="color:#a6e22e">headers</span>(), record.<span style="color:#a6e22e">key</span>());  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">catch</span> (ClassCastException cce) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> SerializationException(<span style="color:#e6db74">&#34;Can&#39;t convert key of class &#34;</span> <span style="color:#f92672">+</span> record.<span style="color:#a6e22e">key</span>().<span style="color:#a6e22e">getClass</span>().<span style="color:#a6e22e">getName</span>() <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                    <span style="color:#e6db74">&#34; to class &#34;</span> <span style="color:#f92672">+</span> producerConfig.<span style="color:#a6e22e">getClass</span>(ProducerConfig.<span style="color:#a6e22e">KEY_SERIALIZER_CLASS_CONFIG</span>).<span style="color:#a6e22e">getName</span>() <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                    <span style="color:#e6db74">&#34; specified in key.serializer&#34;</span>, cce);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">byte</span><span style="color:#f92672">[]</span> serializedValue;  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>            serializedValue <span style="color:#f92672">=</span> valueSerializer.<span style="color:#a6e22e">serialize</span>(record.<span style="color:#a6e22e">topic</span>(), record.<span style="color:#a6e22e">headers</span>(), record.<span style="color:#a6e22e">value</span>());  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">catch</span> (ClassCastException cce) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> SerializationException(<span style="color:#e6db74">&#34;Can&#39;t convert value of class &#34;</span> <span style="color:#f92672">+</span> record.<span style="color:#a6e22e">value</span>().<span style="color:#a6e22e">getClass</span>().<span style="color:#a6e22e">getName</span>() <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                    <span style="color:#e6db74">&#34; to class &#34;</span> <span style="color:#f92672">+</span> producerConfig.<span style="color:#a6e22e">getClass</span>(ProducerConfig.<span style="color:#a6e22e">VALUE_SERIALIZER_CLASS_CONFIG</span>).<span style="color:#a6e22e">getName</span>() <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                    <span style="color:#e6db74">&#34; specified in value.serializer&#34;</span>, cce);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 1.5 计算当前消息所属的partition  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> partition <span style="color:#f92672">=</span> partition(record, serializedKey, serializedValue, cluster);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 1.6 设置消息header为readOnly  </span>
+</span></span><span style="display:flex;"><span>        setReadOnly(record.<span style="color:#a6e22e">headers</span>());  
+</span></span><span style="display:flex;"><span>        Header<span style="color:#f92672">[]</span> headers <span style="color:#f92672">=</span> record.<span style="color:#a6e22e">headers</span>().<span style="color:#a6e22e">toArray</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.7 检查消息大小是否符合  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> serializedSize <span style="color:#f92672">=</span> AbstractRecords.<span style="color:#a6e22e">estimateSizeInBytesUpperBound</span>(apiVersions.<span style="color:#a6e22e">maxUsableProduceMagic</span>(),  
+</span></span><span style="display:flex;"><span>                compression.<span style="color:#a6e22e">type</span>(), serializedKey, serializedValue, headers);  
+</span></span><span style="display:flex;"><span>        ensureValidRecordSize(serializedSize);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> timestamp <span style="color:#f92672">=</span> record.<span style="color:#a6e22e">timestamp</span>() <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">?</span> nowMs : record.<span style="color:#a6e22e">timestamp</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 自定义partitioner  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">boolean</span> abortOnNewBatch <span style="color:#f92672">=</span> partitioner <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 1.8 将消息追加到accumulator中  </span>
+</span></span><span style="display:flex;"><span>        RecordAccumulator.<span style="color:#a6e22e">RecordAppendResult</span> result <span style="color:#f92672">=</span> accumulator.<span style="color:#a6e22e">append</span>(record.<span style="color:#a6e22e">topic</span>(), partition, timestamp, serializedKey,  
+</span></span><span style="display:flex;"><span>                serializedValue, headers, appendCallbacks, remainingWaitMs, abortOnNewBatch, nowMs, cluster);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">assert</span> appendCallbacks.<span style="color:#a6e22e">getPartition</span>() <span style="color:#f92672">!=</span> RecordMetadata.<span style="color:#a6e22e">UNKNOWN_PARTITION</span>;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 1.9 消息入新batch的情况  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (result.<span style="color:#a6e22e">abortForNewBatch</span>) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> prevPartition <span style="color:#f92672">=</span> partition;  
+</span></span><span style="display:flex;"><span>            onNewBatch(record.<span style="color:#a6e22e">topic</span>(), cluster, prevPartition);  
+</span></span><span style="display:flex;"><span>            partition <span style="color:#f92672">=</span> partition(record, serializedKey, serializedValue, cluster);  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (log.<span style="color:#a6e22e">isTraceEnabled</span>()) {  
+</span></span><span style="display:flex;"><span>                log.<span style="color:#a6e22e">trace</span>(<span style="color:#e6db74">&#34;Retrying append due to new batch creation for topic {} partition {}. The old partition was {}&#34;</span>, record.<span style="color:#a6e22e">topic</span>(), partition, prevPartition);  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>            result <span style="color:#f92672">=</span> accumulator.<span style="color:#a6e22e">append</span>(record.<span style="color:#a6e22e">topic</span>(), partition, timestamp, serializedKey,  
+</span></span><span style="display:flex;"><span>                serializedValue, headers, appendCallbacks, remainingWaitMs, <span style="color:#66d9ef">false</span>, nowMs, cluster);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 2.1 开启事务的情况  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (transactionManager <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>            transactionManager.<span style="color:#a6e22e">maybeAddPartition</span>(appendCallbacks.<span style="color:#a6e22e">topicPartition</span>());  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 2.2 如果batch满了，或者新batch被创建，唤醒后台sender线程  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (result.<span style="color:#a6e22e">batchIsFull</span> <span style="color:#f92672">||</span> result.<span style="color:#a6e22e">newBatchCreated</span>) {  
+</span></span><span style="display:flex;"><span>            log.<span style="color:#a6e22e">trace</span>(<span style="color:#e6db74">&#34;Waking up the sender since topic {} partition {} is either full or getting a new batch&#34;</span>, record.<span style="color:#a6e22e">topic</span>(), appendCallbacks.<span style="color:#a6e22e">getPartition</span>());  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">sender</span>.<span style="color:#a6e22e">wakeup</span>();  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> result.<span style="color:#a6e22e">future</span>;  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// handling exceptions and record the errors;  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// for API exceptions return them in the future,        // for other exceptions throw directly    } catch (ApiException e) {  </span>
+</span></span><span style="display:flex;"><span>        log.<span style="color:#a6e22e">debug</span>(<span style="color:#e6db74">&#34;Exception occurred during message send:&#34;</span>, e);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (callback <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>            TopicPartition tp <span style="color:#f92672">=</span> appendCallbacks.<span style="color:#a6e22e">topicPartition</span>();  
+</span></span><span style="display:flex;"><span>            RecordMetadata nullMetadata <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> RecordMetadata(tp, <span style="color:#f92672">-</span>1, <span style="color:#f92672">-</span>1, RecordBatch.<span style="color:#a6e22e">NO_TIMESTAMP</span>, <span style="color:#f92672">-</span>1, <span style="color:#f92672">-</span>1);  
+</span></span><span style="display:flex;"><span>            callback.<span style="color:#a6e22e">onCompletion</span>(nullMetadata, e);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">errors</span>.<span style="color:#a6e22e">record</span>();  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">interceptors</span>.<span style="color:#a6e22e">onSendError</span>(record, appendCallbacks.<span style="color:#a6e22e">topicPartition</span>(), e);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (transactionManager <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>            transactionManager.<span style="color:#a6e22e">maybeTransitionToErrorState</span>(e);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> FutureFailure(e);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">catch</span> (InterruptedException e) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">errors</span>.<span style="color:#a6e22e">record</span>();  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">interceptors</span>.<span style="color:#a6e22e">onSendError</span>(record, appendCallbacks.<span style="color:#a6e22e">topicPartition</span>(), e);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> InterruptException(e);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">catch</span> (KafkaException e) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">errors</span>.<span style="color:#a6e22e">record</span>();  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">interceptors</span>.<span style="color:#a6e22e">onSendError</span>(record, appendCallbacks.<span style="color:#a6e22e">topicPartition</span>(), e);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> e;  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">catch</span> (Exception e) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// we notify interceptor about all exceptions, since onSend is called before anything else in this method  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">interceptors</span>.<span style="color:#a6e22e">onSendError</span>(record, appendCallbacks.<span style="color:#a6e22e">topicPartition</span>(), e);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> e;  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h4 id="partition机制">partition机制</h4>
+<p>Producer中计算消息partition的流程较为简单：</p>
+<ol>
+<li>若record指定partition，则直接返回。</li>
+<li>若自定义了partitioner则使用自定义规则的分区计算方式</li>
+<li>若指定了key并未配置<code>partitioner.ignore.keys</code>，则使用murmur2算法得出partition</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">partition</span>(ProducerRecord<span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> record, <span style="color:#66d9ef">byte</span><span style="color:#f92672">[]</span> serializedKey, <span style="color:#66d9ef">byte</span><span style="color:#f92672">[]</span> serializedValue, Cluster cluster) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (record.<span style="color:#a6e22e">partition</span>() <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>)  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> record.<span style="color:#a6e22e">partition</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (partitioner <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> customPartition <span style="color:#f92672">=</span> partitioner.<span style="color:#a6e22e">partition</span>(  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">record</span><span style="color:#960050;background-color:#1e0010">.</span><span style="color:#a6e22e">topic</span>(), record.<span style="color:#a6e22e">key</span>(), serializedKey, record.<span style="color:#a6e22e">value</span>(), serializedValue, cluster);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (customPartition <span style="color:#f92672">&lt;</span> 0) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(String.<span style="color:#a6e22e">format</span>(  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">&#34;The partitioner generated an invalid partition number: %d. Partition number should always be non-negative.&#34;</span>, customPartition));  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> customPartition;  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (serializedKey <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#f92672">!</span>partitionerIgnoreKeys) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// hash the keyBytes to choose a partition  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> BuiltInPartitioner.<span style="color:#a6e22e">partitionForKey</span>(serializedKey, cluster.<span style="color:#a6e22e">partitionsForTopic</span>(record.<span style="color:#a6e22e">topic</span>()).<span style="color:#a6e22e">size</span>());  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> RecordMetadata.<span style="color:#a6e22e">UNKNOWN_PARTITION</span>;  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Partitioner提供了以下三个接口：</p>
+<ol>
+<li>int partition(String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster)：自定义分区计算方法。</li>
+<li>void close()：用于partitioner关闭资源的方法。</li>
+<li>void onNewBatch(String topic, Cluster cluster, int prevPartition)：从3.3.0开始废弃，用于通知partitioner新分区被创建，sticky分区方式可以改变新分区的黏性分区。</li>
+</ol>
+<p>需要注意的是， <a href="https://cwiki.apache.org/confluence/display/KAFKA/KIP-794%3A+Strictly+Uniform+Sticky+Partitioner">KIP-794</a>中指出，sticky分区方式会将消息发送给更慢的broker，慢broker因此收到更多的消息，逐渐变得更慢，因此在该提案中，做了如下更新：</p>
+<ol>
+<li>partitioner默认配置设置为null，并且DefaultPartitioner和UniformStickyPartitioner都被废弃</li>
+<li>添加新配置用于分区计算</li>
+</ol>
+<p>其他具体细节见提案。</p>
+<h4 id="recordaccumulator写入流程">RecordAccumulator写入流程</h4>
+<p>RecordAccumulator是Producer用于存储batch的cache，当达到一定阈值后，会由sender线程将消息发送到Kafka broker。</p>
+<p>首先看下核心append方法的逻辑：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Add a record to the accumulator, return the append result * &lt;p&gt;  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * The append result will contain the future metadata, and flag for whether the appended batch is full or a new batch is created  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * &lt;p&gt;  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @param topic The topic to which this record is being sent  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @param partition The partition to which this record is being sent or RecordMetadata.UNKNOWN_PARTITION  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *                  if any partition could be used * @param timestamp The timestamp of the record  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @param key The key for the record  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @param value The value for the record  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @param headers the Headers for the record  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @param callbacks The callbacks to execute  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @param maxTimeToBlock The maximum time in milliseconds to block for buffer memory to be available  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @param abortOnNewBatch A boolean that indicates returning before a new batch is created and  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *                        running the partitioner&#39;s onNewBatch method before trying to append again * @param nowMs The current time, in milliseconds  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @param cluster The cluster metadata  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span><span style="color:#66d9ef">public</span> RecordAppendResult <span style="color:#a6e22e">append</span>(String topic,  
+</span></span><span style="display:flex;"><span>                                 <span style="color:#66d9ef">int</span> partition,  
+</span></span><span style="display:flex;"><span>                                 <span style="color:#66d9ef">long</span> timestamp,  
+</span></span><span style="display:flex;"><span>                                 <span style="color:#66d9ef">byte</span><span style="color:#f92672">[]</span> key,  
+</span></span><span style="display:flex;"><span>                                 <span style="color:#66d9ef">byte</span><span style="color:#f92672">[]</span> value,  
+</span></span><span style="display:flex;"><span>                                 Header<span style="color:#f92672">[]</span> headers,  
+</span></span><span style="display:flex;"><span>                                 AppendCallbacks callbacks,  
+</span></span><span style="display:flex;"><span>                                 <span style="color:#66d9ef">long</span> maxTimeToBlock,  
+</span></span><span style="display:flex;"><span>                                 <span style="color:#66d9ef">boolean</span> abortOnNewBatch,  
+</span></span><span style="display:flex;"><span>                                 <span style="color:#66d9ef">long</span> nowMs,  
+</span></span><span style="display:flex;"><span>                                 Cluster cluster) <span style="color:#66d9ef">throws</span> InterruptedException {  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 1.1 获取对应的topicInfo  </span>
+</span></span><span style="display:flex;"><span>    TopicInfo topicInfo <span style="color:#f92672">=</span> topicInfoMap.<span style="color:#a6e22e">computeIfAbsent</span>(topic, k <span style="color:#f92672">-&gt;</span> <span style="color:#66d9ef">new</span> TopicInfo(createBuiltInPartitioner(logContext, k, batchSize)));  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// We keep track of the number of appending thread to make sure we do not miss batches in  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// abortIncompleteBatches().    appendsInProgress.incrementAndGet();  </span>
+</span></span><span style="display:flex;"><span>    ByteBuffer buffer <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (headers <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) headers <span style="color:#f92672">=</span> Record.<span style="color:#a6e22e">EMPTY_HEADERS</span>;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 2. while循环处理并发竟态情况  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (<span style="color:#66d9ef">true</span>) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 2.1 partition取值兜底  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">final</span> BuiltInPartitioner.<span style="color:#a6e22e">StickyPartitionInfo</span> partitionInfo;  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> effectivePartition;  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (partition <span style="color:#f92672">==</span> RecordMetadata.<span style="color:#a6e22e">UNKNOWN_PARTITION</span>) {  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//2.1.1 若未指定分区，使用粘性分区（默认0）  </span>
+</span></span><span style="display:flex;"><span>                partitionInfo <span style="color:#f92672">=</span> topicInfo.<span style="color:#a6e22e">builtInPartitioner</span>.<span style="color:#a6e22e">peekCurrentPartitionInfo</span>(cluster);  
+</span></span><span style="display:flex;"><span>                effectivePartition <span style="color:#f92672">=</span> partitionInfo.<span style="color:#a6e22e">partition</span>();  
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>                partitionInfo <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;  
+</span></span><span style="display:flex;"><span>                effectivePartition <span style="color:#f92672">=</span> partition;  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 2.2 更新callback中的partition  </span>
+</span></span><span style="display:flex;"><span>            setPartition(callbacks, effectivePartition);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 2.3 获取当前分区的deque  </span>
+</span></span><span style="display:flex;"><span>            Deque<span style="color:#f92672">&lt;</span>ProducerBatch<span style="color:#f92672">&gt;</span> dq <span style="color:#f92672">=</span> topicInfo.<span style="color:#a6e22e">batches</span>.<span style="color:#a6e22e">computeIfAbsent</span>(effectivePartition, k <span style="color:#f92672">-&gt;</span> <span style="color:#66d9ef">new</span> ArrayDeque<span style="color:#f92672">&lt;&gt;</span>());  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">synchronized</span> (dq) {  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// 2.4 check partition是否发生变化  </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (partitionChanged(topic, topicInfo, partitionInfo, dq, nowMs, cluster))  
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">continue</span>;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// 2.5 调用tryAppend进行写入  </span>
+</span></span><span style="display:flex;"><span>                RecordAppendResult appendResult <span style="color:#f92672">=</span> tryAppend(timestamp, key, value, headers, callbacks, dq, nowMs);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// 2.5.1 写入后result不为空，更新分区信息，细节见updatePartitionInfo  </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (appendResult <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// If queue has incomplete batches we disable switch (see comments in updatePartitionInfo).  </span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">boolean</span> enableSwitch <span style="color:#f92672">=</span> allBatchesFull(dq);  
+</span></span><span style="display:flex;"><span>                    topicInfo.<span style="color:#a6e22e">builtInPartitioner</span>.<span style="color:#a6e22e">updatePartitionInfo</span>(partitionInfo, appendResult.<span style="color:#a6e22e">appendedBytes</span>, cluster, enableSwitch);  
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> appendResult;  
+</span></span><span style="display:flex;"><span>                }  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 2.6 传入abortOnNewBatch为true，直接返回空batch，再次执行append进行写入  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (abortOnNewBatch) {  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// Return a result that will cause another call to append.  </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> RecordAppendResult(<span style="color:#66d9ef">null</span>, <span style="color:#66d9ef">false</span>, <span style="color:#66d9ef">false</span>, <span style="color:#66d9ef">true</span>, 0);  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//2.8 buffer为空 分配空间并更新timestamp  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (buffer <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">byte</span> maxUsableMagic <span style="color:#f92672">=</span> apiVersions.<span style="color:#a6e22e">maxUsableProduceMagic</span>();  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">int</span> size <span style="color:#f92672">=</span> Math.<span style="color:#a6e22e">max</span>(<span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">batchSize</span>, AbstractRecords.<span style="color:#a6e22e">estimateSizeInBytesUpperBound</span>(maxUsableMagic, compression.<span style="color:#a6e22e">type</span>(), key, value, headers));  
+</span></span><span style="display:flex;"><span>                log.<span style="color:#a6e22e">trace</span>(<span style="color:#e6db74">&#34;Allocating a new {} byte message buffer for topic {} partition {} with remaining timeout {}ms&#34;</span>, size, topic, effectivePartition, maxTimeToBlock);  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// This call may block if we exhausted buffer space.  </span>
+</span></span><span style="display:flex;"><span>                buffer <span style="color:#f92672">=</span> free.<span style="color:#a6e22e">allocate</span>(size, maxTimeToBlock);  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// Update the current time in case the buffer allocation blocked above.  </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// NOTE: getting time may be expensive, so calling it under a lock                // should be avoided.                nowMs = time.milliseconds();  </span>
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//3. 如果上轮deque为空，且abortOnNewBatch=false，则尝试重新将消息写入新batch  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">synchronized</span> (dq) {  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// After taking the lock, validate that the partition hasn&#39;t changed and retry.  </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (partitionChanged(topic, topicInfo, partitionInfo, dq, nowMs, cluster))  
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">continue</span>;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//3.1 将新batch加到deque，将消息加到新batch  </span>
+</span></span><span style="display:flex;"><span>                RecordAppendResult appendResult <span style="color:#f92672">=</span> appendNewBatch(topic, effectivePartition, dq, timestamp, key, value, headers, callbacks, buffer, nowMs);  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// Set buffer to null, so that deallocate doesn&#39;t return it back to free pool, since it&#39;s used in the batch.  </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (appendResult.<span style="color:#a6e22e">newBatchCreated</span>)  
+</span></span><span style="display:flex;"><span>                    buffer <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// If queue has incomplete batches we disable switch (see comments in updatePartitionInfo).  </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">boolean</span> enableSwitch <span style="color:#f92672">=</span> allBatchesFull(dq);  
+</span></span><span style="display:flex;"><span>                topicInfo.<span style="color:#a6e22e">builtInPartitioner</span>.<span style="color:#a6e22e">updatePartitionInfo</span>(partitionInfo, appendResult.<span style="color:#a6e22e">appendedBytes</span>, cluster, enableSwitch);  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> appendResult;  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">finally</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//4. 释放buffer，并且减少appendsInProgress  </span>
+</span></span><span style="display:flex;"><span>        free.<span style="color:#a6e22e">deallocate</span>(buffer);  
+</span></span><span style="display:flex;"><span>        appendsInProgress.<span style="color:#a6e22e">decrementAndGet</span>();  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>从中可以看出RecordAccumulator的一个核心属性：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//topicInfoMap是由topic到TopicInfo属性的映射</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> ConcurrentMap<span style="color:#f92672">&lt;</span>String <span style="color:#75715e">/*topic*/</span>, TopicInfo<span style="color:#f92672">&gt;</span> topicInfoMap <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> CopyOnWriteMap<span style="color:#f92672">&lt;&gt;</span>();
+</span></span></code></pre></div><p>内置类TopicInfo：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">TopicInfo</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//分区到deque的映射，deque由ProducerBatch构成</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> ConcurrentMap<span style="color:#f92672">&lt;</span>Integer <span style="color:#75715e">/*partition*/</span>, Deque<span style="color:#f92672">&lt;</span>ProducerBatch<span style="color:#f92672">&gt;&gt;</span> batches <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> CopyOnWriteMap<span style="color:#f92672">&lt;&gt;</span>();  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//内置partitioner，KIP-794更新</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> BuiltInPartitioner builtInPartitioner;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">TopicInfo</span>(BuiltInPartitioner builtInPartitioner) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">builtInPartitioner</span> <span style="color:#f92672">=</span> builtInPartitioner;  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>上述结构来看，写入的分区由ProducerBatch队列构成，ProducerBatch写入的核心方法tryAppend()使用MemoryRecordsBuilder执行写入，并处理压缩、格式转换等。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *  Try to append to a ProducerBatch. * *  If it is full, we return null and a new batch is created. We also close the batch for record appends to free up *  resources like compression buffers. The batch will be fully closed (ie. the record batch headers will be written *  and memory records built) in one of the following cases (whichever comes first): right before send, *  if it is expired, or when the producer is closed. */</span><span style="color:#66d9ef">private</span> RecordAppendResult <span style="color:#a6e22e">tryAppend</span>(<span style="color:#66d9ef">long</span> timestamp, <span style="color:#66d9ef">byte</span><span style="color:#f92672">[]</span> key, <span style="color:#66d9ef">byte</span><span style="color:#f92672">[]</span> value, Header<span style="color:#f92672">[]</span> headers,  
+</span></span><span style="display:flex;"><span>                                     Callback callback, Deque<span style="color:#f92672">&lt;</span>ProducerBatch<span style="color:#f92672">&gt;</span> deque, <span style="color:#66d9ef">long</span> nowMs) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (closed)  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> KafkaException(<span style="color:#e6db74">&#34;Producer closed while send in progress&#34;</span>);  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1. 获取deque最后一个batch  </span>
+</span></span><span style="display:flex;"><span>    ProducerBatch last <span style="color:#f92672">=</span> deque.<span style="color:#a6e22e">peekLast</span>();  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (last <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//2. 获取当前batch的size  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> initialBytes <span style="color:#f92672">=</span> last.<span style="color:#a6e22e">estimatedSizeInBytes</span>();  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//3. 尝试将消息加到batch  </span>
+</span></span><span style="display:flex;"><span>        FutureRecordMetadata future <span style="color:#f92672">=</span> last.<span style="color:#a6e22e">tryAppend</span>(timestamp, key, value, headers, callback, nowMs);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//4. 如果batch已满，关闭batch，返回null  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (future <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>            last.<span style="color:#a6e22e">closeForRecordAppends</span>();  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//5. 计算写入的消息大小，并返回RecordAppendResult  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> appendedBytes <span style="color:#f92672">=</span> last.<span style="color:#a6e22e">estimatedSizeInBytes</span>() <span style="color:#f92672">-</span> initialBytes;  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> RecordAppendResult(future, deque.<span style="color:#a6e22e">size</span>() <span style="color:#f92672">&gt;</span> 1 <span style="color:#f92672">||</span> last.<span style="color:#a6e22e">isFull</span>(), <span style="color:#66d9ef">false</span>, <span style="color:#66d9ef">false</span>, appendedBytes);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//deque 为空，return null  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">null</span>;  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Append the record to the current record set and return the relative offset within that record set * * @return The RecordSend corresponding to this record or null if there isn&#39;t sufficient room.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span><span style="color:#66d9ef">public</span> FutureRecordMetadata <span style="color:#a6e22e">tryAppend</span>(<span style="color:#66d9ef">long</span> timestamp, <span style="color:#66d9ef">byte</span><span style="color:#f92672">[]</span> key, <span style="color:#66d9ef">byte</span><span style="color:#f92672">[]</span> value, Header<span style="color:#f92672">[]</span> headers, Callback callback, <span style="color:#66d9ef">long</span> now) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查MemoryRecordsBuilder是否还有足够空间用于写入  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>recordsBuilder.<span style="color:#a6e22e">hasRoomFor</span>(timestamp, key, value, headers)) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.1.1 没有空间写入直接return null  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">null</span>;  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.2 调用append()方法写入消息，更新对应字段并return future  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">recordsBuilder</span>.<span style="color:#a6e22e">append</span>(timestamp, key, value, headers);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">maxRecordSize</span> <span style="color:#f92672">=</span> Math.<span style="color:#a6e22e">max</span>(<span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">maxRecordSize</span>, AbstractRecords.<span style="color:#a6e22e">estimateSizeInBytesUpperBound</span>(magic(),  
+</span></span><span style="display:flex;"><span>                recordsBuilder.<span style="color:#a6e22e">compression</span>().<span style="color:#a6e22e">type</span>(), key, value, headers));  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">lastAppendTime</span> <span style="color:#f92672">=</span> now;  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.3 创建返回值  </span>
+</span></span><span style="display:flex;"><span>        FutureRecordMetadata future <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> FutureRecordMetadata(<span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">produceFuture</span>, <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">recordCount</span>,  
+</span></span><span style="display:flex;"><span>                                                               timestamp,  
+</span></span><span style="display:flex;"><span>                                                               key <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">?</span> <span style="color:#f92672">-</span>1 : key.<span style="color:#a6e22e">length</span>,  
+</span></span><span style="display:flex;"><span>                                                               value <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">?</span> <span style="color:#f92672">-</span>1 : value.<span style="color:#a6e22e">length</span>,  
+</span></span><span style="display:flex;"><span>                                                               Time.<span style="color:#a6e22e">SYSTEM</span>);  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// we have to keep every future returned to the users in case the batch needs to be  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// split to several new batches and resent.        thunks.add(new Thunk(callback, future));  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">recordCount</span><span style="color:#f92672">++</span>;  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> future;  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>MemoryRecordsBuilder执行写入会检查消息格式，并区分不同版本的消息写入方式。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">appendWithOffset</span>(<span style="color:#66d9ef">long</span> offset, <span style="color:#66d9ef">boolean</span> isControlRecord, <span style="color:#66d9ef">long</span> timestamp, ByteBuffer key,  
+</span></span><span style="display:flex;"><span>                              ByteBuffer value, Header<span style="color:#f92672">[]</span> headers) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1. 检查isControl标志是否一致  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (isControlRecord <span style="color:#f92672">!=</span> isControlBatch)  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(<span style="color:#e6db74">&#34;Control records can only be appended to control batches&#34;</span>);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 2. 检查offset递增  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (lastOffset <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> offset <span style="color:#f92672">&lt;=</span> lastOffset)  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(String.<span style="color:#a6e22e">format</span>(<span style="color:#e6db74">&#34;Illegal offset %d following previous offset %d &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                    <span style="color:#e6db74">&#34;(Offsets must increase monotonically).&#34;</span>, offset, lastOffset));  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//3. 检查时间戳  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (timestamp <span style="color:#f92672">&lt;</span> 0 <span style="color:#f92672">&amp;&amp;</span> timestamp <span style="color:#f92672">!=</span> RecordBatch.<span style="color:#a6e22e">NO_TIMESTAMP</span>)  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(<span style="color:#e6db74">&#34;Invalid negative timestamp &#34;</span> <span style="color:#f92672">+</span> timestamp);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//4. 只有V2版本消息，才有header  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (magic <span style="color:#f92672">&lt;</span> RecordBatch.<span style="color:#a6e22e">MAGIC_VALUE_V2</span> <span style="color:#f92672">&amp;&amp;</span> headers <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> headers.<span style="color:#a6e22e">length</span> <span style="color:#f92672">&gt;</span> 0)  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(<span style="color:#e6db74">&#34;Magic v&#34;</span> <span style="color:#f92672">+</span> magic <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; does not support record headers&#34;</span>);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (baseTimestamp <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>)  
+</span></span><span style="display:flex;"><span>            baseTimestamp <span style="color:#f92672">=</span> timestamp;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//5. 写入  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (magic <span style="color:#f92672">&gt;</span> RecordBatch.<span style="color:#a6e22e">MAGIC_VALUE_V1</span>) {  
+</span></span><span style="display:flex;"><span>            appendDefaultRecord(offset, timestamp, key, value, headers);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            appendLegacyRecord(offset, timestamp, key, value, magic);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">catch</span> (IOException e) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> KafkaException(<span style="color:#e6db74">&#34;I/O exception when writing to the append stream, closing&#34;</span>, e);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>appendDefaultRecord()方法负责写入消息到stream流中，并更新元信息。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">appendDefaultRecord</span>(<span style="color:#66d9ef">long</span> offset, <span style="color:#66d9ef">long</span> timestamp, ByteBuffer key, ByteBuffer value,  
+</span></span><span style="display:flex;"><span>                                 Header<span style="color:#f92672">[]</span> headers) <span style="color:#66d9ef">throws</span> IOException {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1. 检查appendStream状态  </span>
+</span></span><span style="display:flex;"><span>    ensureOpenForRecordAppend();  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2. 计算各个变量值  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> offsetDelta <span style="color:#f92672">=</span> (<span style="color:#66d9ef">int</span>) (offset <span style="color:#f92672">-</span> baseOffset);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> timestampDelta <span style="color:#f92672">=</span> timestamp <span style="color:#f92672">-</span> baseTimestamp;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//3. 调用DefaultRecord类的writeTo方法，将消息写入appendStream流  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> sizeInBytes <span style="color:#f92672">=</span> DefaultRecord.<span style="color:#a6e22e">writeTo</span>(appendStream, offsetDelta, timestampDelta, key, value, headers);  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//更新元信息  </span>
+</span></span><span style="display:flex;"><span>    recordWritten(offset, timestamp, sizeInBytes);  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="sender线程">Sender线程</h3>
+<p>sender在KafkaProducer构造方法中初始化：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">sender</span> <span style="color:#f92672">=</span> newSender(logContext, kafkaClient, <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">metadata</span>);  
+</span></span><span style="display:flex;"><span>String ioThreadName <span style="color:#f92672">=</span> NETWORK_THREAD_PREFIX <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; | &#34;</span> <span style="color:#f92672">+</span> clientId;  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">ioThread</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> KafkaThread(ioThreadName, <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">sender</span>, <span style="color:#66d9ef">true</span>);  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">ioThread</span>.<span style="color:#a6e22e">start</span>();
+</span></span></code></pre></div><p>Sender是一个Runnable对象，核心逻辑如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">while</span> (running) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>        runOnce();  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">catch</span> (Exception e) {  
+</span></span><span style="display:flex;"><span>        log.<span style="color:#a6e22e">error</span>(<span style="color:#e6db74">&#34;Uncaught error in kafka producer I/O thread: &#34;</span>, e);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>runOnce()通过sendProducerData()执行实际的发送逻辑，最后通过poll()方法处理网络IO请求</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">runOnce</span>() {  
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">……</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//省略事务处理</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//创建发送给broker的请求并发送</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> currentTimeMs <span style="color:#f92672">=</span> time.<span style="color:#a6e22e">milliseconds</span>();
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> pollTimeout <span style="color:#f92672">=</span> sendProducerData(currentTimeMs);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//处理实际网络IO socket的入口，负责发送请求、接收响应</span>
+</span></span><span style="display:flex;"><span>    client.<span style="color:#a6e22e">poll</span>(pollTimeout, currentTimeMs);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h4 id="sendproducerdata流程">sendProducerData流程</h4>
+<p>该方法主干逻辑如下：</p>
+<ol>
+<li>调用RecordAccumulator的ready()方法获取可以发送的Node消息</li>
+<li>调用RecordAccumulator的drain()，获取nodeId -&gt; 待发送的ProducerBatch集合映射</li>
+<li>调用sendProduceRequests()按Node分组发送请求</li>
+</ol>
+<p>其中guaranteeMessageOrder取决于max.in.flight.requests.per.connection配置是否等于1</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">sendProducerData</span>(<span style="color:#66d9ef">long</span> now) {  
+</span></span><span style="display:flex;"><span>    MetadataSnapshot metadataSnapshot <span style="color:#f92672">=</span> metadata.<span style="color:#a6e22e">fetchMetadataSnapshot</span>();  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 1.1 查询accumulator的ready()方法，获取当前已经满足发送要求的node（只需要有一个batch满足发送要求）  </span>
+</span></span><span style="display:flex;"><span>    RecordAccumulator.<span style="color:#a6e22e">ReadyCheckResult</span> result <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">accumulator</span>.<span style="color:#a6e22e">ready</span>(metadataSnapshot, now);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 1.2 如果metadata中有topic的partition leader未知，先更新metadata  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>result.<span style="color:#a6e22e">unknownLeaderTopics</span>.<span style="color:#a6e22e">isEmpty</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// The set of topics with unknown leader contains topics with leader election pending as well as  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// topics which may have expired. Add the topic again to metadata to ensure it is included        // and request metadata update, since there are messages to send to the topic.        for (String topic : result.unknownLeaderTopics)  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">metadata</span>.<span style="color:#a6e22e">add</span>(topic, now);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        log.<span style="color:#a6e22e">debug</span>(<span style="color:#e6db74">&#34;Requesting metadata update due to unknown leader topics from the batched records: {}&#34;</span>,  
+</span></span><span style="display:flex;"><span>            result.<span style="color:#a6e22e">unknownLeaderTopics</span>);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">metadata</span>.<span style="color:#a6e22e">requestUpdate</span>(<span style="color:#66d9ef">false</span>);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 1.3 删除暂未connection ready的node  </span>
+</span></span><span style="display:flex;"><span>    Iterator<span style="color:#f92672">&lt;</span>Node<span style="color:#f92672">&gt;</span> iter <span style="color:#f92672">=</span> result.<span style="color:#a6e22e">readyNodes</span>.<span style="color:#a6e22e">iterator</span>();  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> notReadyTimeout <span style="color:#f92672">=</span> Long.<span style="color:#a6e22e">MAX_VALUE</span>;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span> (iter.<span style="color:#a6e22e">hasNext</span>()) {  
+</span></span><span style="display:flex;"><span>        Node node <span style="color:#f92672">=</span> iter.<span style="color:#a6e22e">next</span>();  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.4 更新readyTimeMs  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span><span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">ready</span>(node, now)) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// Update just the readyTimeMs of the latency stats, so that it moves forward  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// every time the batch is ready (then the difference between readyTimeMs and            // drainTimeMs would represent how long data is waiting for the node).            this.accumulator.updateNodeLatencyStats(node.id(), now, false);  </span>
+</span></span><span style="display:flex;"><span>            iter.<span style="color:#a6e22e">remove</span>();  
+</span></span><span style="display:flex;"><span>            notReadyTimeout <span style="color:#f92672">=</span> Math.<span style="color:#a6e22e">min</span>(notReadyTimeout, <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">pollDelayMs</span>(node, now));  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// Update both readyTimeMs and drainTimeMs, this would &#34;reset&#34; the node  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// latency.            this.accumulator.updateNodeLatencyStats(node.id(), now, true);  </span>
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 2.1 调用drain()，获取nodeId -&gt; 待发送的ProducerBatch集合映射  </span>
+</span></span><span style="display:flex;"><span>    Map<span style="color:#f92672">&lt;</span>Integer, List<span style="color:#f92672">&lt;</span>ProducerBatch<span style="color:#f92672">&gt;&gt;</span> batches <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">accumulator</span>.<span style="color:#a6e22e">drain</span>(metadataSnapshot, result.<span style="color:#a6e22e">readyNodes</span>, <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">maxRequestSize</span>, now);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.2 调用addToInflightBatches()，将待发送的ProducerBatch集合映射添加到inFlightBatches中，这个集合记录了已经发送但未响应的ProducerBatch  </span>
+</span></span><span style="display:flex;"><span>    addToInflightBatches(batches);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.3 如果guaranteeMessageOrder为true，将batch添加到muted  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (guaranteeMessageOrder) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Mute all the partitions drained  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (List<span style="color:#f92672">&lt;</span>ProducerBatch<span style="color:#f92672">&gt;</span> batchList : batches.<span style="color:#a6e22e">values</span>()) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (ProducerBatch batch : batchList)  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">accumulator</span>.<span style="color:#a6e22e">mutePartition</span>(batch.<span style="color:#a6e22e">topicPartition</span>);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.4 重置batch到期时间  </span>
+</span></span><span style="display:flex;"><span>    accumulator.<span style="color:#a6e22e">resetNextBatchExpiryTime</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.5 获取过期的batch  </span>
+</span></span><span style="display:flex;"><span>    List<span style="color:#f92672">&lt;</span>ProducerBatch<span style="color:#f92672">&gt;</span> expiredInflightBatches <span style="color:#f92672">=</span> getExpiredInflightBatches(now);  
+</span></span><span style="display:flex;"><span>    List<span style="color:#f92672">&lt;</span>ProducerBatch<span style="color:#f92672">&gt;</span> expiredBatches <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">accumulator</span>.<span style="color:#a6e22e">expiredBatches</span>(now);  
+</span></span><span style="display:flex;"><span>    expiredBatches.<span style="color:#a6e22e">addAll</span>(expiredInflightBatches);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.6 循环调用failBatch()方法来处理过期的batch，内部调用ProducerBatch.done()  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>expiredBatches.<span style="color:#a6e22e">isEmpty</span>())  
+</span></span><span style="display:flex;"><span>        log.<span style="color:#a6e22e">trace</span>(<span style="color:#e6db74">&#34;Expired {} batches in accumulator&#34;</span>, expiredBatches.<span style="color:#a6e22e">size</span>());  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (ProducerBatch expiredBatch : expiredBatches) {  
+</span></span><span style="display:flex;"><span>        String errorMessage <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;Expiring &#34;</span> <span style="color:#f92672">+</span> expiredBatch.<span style="color:#a6e22e">recordCount</span> <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; record(s) for &#34;</span> <span style="color:#f92672">+</span> expiredBatch.<span style="color:#a6e22e">topicPartition</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34;:&#34;</span> <span style="color:#f92672">+</span> (now <span style="color:#f92672">-</span> expiredBatch.<span style="color:#a6e22e">createdMs</span>) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; ms has passed since batch creation&#34;</span>;  
+</span></span><span style="display:flex;"><span>        failBatch(expiredBatch, <span style="color:#66d9ef">new</span> TimeoutException(errorMessage), <span style="color:#66d9ef">false</span>);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (transactionManager <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> expiredBatch.<span style="color:#a6e22e">inRetry</span>()) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// This ensures that no new batches are drained until the current in flight batches are fully resolved.  </span>
+</span></span><span style="display:flex;"><span>            transactionManager.<span style="color:#a6e22e">markSequenceUnresolved</span>(expiredBatch);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.7 更新metric  </span>
+</span></span><span style="display:flex;"><span>    sensors.<span style="color:#a6e22e">updateProduceRequestMetrics</span>(batches);  
+</span></span><span style="display:flex;"><span>      
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.8 计算pollTimeout  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> pollTimeout <span style="color:#f92672">=</span> Math.<span style="color:#a6e22e">min</span>(result.<span style="color:#a6e22e">nextReadyCheckDelayMs</span>, notReadyTimeout);  
+</span></span><span style="display:flex;"><span>    pollTimeout <span style="color:#f92672">=</span> Math.<span style="color:#a6e22e">min</span>(pollTimeout, <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">accumulator</span>.<span style="color:#a6e22e">nextExpiryTimeMs</span>() <span style="color:#f92672">-</span> now);  
+</span></span><span style="display:flex;"><span>    pollTimeout <span style="color:#f92672">=</span> Math.<span style="color:#a6e22e">max</span>(pollTimeout, 0);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>result.<span style="color:#a6e22e">readyNodes</span>.<span style="color:#a6e22e">isEmpty</span>()) {  
+</span></span><span style="display:flex;"><span>        log.<span style="color:#a6e22e">trace</span>(<span style="color:#e6db74">&#34;Nodes with data ready to send: {}&#34;</span>, result.<span style="color:#a6e22e">readyNodes</span>);  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// if some partitions are already ready to be sent, the select time would be 0;  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// otherwise if some partition already has some data accumulated but not ready yet,        // the select time will be the time difference between now and its linger expiry time;        // otherwise the select time will be the time difference between now and the metadata expiry time;        pollTimeout = 0;  </span>
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.9 调用sendProduceRequests()按Node分组发送请求  </span>
+</span></span><span style="display:flex;"><span>    sendProduceRequests(batches, now);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> pollTimeout;  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="consumer">Consumer</h2>
+<p>TODO</p>
+<h2 id="reference">Reference</h2>
+<p><a href="https://docs.confluent.io/kafka-client/overview.html">https://docs.confluent.io/kafka-client/overview.html</a>
+<a href="https://learn.conduktor.io/kafka/kafka-producers-advanced">https://learn.conduktor.io/kafka/kafka-producers-advanced</a></p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>
