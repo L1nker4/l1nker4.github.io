@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/java-threadlocal/" />
+  <link rel="canonical" href="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/java-threadlocal/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "ThreadLocal解析",
+      "headline" : "ThreadLocal解析",
+      "description" : "简介 This class provides thread-local variables. These variables differ from their normal counterparts in that each thread that accesses one (via its get or set method) has its own, independently initialized copy of the variable. ThreadLocal instances are typically private static fields in classes that wish to associate state with a thread (e.g., a user ID or Transaction ID).\n简而言之，ThreadLocal可以创建一个只能被当前线程访问或修改的变量。\n分析 Q：如何实现线程隔离？\n使用Thread对象中的ThreadLocalMap进行数据存储。也就是ThreadLocal将数据存储到当前的线程对象中，通过Thread.currentThread()来获取线程，再通过getMap(t)来获取ThreadLocalMap。具体内容通过阅读源码来逐步分析。\nget 返回当前线程存储的ThreadLocal值，如果不存在，会进行初始化并返回。通过map.getEntry(this)。\n\/** * Returns the value in the current thread\u0026#39;s copy of this * thread-local variable. If the variable has no value for the * current thread, it is first initialized to the value returned * by an invocation of the {@link #initialValue} method. * * @return the current thread\u0026#39;s value of this thread-local *\/ public T get() { \/\/获取当前对象 Thread t = Thread.currentThread(); \/\/通过getMap获取ThreadLocalMap ThreadLocalMap map = getMap(t); if (map != null) { \/\/获取entry ThreadLocalMap.Entry e = map.getEntry(this); if (e != null) { @SuppressWarnings(\u0026#34;unchecked\u0026#34;) T result = (T)e.value; return result; } } \/\/不存在则进行初始化 return setInitialValue(); } getMap 返回指定线程的ThreadLocalMap。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-12-03 11:17:38 \u002b0000 UTC",
+      "dateModified" : "2020-12-03 11:17:38 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/java%E5%B9%B6%E5%8F%91\/java-threadlocal\/",
+      "keywords" : [ "Java","并发", ]
+  }
+</script>
+<title>ThreadLocal解析</title>
+  <meta property="og:title" content="ThreadLocal解析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 This class provides thread-local variables. These variables differ from their normal counterparts in that each thread that accesses one (via its get or set method) has its own, independently initialized copy of the variable. ThreadLocal instances are typically private static fields in classes that wish to associate state with a thread (e.g., a user ID or Transaction ID).
+简而言之，ThreadLocal可以创建一个只能被当前线程访问或修改的变量。
+分析 Q：如何实现线程隔离？
+使用Thread对象中的ThreadLocalMap进行数据存储。也就是ThreadLocal将数据存储到当前的线程对象中，通过Thread.currentThread()来获取线程，再通过getMap(t)来获取ThreadLocalMap。具体内容通过阅读源码来逐步分析。
+get 返回当前线程存储的ThreadLocal值，如果不存在，会进行初始化并返回。通过map.getEntry(this)。
+/** * Returns the value in the current thread&#39;s copy of this * thread-local variable. If the variable has no value for the * current thread, it is first initialized to the value returned * by an invocation of the {@link #initialValue} method. * * @return the current thread&#39;s value of this thread-local */ public T get() { //获取当前对象 Thread t = Thread.currentThread(); //通过getMap获取ThreadLocalMap ThreadLocalMap map = getMap(t); if (map != null) { //获取entry ThreadLocalMap.Entry e = map.getEntry(this); if (e != null) { @SuppressWarnings(&#34;unchecked&#34;) T result = (T)e.value; return result; } } //不存在则进行初始化 return setInitialValue(); } getMap 返回指定线程的ThreadLocalMap。
+" />
+  <meta name="description" content="简介 This class provides thread-local variables. These variables differ from their normal counterparts in that each thread that accesses one (via its get or set method) has its own, independently initialized copy of the variable. ThreadLocal instances are typically private static fields in classes that wish to associate state with a thread (e.g., a user ID or Transaction ID).
+简而言之，ThreadLocal可以创建一个只能被当前线程访问或修改的变量。
+分析 Q：如何实现线程隔离？
+使用Thread对象中的ThreadLocalMap进行数据存储。也就是ThreadLocal将数据存储到当前的线程对象中，通过Thread.currentThread()来获取线程，再通过getMap(t)来获取ThreadLocalMap。具体内容通过阅读源码来逐步分析。
+get 返回当前线程存储的ThreadLocal值，如果不存在，会进行初始化并返回。通过map.getEntry(this)。
+/** * Returns the value in the current thread&#39;s copy of this * thread-local variable. If the variable has no value for the * current thread, it is first initialized to the value returned * by an invocation of the {@link #initialValue} method. * * @return the current thread&#39;s value of this thread-local */ public T get() { //获取当前对象 Thread t = Thread.currentThread(); //通过getMap获取ThreadLocalMap ThreadLocalMap map = getMap(t); if (map != null) { //获取entry ThreadLocalMap.Entry e = map.getEntry(this); if (e != null) { @SuppressWarnings(&#34;unchecked&#34;) T result = (T)e.value; return result; } } //不存在则进行初始化 return setInitialValue(); } getMap 返回指定线程的ThreadLocalMap。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">ThreadLocal解析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-12-03 11:17:38 UTC">
+                03 Dec 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="简介">简介</h1>
+<blockquote>
+<p>This class provides thread-local variables. These variables differ from their normal counterparts in that each thread that accesses one (via its <code>get</code> or <code>set</code> method) has its own, independently initialized copy of the variable. <code>ThreadLocal</code> instances are typically private static fields in classes that wish to associate state with a thread (e.g., a user ID or Transaction ID).</p>
+</blockquote>
+<p>简而言之，<code>ThreadLocal</code>可以创建一个只能被当前线程访问或修改的变量。</p>
+<h1 id="分析">分析</h1>
+<blockquote>
+<p>Q：如何实现线程隔离？</p>
+</blockquote>
+<p>使用<code>Thread</code>对象中的<code>ThreadLocalMap</code>进行数据存储。也就是<code>ThreadLocal</code>将数据存储到当前的线程对象中，通过<code>Thread.currentThread()</code>来获取线程，再通过<code>getMap(t)</code>来获取<code>ThreadLocalMap</code>。具体内容通过阅读源码来逐步分析。</p>
+<h2 id="get">get</h2>
+<p>返回当前线程存储的<code>ThreadLocal</code>值，如果不存在，会进行初始化并返回。通过<code>map.getEntry(this)</code>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Returns the value in the current thread&#39;s copy of this
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * thread-local variable.  If the variable has no value for the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * current thread, it is first initialized to the value returned
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * by an invocation of the {@link #initialValue} method.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @return the current thread&#39;s value of this thread-local
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> T <span style="color:#a6e22e">get</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//获取当前对象</span>
+</span></span><span style="display:flex;"><span>    Thread t <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//通过getMap获取ThreadLocalMap</span>
+</span></span><span style="display:flex;"><span>    ThreadLocalMap map <span style="color:#f92672">=</span> getMap(t);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (map <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//获取entry</span>
+</span></span><span style="display:flex;"><span>        ThreadLocalMap.<span style="color:#a6e22e">Entry</span> e <span style="color:#f92672">=</span> map.<span style="color:#a6e22e">getEntry</span>(<span style="color:#66d9ef">this</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (e <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">@SuppressWarnings</span>(<span style="color:#e6db74">&#34;unchecked&#34;</span>)
+</span></span><span style="display:flex;"><span>            T result <span style="color:#f92672">=</span> (T)e.<span style="color:#a6e22e">value</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> result;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//不存在则进行初始化</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> setInitialValue();
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="getmap">getMap</h2>
+<p>返回指定线程的<code>ThreadLocalMap</code>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>ThreadLocalMap <span style="color:#a6e22e">getMap</span>(Thread t) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> t.<span style="color:#a6e22e">threadLocals</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>Thread</code>中关于<code>ThreadLocalMap</code>的部分：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Thread</span> <span style="color:#66d9ef">implements</span> Runnable {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* ThreadLocal values pertaining to this thread. This map is maintained
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * by the ThreadLocal class. */</span>
+</span></span><span style="display:flex;"><span>    ThreadLocal.<span style="color:#a6e22e">ThreadLocalMap</span> threadLocals <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="setinitialvalue">setInitialValue</h2>
+<p>get方法获取不到值时，通过该方法设置初始值。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Variant of set() to establish initialValue. Used instead
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * of set() in case user has overridden the set() method.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @return the initial value
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> T <span style="color:#a6e22e">setInitialValue</span>() {
+</span></span><span style="display:flex;"><span>    T value <span style="color:#f92672">=</span> initialValue();
+</span></span><span style="display:flex;"><span>    Thread t <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>    ThreadLocalMap map <span style="color:#f92672">=</span> getMap(t);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (map <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>        map.<span style="color:#a6e22e">set</span>(<span style="color:#66d9ef">this</span>, value);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>        createMap(t, value);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> value;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="createmap">createMap</h2>
+<p><code>ThreadLocalMap</code>不存在时，通过该方法创建，这里有一个疑惑：</p>
+<blockquote>
+<p>Q：为什么在<code>get</code>和<code>setInitialValue</code>进行两次为空检查才进行<code>createMap</code>？</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">createMap</span>(Thread t, T firstValue) {
+</span></span><span style="display:flex;"><span>        t.<span style="color:#a6e22e">threadLocals</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ThreadLocalMap(<span style="color:#66d9ef">this</span>, firstValue);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="set">set</h2>
+<p>通过调用<code>map.set(this,value)</code>实现。map中的key是当前<code>ThreadLocal</code>对象。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">set</span>(T value) {
+</span></span><span style="display:flex;"><span>        Thread t <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>        ThreadLocalMap map <span style="color:#f92672">=</span> getMap(t);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (map <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>            map.<span style="color:#a6e22e">set</span>(<span style="color:#66d9ef">this</span>, value);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>            createMap(t, value);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="threadlocalmap">ThreadLocalMap</h2>
+<p>内部类和成员变量代码如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ThreadLocalMap</span> {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * The entries in this hash map extend WeakReference, using
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * its main ref field as the key (which is always a
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * ThreadLocal object).  Note that null keys (i.e. entry.get()
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * == null) mean that the key is no longer referenced, so the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * entry can be expunged from table.  Such entries are referred to
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * as &#34;stale entries&#34; in the code that follows.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Entry</span> <span style="color:#66d9ef">extends</span> WeakReference<span style="color:#f92672">&lt;</span>ThreadLocal<span style="color:#f92672">&lt;?&gt;&gt;</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">/** The value associated with this ThreadLocal. */</span>
+</span></span><span style="display:flex;"><span>            Object value;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            Entry(ThreadLocal<span style="color:#f92672">&lt;?&gt;</span> k, Object v) {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">super</span>(k);
+</span></span><span style="display:flex;"><span>                value <span style="color:#f92672">=</span> v;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * The initial capacity -- MUST be a power of two.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> INITIAL_CAPACITY <span style="color:#f92672">=</span> 16;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * The table, resized as necessary.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * table.length MUST always be a power of two.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> Entry<span style="color:#f92672">[]</span> table;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * The number of entries in the table.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> size <span style="color:#f92672">=</span> 0;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * The next size value at which to resize.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> threshold; <span style="color:#75715e">// Default to 0</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="set-1">set</h3>
+<p>流程：</p>
+<ul>
+<li>计算下标，得到下标i</li>
+<li>进行遍历，如果i对应的key和传入相等，直接返回。如果对象已被回收，调用<code>replaceStaleEntry()</code>并返回。</li>
+<li>如果i对应的不相等，则从i开始从table数组完后找。</li>
+<li>能找到则返回，找不到新建entry进行存储。</li>
+<li>检查是否需要<code>rehash()</code></li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * Set the value associated with key.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * @param key the thread local object
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * @param value the value to be set
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">set</span>(ThreadLocal<span style="color:#f92672">&lt;?&gt;</span> key, Object value) {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// We don&#39;t use a fast path as with get() because it is at</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// least as common to use set() to create new entries as</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// it is to replace existing ones, in which case, a fast</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// path would fail more often than not.</span>
+</span></span><span style="display:flex;"><span>			
+</span></span><span style="display:flex;"><span>            Entry<span style="color:#f92672">[]</span> tab <span style="color:#f92672">=</span> table;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> len <span style="color:#f92672">=</span> tab.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//获取hash后的下标</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> key.<span style="color:#a6e22e">threadLocalHashCode</span> <span style="color:#f92672">&amp;</span> (len<span style="color:#f92672">-</span>1);
+</span></span><span style="display:flex;"><span>			<span style="color:#75715e">//遍历</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (Entry e <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>                 e <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>                 e <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>i <span style="color:#f92672">=</span> nextIndex(i, len)<span style="color:#f92672">]</span>) {
+</span></span><span style="display:flex;"><span>                ThreadLocal<span style="color:#f92672">&lt;?&gt;</span> k <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">get</span>();
+</span></span><span style="display:flex;"><span>				<span style="color:#75715e">//如果对应下标的ThreadLocal与当前的相等，直接更新</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (k <span style="color:#f92672">==</span> key) {
+</span></span><span style="display:flex;"><span>                    e.<span style="color:#a6e22e">value</span> <span style="color:#f92672">=</span> value;
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>				<span style="color:#75715e">//如果ThreadLocal对象已被回收，调用replaceStaleEntry</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (k <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                    replaceStaleEntry(key, value, i);
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>			<span style="color:#75715e">//如果遍历一圈还是找不到，新建entry进行存储</span>
+</span></span><span style="display:flex;"><span>            tab<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Entry(key, value);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> sz <span style="color:#f92672">=</span> <span style="color:#f92672">++</span>size;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//检查是否需要rehash</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>cleanSomeSlots(i, sz) <span style="color:#f92672">&amp;&amp;</span> sz <span style="color:#f92672">&gt;=</span> threshold)
+</span></span><span style="display:flex;"><span>                rehash();
+</span></span><span style="display:flex;"><span>        }
+</span></span></code></pre></div><p>下标计算方式：</p>
+<p>通过<code>AtomicInteger + 0x61c88647 &amp; (len-1)</code>来获取下标。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> key.<span style="color:#a6e22e">threadLocalHashCode</span> <span style="color:#f92672">&amp;</span> (len<span style="color:#f92672">-</span>1);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> threadLocalHashCode <span style="color:#f92672">=</span> nextHashCode();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> AtomicInteger nextHashCode <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> AtomicInteger();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> HASH_INCREMENT <span style="color:#f92672">=</span> 0x61c88647;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">nextHashCode</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> nextHashCode.<span style="color:#a6e22e">getAndAdd</span>(HASH_INCREMENT);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="getentry">getEntry</h3>
+<p>流程：</p>
+<ul>
+<li>计算下标，得到下标i</li>
+<li>判断对应下标的entry是否存在，key是否相等，符合要求则直接返回。</li>
+<li>不符合则调用<code>getEntryAfterMiss()</code></li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Get the entry associated with key.  This method
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * itself handles only the fast path: a direct hit of existing
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * key. It otherwise relays to getEntryAfterMiss.  This is
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * designed to maximize performance for direct hits, in part
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * by making this method readily inlinable.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @param  key the thread local object
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @return the entry associated with key, or null if no such
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> Entry <span style="color:#a6e22e">getEntry</span>(ThreadLocal<span style="color:#f92672">&lt;?&gt;</span> key) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//计算下标</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> key.<span style="color:#a6e22e">threadLocalHashCode</span> <span style="color:#f92672">&amp;</span> (table.<span style="color:#a6e22e">length</span> <span style="color:#f92672">-</span> 1);
+</span></span><span style="display:flex;"><span>    Entry e <span style="color:#f92672">=</span> table<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (e <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> e.<span style="color:#a6e22e">get</span>() <span style="color:#f92672">==</span> key)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> e;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//entry不存在或key不相等</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> getEntryAfterMiss(key, i, e);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h4 id="getentryaftermiss">getEntryAfterMiss</h4>
+<p>也就是对table数组进行遍历查找，找一圈还没有则返回<code>null</code>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> Entry <span style="color:#a6e22e">getEntryAfterMiss</span>(ThreadLocal<span style="color:#f92672">&lt;?&gt;</span> key, <span style="color:#66d9ef">int</span> i, Entry e) {
+</span></span><span style="display:flex;"><span>    Entry<span style="color:#f92672">[]</span> tab <span style="color:#f92672">=</span> table;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> len <span style="color:#f92672">=</span> tab.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span> (e <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>        ThreadLocal<span style="color:#f92672">&lt;?&gt;</span> k <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">get</span>();
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (k <span style="color:#f92672">==</span> key)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> e;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (k <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>            expungeStaleEntry(i);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>            i <span style="color:#f92672">=</span> nextIndex(i, len);
+</span></span><span style="display:flex;"><span>        e <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="remove">remove</h3>
+<p>流程：</p>
+<ul>
+<li>计算下标</li>
+<li>判断key是否相等，符合要求则调用<code>e.clear()</code>来清除key，并调用<code>expungeStaleEntry</code>清除value。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * Remove the entry for key.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">remove</span>(ThreadLocal<span style="color:#f92672">&lt;?&gt;</span> key) {
+</span></span><span style="display:flex;"><span>            Entry<span style="color:#f92672">[]</span> tab <span style="color:#f92672">=</span> table;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> len <span style="color:#f92672">=</span> tab.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//计算下标</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> key.<span style="color:#a6e22e">threadLocalHashCode</span> <span style="color:#f92672">&amp;</span> (len<span style="color:#f92672">-</span>1);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (Entry e <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>                 e <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>                 e <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>i <span style="color:#f92672">=</span> nextIndex(i, len)<span style="color:#f92672">]</span>) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//如果key相等</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (e.<span style="color:#a6e22e">get</span>() <span style="color:#f92672">==</span> key) {
+</span></span><span style="display:flex;"><span>                    e.<span style="color:#a6e22e">clear</span>();
+</span></span><span style="display:flex;"><span>                    expungeStaleEntry(i);
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span></code></pre></div><h1 id="内存泄露问题">内存泄露问题</h1>
+<h2 id="问题分析">问题分析</h2>
+<p>从上文可以看到，<strong>Entry</strong>继承自<strong>WeakReference</strong>，弱引用指向的对象会在下一次GC时被回收。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>Entry(ThreadLocal<span style="color:#f92672">&lt;?&gt;</span> k, Object v) {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">super</span>(k);
+</span></span><span style="display:flex;"><span>                value <span style="color:#f92672">=</span> v;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>​		在初始化时，将弱引用指向<code>ThreadLocal</code>实例。如果外部没有强引用指向ThreadLocal的话，那么Thread Local实例就没有一条引用链路可达，则会被回收。此时entry的key未null，但是有value，但是不能通过key找到value，这样就会存在<strong>内存泄漏问题</strong>。但是如果线程结束，以上内存都会被回收，也就不存在上述问题。</p>
+<p>​		如果使用线程池去维护线程，线程池并不会主动销毁内部的线程，总会存在着强引用，那么还是会存在问题。</p>
+<p>总结问题出现的原因：</p>
+<ol>
+<li>线程一直运行，不终止（线程池）</li>
+<li>null-value：某个弱引用key被回收</li>
+</ol>
+<h2 id="如何解决">如何解决</h2>
+<p>上述的<code>getEntryAfterMiss()</code>如果判断到了<code>key == null</code>则会调用<code>expungeStaleEntry()</code>将value删除。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">expungeStaleEntry</span>(<span style="color:#66d9ef">int</span> staleSlot) {
+</span></span><span style="display:flex;"><span>    Entry<span style="color:#f92672">[]</span> tab <span style="color:#f92672">=</span> table;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> len <span style="color:#f92672">=</span> tab.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// expunge entry at staleSlot</span>
+</span></span><span style="display:flex;"><span>    tab<span style="color:#f92672">[</span>staleSlot<span style="color:#f92672">]</span>.<span style="color:#a6e22e">value</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>    tab<span style="color:#f92672">[</span>staleSlot<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>    size<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Rehash until we encounter null</span>
+</span></span><span style="display:flex;"><span>    Entry e;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> nextIndex(staleSlot, len);
+</span></span><span style="display:flex;"><span>         (e <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>         i <span style="color:#f92672">=</span> nextIndex(i, len)) {
+</span></span><span style="display:flex;"><span>        ThreadLocal<span style="color:#f92672">&lt;?&gt;</span> k <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">get</span>();
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (k <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            e.<span style="color:#a6e22e">value</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>            tab<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>            size<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> h <span style="color:#f92672">=</span> k.<span style="color:#a6e22e">threadLocalHashCode</span> <span style="color:#f92672">&amp;</span> (len <span style="color:#f92672">-</span> 1);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (h <span style="color:#f92672">!=</span> i) {
+</span></span><span style="display:flex;"><span>                tab<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// Unlike Knuth 6.4 Algorithm R, we must scan until</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// null because multiple entries could have been stale.</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">while</span> (tab<span style="color:#f92672">[</span>h<span style="color:#f92672">]</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>                    h <span style="color:#f92672">=</span> nextIndex(h, len);
+</span></span><span style="display:flex;"><span>                tab<span style="color:#f92672">[</span>h<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> i;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>该方法在<code>set</code>、<code>get</code>、<code>remove</code>中都会调用。因此还有一个问题：如果创建了<code>ThreadLocal</code>但不调用以上方法，还是会存在问题。</p>
+<p>所以最能解决办法的就是用完<code>ThreadLocal</code>之后显式执行<code>ThreadLocal.remove()</code>。</p>
+<h2 id="为什么key不设置为强引用">为什么key不设置为强引用</h2>
+<p>既然弱引用会存在内存泄露问题，为什么不使用强引用呢？</p>
+<p>如果将key设置为强引用，当<code>ThreadLocal</code>实例释放后，但是ThreadLocal强引用指向threadLocalMap，threadLocalMap.Entry又强引用指向ThreadLocal，这样会导致ThreadLocal无法回收。也就会出现更为严重的问题。</p>
+<h1 id="参考">参考</h1>
+<p>Java SE 8 Docs API</p>
+<p><a href="https://www.jianshu.com/p/dde92ec37bd1">https://www.jianshu.com/p/dde92ec37bd1</a></p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E5%B9%B6%E5%8F%91/">
+                并发
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/%E5%87%A0%E4%B8%AAjava%E5%B9%B6%E5%8F%91%E5%B7%A5%E5%85%B7%E7%B1%BB%E8%A7%A3%E6%9E%90/">几个Java并发工具类解析</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/reentrantreadwritelock/">ReentrantReadWriteLock源码分析</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/reentrantlock%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">ReentrantLock源码分析</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

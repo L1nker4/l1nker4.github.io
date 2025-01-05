@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/jvm/jvm%E5%86%85%E5%AD%98%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5%E6%B5%81%E7%A8%8B/" />
+  <link rel="canonical" href="http://localhost:59500/posts/jvm/jvm%E5%86%85%E5%AD%98%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5%E6%B5%81%E7%A8%8B/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "JVM内存问题排查流程",
+      "headline" : "JVM内存问题排查流程",
+      "description" : "确认问题现象 可以通过服务状态，监控面板、日志信息、监控工具（VisualVM）等，确认问题类型：\n内存使用率居高不下、内存缓慢增加、OOM等 频繁GC：Full GC等 发现问题不建议重启，留存状态。\n保留数据 heapdump文件 #arthas导出方式 heapdump \/tmp\/dump.hprof #jmap命令保存整个Java堆 jmap -dump:format=b,file=heap.bin \u0026lt;pid\u0026gt; #jmap命令只保存Java堆中的存活对象, 包含live选项，会在堆转储前执行一次Full GC jmap -dump:live,format=b,file=heap.bin \u0026lt;pid\u0026gt; #jcmd命令保存整个Java堆,Jdk1.7后有效 jcmd \u0026lt;pid\u0026gt; GC.heap_dump filename=heap.bin #在出现OutOfMemoryError的时候JVM自动生成（推荐）节点剩余内存不足heapdump会生成失败 -XX:\u002bHeapDumpOnOutOfMemoryError -XX:HeapDumpPath=\/tmp\/heap.bin #编程的方式生成 使用HotSpotDiagnosticMXBean.dumpHeap()方法 #在出现Full GC前后JVM自动生成，本地快速调试可用 -XX:\u002bHeapDumpBeforeFullGC或 -XX:\u002bHeapDumpAfterFullGC JVM参数：\n-XX:printGCDetails -XX:\u002bUseConcMarkSweepGC -XX:\u002bHeapDumpOnOutOfMemoryError GC日志 JVM启动参数如下：\n# Java8及以下 -XX:\u002bPrintGCDetails -XX:\u002bPrintGCDateStamps -Xloggc:\u0026lt;path\u0026gt; # Java9及以上 -Xlog:gc*:\u0026lt;path\u0026gt;:time 可以通过EasyGC进行日志分析。\n服务日志 通常由日志组件（Promtail \u0026amp; loki）进行采集、存储、展示。\n实际问题 堆内存溢出 问题现象：\nOutOfMemoryError 直接内存溢出 问题现象：top指令中相关Java进程占用的RES超过了-Xmx的大小，并且内存占用不断上升。\n问题定位方法：\n可通过开启NMT（-XX:NativeMemoryTracking=detail）定位问题 jcmd查看直接内存情况：jcmd pid VM.native_memory detail NIO、Netty等常用直接内存，Netty可以通过-Dio.netty.leakDetectionLevel开启\n栈空间溢出 问题现象：\nStackOverflow OutOfMemoryError：unable to create new native thread 问题定位方法：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2024",
+      "datePublished": "2024-03-03 21:34:49 \u002b0000 UTC",
+      "dateModified" : "2024-03-03 21:34:49 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/jvm\/jvm%E5%86%85%E5%AD%98%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5%E6%B5%81%E7%A8%8B\/",
+      "keywords" : [ "Java","JVM", ]
+  }
+</script>
+<title>JVM内存问题排查流程</title>
+  <meta property="og:title" content="JVM内存问题排查流程" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="确认问题现象 可以通过服务状态，监控面板、日志信息、监控工具（VisualVM）等，确认问题类型：
+内存使用率居高不下、内存缓慢增加、OOM等 频繁GC：Full GC等 发现问题不建议重启，留存状态。
+保留数据 heapdump文件 #arthas导出方式 heapdump /tmp/dump.hprof #jmap命令保存整个Java堆 jmap -dump:format=b,file=heap.bin &lt;pid&gt; #jmap命令只保存Java堆中的存活对象, 包含live选项，会在堆转储前执行一次Full GC jmap -dump:live,format=b,file=heap.bin &lt;pid&gt; #jcmd命令保存整个Java堆,Jdk1.7后有效 jcmd &lt;pid&gt; GC.heap_dump filename=heap.bin #在出现OutOfMemoryError的时候JVM自动生成（推荐）节点剩余内存不足heapdump会生成失败 -XX:&#43;HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heap.bin #编程的方式生成 使用HotSpotDiagnosticMXBean.dumpHeap()方法 #在出现Full GC前后JVM自动生成，本地快速调试可用 -XX:&#43;HeapDumpBeforeFullGC或 -XX:&#43;HeapDumpAfterFullGC JVM参数：
+-XX:printGCDetails -XX:&#43;UseConcMarkSweepGC -XX:&#43;HeapDumpOnOutOfMemoryError GC日志 JVM启动参数如下：
+# Java8及以下 -XX:&#43;PrintGCDetails -XX:&#43;PrintGCDateStamps -Xloggc:&lt;path&gt; # Java9及以上 -Xlog:gc*:&lt;path&gt;:time 可以通过EasyGC进行日志分析。
+服务日志 通常由日志组件（Promtail &amp; loki）进行采集、存储、展示。
+实际问题 堆内存溢出 问题现象：
+OutOfMemoryError 直接内存溢出 问题现象：top指令中相关Java进程占用的RES超过了-Xmx的大小，并且内存占用不断上升。
+问题定位方法：
+可通过开启NMT（-XX:NativeMemoryTracking=detail）定位问题 jcmd查看直接内存情况：jcmd pid VM.native_memory detail NIO、Netty等常用直接内存，Netty可以通过-Dio.netty.leakDetectionLevel开启
+栈空间溢出 问题现象：
+StackOverflow OutOfMemoryError：unable to create new native thread 问题定位方法：
+" />
+  <meta name="description" content="确认问题现象 可以通过服务状态，监控面板、日志信息、监控工具（VisualVM）等，确认问题类型：
+内存使用率居高不下、内存缓慢增加、OOM等 频繁GC：Full GC等 发现问题不建议重启，留存状态。
+保留数据 heapdump文件 #arthas导出方式 heapdump /tmp/dump.hprof #jmap命令保存整个Java堆 jmap -dump:format=b,file=heap.bin &lt;pid&gt; #jmap命令只保存Java堆中的存活对象, 包含live选项，会在堆转储前执行一次Full GC jmap -dump:live,format=b,file=heap.bin &lt;pid&gt; #jcmd命令保存整个Java堆,Jdk1.7后有效 jcmd &lt;pid&gt; GC.heap_dump filename=heap.bin #在出现OutOfMemoryError的时候JVM自动生成（推荐）节点剩余内存不足heapdump会生成失败 -XX:&#43;HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heap.bin #编程的方式生成 使用HotSpotDiagnosticMXBean.dumpHeap()方法 #在出现Full GC前后JVM自动生成，本地快速调试可用 -XX:&#43;HeapDumpBeforeFullGC或 -XX:&#43;HeapDumpAfterFullGC JVM参数：
+-XX:printGCDetails -XX:&#43;UseConcMarkSweepGC -XX:&#43;HeapDumpOnOutOfMemoryError GC日志 JVM启动参数如下：
+# Java8及以下 -XX:&#43;PrintGCDetails -XX:&#43;PrintGCDateStamps -Xloggc:&lt;path&gt; # Java9及以上 -Xlog:gc*:&lt;path&gt;:time 可以通过EasyGC进行日志分析。
+服务日志 通常由日志组件（Promtail &amp; loki）进行采集、存储、展示。
+实际问题 堆内存溢出 问题现象：
+OutOfMemoryError 直接内存溢出 问题现象：top指令中相关Java进程占用的RES超过了-Xmx的大小，并且内存占用不断上升。
+问题定位方法：
+可通过开启NMT（-XX:NativeMemoryTracking=detail）定位问题 jcmd查看直接内存情况：jcmd pid VM.native_memory detail NIO、Netty等常用直接内存，Netty可以通过-Dio.netty.leakDetectionLevel开启
+栈空间溢出 问题现象：
+StackOverflow OutOfMemoryError：unable to create new native thread 问题定位方法：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">JVM内存问题排查流程</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2024-03-03 21:34:49 UTC">
+                03 Mar 2024
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="确认问题现象">确认问题现象</h2>
+<p>可以通过服务状态，监控面板、日志信息、监控工具（VisualVM）等，确认问题类型：</p>
+<ol>
+<li>内存使用率居高不下、内存缓慢增加、OOM等</li>
+<li>频繁GC：Full GC等</li>
+</ol>
+<p>发现问题不建议重启，留存状态。</p>
+<h2 id="保留数据">保留数据</h2>
+<h3 id="heapdump文件">heapdump文件</h3>
+<pre tabindex="0"><code>#arthas导出方式
+heapdump /tmp/dump.hprof
+
+#jmap命令保存整个Java堆
+jmap -dump:format=b,file=heap.bin &lt;pid&gt; 
+
+#jmap命令只保存Java堆中的存活对象, 包含live选项，会在堆转储前执行一次Full GC
+jmap -dump:live,format=b,file=heap.bin &lt;pid&gt;
+
+#jcmd命令保存整个Java堆,Jdk1.7后有效
+jcmd &lt;pid&gt; GC.heap_dump filename=heap.bin
+
+#在出现OutOfMemoryError的时候JVM自动生成（推荐）节点剩余内存不足heapdump会生成失败
+-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heap.bin
+
+#编程的方式生成
+使用HotSpotDiagnosticMXBean.dumpHeap()方法
+
+#在出现Full GC前后JVM自动生成，本地快速调试可用
+-XX:+HeapDumpBeforeFullGC或 -XX:+HeapDumpAfterFullGC
+</code></pre><p>JVM参数：</p>
+<pre tabindex="0"><code>-XX:printGCDetails -XX:+UseConcMarkSweepGC -XX:+HeapDumpOnOutOfMemoryError 
+</code></pre><h3 id="gc日志">GC日志</h3>
+<p>JVM启动参数如下：</p>
+<pre tabindex="0"><code># Java8及以下
+-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:&lt;path&gt;
+
+# Java9及以上
+-Xlog:gc*:&lt;path&gt;:time
+</code></pre><p>可以通过EasyGC进行日志分析。</p>
+<h3 id="服务日志">服务日志</h3>
+<p>通常由日志组件（Promtail &amp; loki）进行采集、存储、展示。</p>
+<h2 id="实际问题">实际问题</h2>
+<h3 id="堆内存溢出">堆内存溢出</h3>
+<p>问题现象：</p>
+<ol>
+<li>OutOfMemoryError</li>
+</ol>
+<h3 id="直接内存溢出">直接内存溢出</h3>
+<p>问题现象：top指令中相关Java进程占用的RES超过了-Xmx的大小，并且内存占用不断上升。</p>
+<p>问题定位方法：</p>
+<ol>
+<li>可通过开启NMT（<strong>-XX:NativeMemoryTracking=detail</strong>）定位问题</li>
+<li>jcmd查看直接内存情况：jcmd pid VM.native_memory detail</li>
+</ol>
+<p>NIO、Netty等常用直接内存，Netty可以通过<code>-Dio.netty.leakDetectionLevel</code>开启</p>
+<h3 id="栈空间溢出">栈空间溢出</h3>
+<p>问题现象：</p>
+<ol>
+<li>StackOverflow</li>
+<li>OutOfMemoryError：unable to create new native thread</li>
+</ol>
+<p>问题定位方法：</p>
+<ol>
+<li>分析Java调用栈</li>
+<li>开启Linux coredump日志</li>
+</ol>
+<h3 id="频繁gc">频繁GC</h3>
+<p>问题现象：通过监控面板、jstat等方式，发生频繁GC现象：</p>
+<ol>
+<li>Minor GC：回收新生代区域</li>
+<li>Major GC：回收老年代区域</li>
+<li>Full GC：回收整个堆区和方法区</li>
+<li>Mixed GC：回收整个新生代和部分老年代，部分GC实现（G1）</li>
+</ol>
+<h2 id="工具使用">工具使用</h2>
+<h3 id="jstat">jstat</h3>
+<p>用于查看虚拟机垃圾回收的情况，主要是堆内存使用、垃圾回收次数和占用时间</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-shell" data-lang="shell"><span style="display:flex;"><span>jstat -gcutil  -h <span style="color:#ae81ff">20</span> pid <span style="color:#ae81ff">1000</span> <span style="color:#ae81ff">100</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>各列分别为：S0使用率、S1使用率、Eden使用率、Old使用率
+</span></span><span style="display:flex;"><span>Method方法区使用率、CCS压缩使用率
+</span></span><span style="display:flex;"><span>YGC年轻代垃圾回收次数、YGCT年轻代垃圾回收占用时间
+</span></span><span style="display:flex;"><span>FGC全局垃圾回收次数、FGCT全局垃圾回收消耗时间
+</span></span><span style="display:flex;"><span>GCT总共垃圾回收时间
+</span></span></code></pre></div><p><img src="https://cdn.nlark.com/yuque/0/2023/png/406326/1675906799781-537c7346-3eb0-4b60-91e9-64ca73e0b215.png#averageHue=%230b0806&amp;clientId=u200445ac-f1ae-4&amp;from=paste&amp;height=241&amp;id=ub7219716&amp;originHeight=316&amp;originWidth=960&amp;originalType=binary&amp;ratio=1&amp;rotation=0&amp;showTitle=false&amp;size=63366&amp;status=done&amp;style=none&amp;taskId=ue414be00-c4c6-4321-ba74-055bf4a9997&amp;title=&amp;width=731" alt="image.png"></p>
+<h3 id="jmap">jmap</h3>
+<p>用于保存虚拟机内存镜像到文件中，可以使用JVisualVM或MAT进行分析</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-shell" data-lang="shell"><span style="display:flex;"><span>jmap -dump:format<span style="color:#f92672">=</span>b,file<span style="color:#f92672">=</span>filename.hprof pid
+</span></span></code></pre></div><p>也可以通过运行参数，当发生OOM时，主动保存堆dump文件。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-shell" data-lang="shell"><span style="display:flex;"><span>-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath<span style="color:#f92672">=</span>/tmp/heapdump.hprof
+</span></span></code></pre></div><h3 id="jmc">JMC</h3>
+<p>Java Mission Control：用于追踪热点代码和热点线程</p>
+<h2 id="附jvm参数">附JVM参数</h2>
+<h4 id="-xms512m">-Xms512m</h4>
+<ul>
+<li>意义： 设置堆内存初始值大小。</li>
+<li>默认值：如果未设置，初始值将是老年代和年轻代分配制内存之和。</li>
+</ul>
+<h4 id="-xmx1024m">-Xmx1024m</h4>
+<ul>
+<li>意义： 设置堆内存最大值。</li>
+</ul>
+<h4 id="-xxnewration">-XX:NewRatio=n</h4>
+<ul>
+<li>意义：设置老年代和年轻代的比例。比如：-XX:NewRatio=2</li>
+</ul>
+<p>-XX:SurvivorRatio
+年轻代分配：默认情况下Eden、From、To的比例是8:1:1。SurvivorRatio默认值是8，如果SurvivorRatio修改成4，那么其比例就是4:1:1</p>
+<h4 id="-xxmaxrampercentage850">-XX:MaxRAMPercentage=85.0</h4>
+<p>堆的最大值百分比</p>
+<h4 id="-xalwaysclassgc">-Xalwaysclassgc</h4>
+<p>在全局垃圾回收期间始终执行动态类卸载检查。</p>
+<h4 id="-xaggressive">-Xaggressive</h4>
+<p>Enables performance optimizations and new platform exploitation that are expected to be the default in future releases.</p>
+<h4 id="-xxprintgcdetails">-XX:+PrintGCDetails</h4>
+<p>打印GC日志</p>
+<h4 id="-xxprintgctimestamps">-XX:+PrintGCTimeStamps</h4>
+<p>打印GC时间戳</p>
+<h4 id="-xloggc">-Xloggc</h4>
+<p>GC日志存储位置</p>
+<h4 id="-verboseclass">-verbose:class</h4>
+<p>用于同时跟踪类的加载和卸载</p>
+<h4 id="-xxtraceclassloading">-XX:+TraceClassLoading</h4>
+<p>单独跟踪类的加载</p>
+<h4 id="-xxtraceclassunloading">-XX:+TraceClassUnloading</h4>
+<p>单独跟踪类的卸载</p>
+<h4 id="-xxnativememorytrackingoff--summary--detail-">-XX:NativeMemoryTracking=[off | summary | detail ]</h4>
+<p>开启直接内存追踪</p>
+<h4 id="-xxmaxdirectmemorysize">-XX:MaxDirectMemorySize</h4>
+<p>最大直接内存</p>
+<h4 id="-xxmaxjavastacktracedepth">-XX:MaxJavaStackTraceDepth</h4>
+<p>栈帧输出数量</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/jvm/">
+                JVM
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/jvm/jvm09-bytecode-engine/">JVM之字节码执行引擎（九）</a></li>
+    
+    <li><a href="/posts/jvm/jvm08-class-load/">JVM之类加载机制（八）</a></li>
+    
+    <li><a href="/posts/jvm/jvm07-bytecode/">JVM之字节码指令（七）</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

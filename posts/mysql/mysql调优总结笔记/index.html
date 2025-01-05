@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/mysql/mysql%E8%B0%83%E4%BC%98%E6%80%BB%E7%BB%93%E7%AC%94%E8%AE%B0/" />
+  <link rel="canonical" href="http://localhost:59500/posts/mysql/mysql%E8%B0%83%E4%BC%98%E6%80%BB%E7%BB%93%E7%AC%94%E8%AE%B0/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "MySQL调优总结",
+      "headline" : "MySQL调优总结",
+      "description" : "前言 数据库调优的几个维度：\n建立索引 SQL语句优化 服务器参数调优：包括缓冲区、线程数等 分库分表、集群模式 调优目标：\n尽可能节省系统资源，以提高系统吞吐量。 合理的结构设计和参数调整，以提高用户操作响应的速度。 减少系统的瓶颈，提高MySQL整体性能。 如何定位调优问题：\n用户反馈 日志分析 服务器资源监控 调优维度：\n选择合适的DBMS 优化表设计 遵循三范式的原则 多表联查可以考虑反范式化 表字段的数据类型选择 优化SQL查询（逻辑） 使用索引（物理） 使用缓存 库级优化 读写分离 一主一从 双主双从 数据分片：对数据库进行分库分表。 MySQL服务器优化 两个方面：\n硬件优化 MySQL服务的参数优化 硬件调优 配置较大的内存，增加缓冲区容量，减少磁盘IO。 配置高速磁盘系统，减少磁盘IO的时间。 合理分布磁盘IO，将磁盘IO分布在多个设备上，减少竞争。 配置多处理器。 参数调优 通过优化MySQL可以提高资源利用率，从而提高MySQL服务器性能。\n几个重要的参数：\ninnodb_buffer_pool_size：表和索引的缓存区大小。 key_buffer_size：索引缓冲区大小，所有线程共享，值太大也会导致OS频繁换页。 table_cache：同时打开的表的个数。 query_cache_size：查询缓冲区大小，与query_cache_type配合使用。 query_cache_type：0代表所有查询不使用查询缓冲区，1表示所有都使用，当查询语句指定SQL_NO_CACHE则不使用。 sort_buffer_size：每个需要进行排序的线程分配的缓冲区大小，增加这个参数的值可以提高ORDER BY或GROUP BY操作的速度。 join_buffer_size：每个需要联合查询的线程所使用的缓冲区大小。 read_buffer_size：每个线程连续扫描时为扫描的每个表分配的缓冲区的大小。 innodb_flush_log_at_trx_commit：**何时将redo log buffer的数据写入redo log file，并将日志文件写入磁盘中。**默认为1。 0：redo log buffer每隔一秒将其数据刷入page cache，该模式下事务提交不会触发刷盘操作。 1：每次事务提交都会将将redo log buffer中数据刷入page cache，并立刻刷入磁盘。效率较低也为安全。 2：每次事务提交都会将redo log buffer中数据刷入page cache，由OS同步到磁盘。（每秒一次） mysql进程崩溃不会有数据丢失，当时OS宕机会有数据丢失。 innodb_log_buffer_size：InnoDB存储引擎的事务日志缓冲区，为了提升性能，也是先将信息写入 Innodb Log Buffer 中，当满足 innodb_flush_log_trx_commit 参数所设置的相应条件（或者日志缓冲区写满）之后，才会将日志写到文件（或者同步到磁盘）中。 max_connections：允许连接到MySQL数据库的最大数量。如果connection_errors_max_connections不为0，并且一直增长，说明不断有连接因为数据库连接数已到最大值而失败，此时考虑增大max_connections的值。 back_log：用于控制MySQL监听TCP端口时设置的积压请求栈大小。 连接数达到max_connections，新来的请求将会被存在堆栈中，以等待某一连接释放资源，如果等待连接的数量超过back_log，将会报错。 thread_cache_size：线程池缓存线程数量的大小，当客户端断开连接后将当前线程缓存起来， 当在接到新的连接请求时快速响应无需创建新的线程 。这对于短链接的应用程序十分有用。 wait_timeout：一个连接的最大连接时间。 interactive_timeout：服务器在关闭连接前等待行动的秒数。 优化数据库结构 几个策略：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2022",
+      "datePublished": "2022-03-01 12:23:36 \u002b0000 UTC",
+      "dateModified" : "2022-03-01 12:23:36 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/mysql\/mysql%E8%B0%83%E4%BC%98%E6%80%BB%E7%BB%93%E7%AC%94%E8%AE%B0\/",
+      "keywords" : [ "MySQL", ]
+  }
+</script>
+<title>MySQL调优总结</title>
+  <meta property="og:title" content="MySQL调优总结" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="前言 数据库调优的几个维度：
+建立索引 SQL语句优化 服务器参数调优：包括缓冲区、线程数等 分库分表、集群模式 调优目标：
+尽可能节省系统资源，以提高系统吞吐量。 合理的结构设计和参数调整，以提高用户操作响应的速度。 减少系统的瓶颈，提高MySQL整体性能。 如何定位调优问题：
+用户反馈 日志分析 服务器资源监控 调优维度：
+选择合适的DBMS 优化表设计 遵循三范式的原则 多表联查可以考虑反范式化 表字段的数据类型选择 优化SQL查询（逻辑） 使用索引（物理） 使用缓存 库级优化 读写分离 一主一从 双主双从 数据分片：对数据库进行分库分表。 MySQL服务器优化 两个方面：
+硬件优化 MySQL服务的参数优化 硬件调优 配置较大的内存，增加缓冲区容量，减少磁盘IO。 配置高速磁盘系统，减少磁盘IO的时间。 合理分布磁盘IO，将磁盘IO分布在多个设备上，减少竞争。 配置多处理器。 参数调优 通过优化MySQL可以提高资源利用率，从而提高MySQL服务器性能。
+几个重要的参数：
+innodb_buffer_pool_size：表和索引的缓存区大小。 key_buffer_size：索引缓冲区大小，所有线程共享，值太大也会导致OS频繁换页。 table_cache：同时打开的表的个数。 query_cache_size：查询缓冲区大小，与query_cache_type配合使用。 query_cache_type：0代表所有查询不使用查询缓冲区，1表示所有都使用，当查询语句指定SQL_NO_CACHE则不使用。 sort_buffer_size：每个需要进行排序的线程分配的缓冲区大小，增加这个参数的值可以提高ORDER BY或GROUP BY操作的速度。 join_buffer_size：每个需要联合查询的线程所使用的缓冲区大小。 read_buffer_size：每个线程连续扫描时为扫描的每个表分配的缓冲区的大小。 innodb_flush_log_at_trx_commit：**何时将redo log buffer的数据写入redo log file，并将日志文件写入磁盘中。**默认为1。 0：redo log buffer每隔一秒将其数据刷入page cache，该模式下事务提交不会触发刷盘操作。 1：每次事务提交都会将将redo log buffer中数据刷入page cache，并立刻刷入磁盘。效率较低也为安全。 2：每次事务提交都会将redo log buffer中数据刷入page cache，由OS同步到磁盘。（每秒一次） mysql进程崩溃不会有数据丢失，当时OS宕机会有数据丢失。 innodb_log_buffer_size：InnoDB存储引擎的事务日志缓冲区，为了提升性能，也是先将信息写入 Innodb Log Buffer 中，当满足 innodb_flush_log_trx_commit 参数所设置的相应条件（或者日志缓冲区写满）之后，才会将日志写到文件（或者同步到磁盘）中。 max_connections：允许连接到MySQL数据库的最大数量。如果connection_errors_max_connections不为0，并且一直增长，说明不断有连接因为数据库连接数已到最大值而失败，此时考虑增大max_connections的值。 back_log：用于控制MySQL监听TCP端口时设置的积压请求栈大小。 连接数达到max_connections，新来的请求将会被存在堆栈中，以等待某一连接释放资源，如果等待连接的数量超过back_log，将会报错。 thread_cache_size：线程池缓存线程数量的大小，当客户端断开连接后将当前线程缓存起来， 当在接到新的连接请求时快速响应无需创建新的线程 。这对于短链接的应用程序十分有用。 wait_timeout：一个连接的最大连接时间。 interactive_timeout：服务器在关闭连接前等待行动的秒数。 优化数据库结构 几个策略：
+" />
+  <meta name="description" content="前言 数据库调优的几个维度：
+建立索引 SQL语句优化 服务器参数调优：包括缓冲区、线程数等 分库分表、集群模式 调优目标：
+尽可能节省系统资源，以提高系统吞吐量。 合理的结构设计和参数调整，以提高用户操作响应的速度。 减少系统的瓶颈，提高MySQL整体性能。 如何定位调优问题：
+用户反馈 日志分析 服务器资源监控 调优维度：
+选择合适的DBMS 优化表设计 遵循三范式的原则 多表联查可以考虑反范式化 表字段的数据类型选择 优化SQL查询（逻辑） 使用索引（物理） 使用缓存 库级优化 读写分离 一主一从 双主双从 数据分片：对数据库进行分库分表。 MySQL服务器优化 两个方面：
+硬件优化 MySQL服务的参数优化 硬件调优 配置较大的内存，增加缓冲区容量，减少磁盘IO。 配置高速磁盘系统，减少磁盘IO的时间。 合理分布磁盘IO，将磁盘IO分布在多个设备上，减少竞争。 配置多处理器。 参数调优 通过优化MySQL可以提高资源利用率，从而提高MySQL服务器性能。
+几个重要的参数：
+innodb_buffer_pool_size：表和索引的缓存区大小。 key_buffer_size：索引缓冲区大小，所有线程共享，值太大也会导致OS频繁换页。 table_cache：同时打开的表的个数。 query_cache_size：查询缓冲区大小，与query_cache_type配合使用。 query_cache_type：0代表所有查询不使用查询缓冲区，1表示所有都使用，当查询语句指定SQL_NO_CACHE则不使用。 sort_buffer_size：每个需要进行排序的线程分配的缓冲区大小，增加这个参数的值可以提高ORDER BY或GROUP BY操作的速度。 join_buffer_size：每个需要联合查询的线程所使用的缓冲区大小。 read_buffer_size：每个线程连续扫描时为扫描的每个表分配的缓冲区的大小。 innodb_flush_log_at_trx_commit：**何时将redo log buffer的数据写入redo log file，并将日志文件写入磁盘中。**默认为1。 0：redo log buffer每隔一秒将其数据刷入page cache，该模式下事务提交不会触发刷盘操作。 1：每次事务提交都会将将redo log buffer中数据刷入page cache，并立刻刷入磁盘。效率较低也为安全。 2：每次事务提交都会将redo log buffer中数据刷入page cache，由OS同步到磁盘。（每秒一次） mysql进程崩溃不会有数据丢失，当时OS宕机会有数据丢失。 innodb_log_buffer_size：InnoDB存储引擎的事务日志缓冲区，为了提升性能，也是先将信息写入 Innodb Log Buffer 中，当满足 innodb_flush_log_trx_commit 参数所设置的相应条件（或者日志缓冲区写满）之后，才会将日志写到文件（或者同步到磁盘）中。 max_connections：允许连接到MySQL数据库的最大数量。如果connection_errors_max_connections不为0，并且一直增长，说明不断有连接因为数据库连接数已到最大值而失败，此时考虑增大max_connections的值。 back_log：用于控制MySQL监听TCP端口时设置的积压请求栈大小。 连接数达到max_connections，新来的请求将会被存在堆栈中，以等待某一连接释放资源，如果等待连接的数量超过back_log，将会报错。 thread_cache_size：线程池缓存线程数量的大小，当客户端断开连接后将当前线程缓存起来， 当在接到新的连接请求时快速响应无需创建新的线程 。这对于短链接的应用程序十分有用。 wait_timeout：一个连接的最大连接时间。 interactive_timeout：服务器在关闭连接前等待行动的秒数。 优化数据库结构 几个策略：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">MySQL调优总结</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2022-03-01 12:23:36 UTC">
+                01 Mar 2022
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="前言">前言</h1>
+<p>数据库调优的几个维度：</p>
+<ul>
+<li>建立索引</li>
+<li>SQL语句优化</li>
+<li>服务器参数调优：包括缓冲区、线程数等</li>
+<li>分库分表、集群模式</li>
+</ul>
+<p>调优目标：</p>
+<ul>
+<li>尽可能节省系统资源，以提高系统吞吐量。</li>
+<li>合理的结构设计和参数调整，以提高用户操作响应的速度。</li>
+<li>减少系统的瓶颈，提高MySQL整体性能。</li>
+</ul>
+<p>如何定位调优问题：</p>
+<ul>
+<li>用户反馈</li>
+<li>日志分析</li>
+<li>服务器资源监控</li>
+</ul>
+<p>调优维度：</p>
+<ol>
+<li>选择合适的DBMS</li>
+<li>优化表设计
+<ol>
+<li>遵循三范式的原则</li>
+<li>多表联查可以考虑反范式化</li>
+<li>表字段的数据类型选择</li>
+</ol>
+</li>
+<li>优化SQL查询（逻辑）</li>
+<li>使用索引（物理）</li>
+<li>使用缓存</li>
+<li>库级优化
+<ol>
+<li>读写分离
+<ol>
+<li>一主一从</li>
+<li>双主双从</li>
+</ol>
+</li>
+<li>数据分片：对数据库进行分库分表。</li>
+</ol>
+</li>
+</ol>
+<h1 id="mysql服务器优化">MySQL服务器优化</h1>
+<p>两个方面：</p>
+<ol>
+<li>硬件优化</li>
+<li>MySQL服务的参数优化</li>
+</ol>
+<h2 id="硬件调优">硬件调优</h2>
+<ul>
+<li>配置较大的内存，增加缓冲区容量，减少磁盘IO。</li>
+<li>配置高速磁盘系统，减少磁盘IO的时间。</li>
+<li>合理分布磁盘IO，将磁盘IO分布在多个设备上，减少竞争。</li>
+<li>配置多处理器。</li>
+</ul>
+<h2 id="参数调优">参数调优</h2>
+<p>通过优化MySQL可以提高资源利用率，从而提高MySQL服务器性能。</p>
+<p>几个重要的参数：</p>
+<ul>
+<li>innodb_buffer_pool_size：表和索引的缓存区大小。</li>
+<li>key_buffer_size：索引缓冲区大小，所有线程共享，值太大也会导致OS频繁换页。</li>
+<li>table_cache：同时打开的表的个数。</li>
+<li>query_cache_size：<strong>查询缓冲区</strong>大小，与query_cache_type配合使用。</li>
+<li>query_cache_type：0代表所有查询不使用查询缓冲区，1表示所有都使用，当查询语句指定<code>SQL_NO_CACHE</code>则不使用。</li>
+<li>sort_buffer_size：每个需要进行<strong>排序</strong>的线程分配的缓冲区大小，增加这个参数的值可以提高<code>ORDER BY</code>或<code>GROUP BY</code>操作的速度。</li>
+<li>join_buffer_size：每个需要<strong>联合查询</strong>的线程所使用的缓冲区大小。</li>
+<li>read_buffer_size：每个线程<strong>连续扫描时</strong>为扫描的每个表分配的缓冲区的大小。</li>
+<li>innodb_flush_log_at_trx_commit：**何时将redo log buffer的数据写入redo log file，并将日志文件写入磁盘中。**默认为1。
+<ul>
+<li>0：redo log buffer每隔一秒将其数据刷入page cache，该模式下事务提交不会触发刷盘操作。</li>
+<li>1：每次事务提交都会将将redo log buffer中数据刷入page cache，并立刻刷入磁盘。效率较低也为安全。</li>
+<li>2：每次事务提交都会将redo log buffer中数据刷入page cache，由OS同步到磁盘。（每秒一次）
+<ul>
+<li>mysql进程崩溃不会有数据丢失，当时OS宕机会有数据丢失。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>innodb_log_buffer_size：InnoDB存储引擎的<strong>事务日志缓冲区</strong>，为了提升性能，也是先将信息写入 <code>Innodb Log Buffer</code> 中，当满足 <code>innodb_flush_log_trx_commit</code> 参数所设置的相应条件（或者日志缓冲区写满）之后，才会将日志写到文件（或者同步到磁盘）中。</li>
+<li>max_connections：允许连接到MySQL数据库的最大数量。如果<code>connection_errors_max_connections</code>不为0，并且一直增长，说明不断有连接因为数据库连接数已到最大值而失败，此时考虑增大<code>max_connections</code>的值。</li>
+<li>back_log：用于<strong>控制MySQL监听TCP端口时设置的积压请求栈大小。</strong> 连接数达到<code>max_connections</code>，新来的请求将会被存在堆栈中，以等待某一连接释放资源，如果等待连接的数量超过back_log，将会报错。</li>
+<li>thread_cache_size：线程池缓存线程数量的大小，当客户端断开连接后将当前线程缓存起来， 当在接到新的连接请求时快速响应无需创建新的线程 。这对于短链接的应用程序十分有用。</li>
+<li>wait_timeout：一个连接的最大连接时间。</li>
+<li>interactive_timeout：服务器在关闭连接前等待行动的秒数。</li>
+</ul>
+<h1 id="优化数据库结构">优化数据库结构</h1>
+<p>几个策略：</p>
+<ol>
+<li>拆分表：冷热数据分离</li>
+<li>增加中间表</li>
+<li>增加冗余字段</li>
+<li>优化数据类型
+<ol>
+<li>整数类型优化：使用INT类型。</li>
+<li>避免使用TEXT、BLOB数据类型</li>
+<li>避免使用ENUM类型：Order By效率较低</li>
+<li>使用TIMESTAMP存储时间：存储空间小，4字节</li>
+<li>用DECIMAL代替FLOAT和DOUBLE存储精确浮点数</li>
+</ol>
+</li>
+<li>优化插入记录的速度</li>
+<li>使用非空约束</li>
+<li>分析表：更新关键字的分布
+<ol>
+<li>分析表过程中，会对表加上一个只读锁。</li>
+<li>统计结果会反映在<strong>cardinality</strong>的值上，该值统计了某一个键所在列不重复值得个数，cardinality可以通过 <code>SHOW INDEX FROM 表名</code>查看。</li>
+</ol>
+</li>
+<li>检查表：检查表中是否存在错误。
+<ol>
+<li>检查表过程中，会对表加上一个只读锁。</li>
+</ol>
+</li>
+<li>优化表：对于变长字段（VARCHAR、BLOB、TEXT等列）进行了更新，优化表可以来整理数据文件得碎片。</li>
+</ol>
+<h1 id="索引优化与查询优化">索引优化与查询优化</h1>
+<h2 id="查询性能分析">查询性能分析</h2>
+<h3 id="查看系统性能参数">查看系统性能参数</h3>
+<p>在MySQL中，可以使用 <code>SHOW STATUS</code> 语句查询一些MySQL数据库服务器的性能参数 、 执行频率 。</p>
+<p>一些常用的性能参数如下：</p>
+<ul>
+<li>Connections：连接MySQL服务器的次数。</li>
+<li>Uptime：MySQL服务器的上 线时间。</li>
+<li>Slow_queries：慢查询的次数。</li>
+<li>Innodb_rows_read：Select查询返回的行数</li>
+<li>Innodb_rows_inserted：执行INSERT操作插入的行数</li>
+<li>Innodb_rows_updated：执行UPDATE操作更新的 行数</li>
+<li>Innodb_rows_deleted：执行DELETE操作删除的行数</li>
+<li>Com_select：查询操作的次数。</li>
+<li>Com_insert：插入操作的次数。对于批量插入的 INSERT 操作，只累加一次。</li>
+<li>Com_update：更新操作 的次数。</li>
+<li>Com_delete：删除操作的次数。</li>
+</ul>
+<h3 id="统计sql的查询成本">统计SQL的查询成本</h3>
+<p>查上一次查询的代价，是IO和CPU开销的总和，可以作为评价一次查询的执行效率的常用指标。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">SHOW</span> STATUS <span style="color:#66d9ef">LIKE</span> <span style="color:#e6db74">&#39;last_query_cost&#39;</span>;
+</span></span></code></pre></div><h3 id="定位慢sql">定位慢SQL</h3>
+<p>开启slow_query_log</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">set</span> <span style="color:#66d9ef">global</span> slow_query_log<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;ON&#39;</span>;
+</span></span></code></pre></div><p>修改long_query_time阈值</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">show</span> variables <span style="color:#66d9ef">like</span> <span style="color:#e6db74">&#39;%long_query_time%&#39;</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">set</span> <span style="color:#66d9ef">global</span> long_query_time <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
+</span></span></code></pre></div><p>查询当前系统中有多少条慢查询记录</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">SHOW</span> <span style="color:#66d9ef">GLOBAL</span> STATUS <span style="color:#66d9ef">LIKE</span> <span style="color:#e6db74">&#39;%Slow_queries%&#39;</span>;
+</span></span></code></pre></div><h3 id="explain">EXPLAIN</h3>
+<p>EXPLAIN返回SQL语句的执行计划。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">EXPLAIN</span> <span style="color:#66d9ef">SELECT</span> select_options
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">or</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">DESCRIBE</span> <span style="color:#66d9ef">SELECT</span> select_options
+</span></span></code></pre></div><p>查询结果列如下：</p>
+<ul>
+<li>id：决定每个表的加载和读取顺序。
+<ul>
+<li>id相同，可以认为是一组，从上往下顺序执行</li>
+<li>id越大，优先级越高，越先执行</li>
+<li>不同id代表单独一趟查询，趟数越少越好</li>
+</ul>
+</li>
+<li>table：一趟查询在哪个表中查询</li>
+<li>select_type：查询类型
+<ul>
+<li>SIMPLE：简单select查询，不包含子查询或者UNION</li>
+<li>PRIMARY：嵌套查询最外层的部分</li>
+<li>SUBQUERY：出现在select或者where后面中的子查询被标记为SUBQUERY</li>
+<li>DERIVED：在from后面的子查询</li>
+<li>UNION：将UNION后面的select标记位UNION</li>
+<li>UNION RESULT：从 UNION表获取结果的select</li>
+</ul>
+</li>
+<li>type：数据的访问方法，结果值从好到坏依次为：system &gt; const &gt; eq_ref &gt; ref &gt; fulltext &gt; ref_or_null &gt; index_merge &gt; unique_subquery &gt; index_subquery &gt; range &gt; index &gt; ALL，SQL 性能优化的目标：至少要达到 range 级别，要求是 ref 级别，最好是 const级别。（阿里巴巴 开发手册要求）
+<ul>
+<li>system：表中只有一行记录</li>
+<li>const：通过索引一次就找到了</li>
+<li>eq_ref：唯一性索引扫描</li>
+<li>ref：使用普通索引或者唯一索引的部分前缀</li>
+<li>range：只检索给定范围的行，使用一个索引来选择行。</li>
+<li>index：full index scan，index类型只遍历索引树</li>
+<li>all：全表扫描</li>
+</ul>
+</li>
+<li>possible_keys：可能使用的索引</li>
+<li>key：实际使用的索引</li>
+<li>key_len：索引中使用的字节数</li>
+<li>ref：当使用索引列等值查询时，与索引列进行等值匹配的对象信息，取ref（字段）或const（常量）</li>
+<li>rows：查询大约所需读取的行数</li>
+<li>Extra：额外信息
+<ul>
+<li>Using filesort：无法使用索引完成，只能在内存或磁盘中进行排序。</li>
+<li>Using temporary：MySQL需要创建一张临时表来处理查询，常见于order by 和 group by。</li>
+<li>Using index：使用了覆盖索引，效率高，如果同时出现<code>Using where</code></li>
+<li>Using index condition：使用了索引下推</li>
+</ul>
+</li>
+</ul>
+<h3 id="optimizer-trace">optimizer trace</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">set</span> optimizer_trace<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;enabled=on&#34;</span>,end_markers_in_json<span style="color:#f92672">=</span><span style="color:#66d9ef">on</span>;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">set</span> optimizer_trace_max_mem_size<span style="color:#f92672">=</span><span style="color:#ae81ff">1000000</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">from</span> student <span style="color:#66d9ef">where</span> id <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">10</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">from</span> information_schema.optimizer_trace<span style="color:#960050;background-color:#1e0010">\</span><span style="color:#66d9ef">G</span>
+</span></span></code></pre></div><h3 id="sysschema">sys.schema</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#f92672">#</span><span style="color:#ae81ff">1</span>. <span style="color:#960050;background-color:#1e0010">查询冗余索引</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">from</span> sys.schema_redundant_indexes;
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span><span style="color:#ae81ff">2</span>. <span style="color:#960050;background-color:#1e0010">查询未使用过的索引</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">from</span> sys.schema_unused_indexes;
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span><span style="color:#ae81ff">3</span>. <span style="color:#960050;background-color:#1e0010">查询索引的使用情况</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> index_name,rows_selected,rows_inserted,rows_updated,rows_deleted
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">from</span> sys.schema_index_statistics <span style="color:#66d9ef">where</span> table_schema<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;dbname&#39;</span> ;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#ae81ff">1</span>. <span style="color:#960050;background-color:#1e0010">查询表的访问量</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> table_schema,<span style="color:#66d9ef">table_name</span>,<span style="color:#66d9ef">sum</span>(io_read_requests<span style="color:#f92672">+</span>io_write_requests) <span style="color:#66d9ef">as</span> io <span style="color:#66d9ef">from</span>
+</span></span><span style="display:flex;"><span>sys.schema_table_statistics <span style="color:#66d9ef">group</span> <span style="color:#66d9ef">by</span> table_schema,<span style="color:#66d9ef">table_name</span> <span style="color:#66d9ef">order</span> <span style="color:#66d9ef">by</span> io <span style="color:#66d9ef">desc</span>;
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#ae81ff">2</span>. <span style="color:#960050;background-color:#1e0010">查询占用</span>bufferpool较多的表
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> object_schema,object_name,allocated,<span style="color:#66d9ef">data</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">from</span> sys.innodb_buffer_stats_by_table <span style="color:#66d9ef">order</span> <span style="color:#66d9ef">by</span> allocated <span style="color:#66d9ef">limit</span> <span style="color:#ae81ff">10</span>;
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#ae81ff">3</span>. <span style="color:#960050;background-color:#1e0010">查看表的全表扫描情况</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">from</span> sys.statements_with_full_table_scans <span style="color:#66d9ef">where</span> db<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;dbname&#39;</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span><span style="color:#ae81ff">1</span>. <span style="color:#960050;background-color:#1e0010">监控</span>SQL执行的频率
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> db,exec_count,query <span style="color:#66d9ef">from</span> sys.statement_analysis
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">order</span> <span style="color:#66d9ef">by</span> exec_count <span style="color:#66d9ef">desc</span>;
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span><span style="color:#ae81ff">2</span>. <span style="color:#960050;background-color:#1e0010">监控使用了排序的</span><span style="color:#66d9ef">SQL</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> db,exec_count,first_seen,last_seen,query
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">from</span> sys.statements_with_sorting <span style="color:#66d9ef">limit</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span><span style="color:#ae81ff">3</span>. <span style="color:#960050;background-color:#1e0010">监控使用了临时表或者磁盘临时表的</span><span style="color:#66d9ef">SQL</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> db,exec_count,tmp_tables,tmp_disk_tables,query
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">from</span> sys.statement_analysis <span style="color:#66d9ef">where</span> tmp_tables<span style="color:#f92672">&gt;</span><span style="color:#ae81ff">0</span> <span style="color:#66d9ef">or</span> tmp_disk_tables <span style="color:#f92672">&gt;</span><span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">order</span> <span style="color:#66d9ef">by</span> (tmp_tables<span style="color:#f92672">+</span>tmp_disk_tables) <span style="color:#66d9ef">desc</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span><span style="color:#ae81ff">1</span>. <span style="color:#960050;background-color:#1e0010">查看消耗磁盘</span>IO的文件
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> file,avg_read,avg_write,avg_read<span style="color:#f92672">+</span>avg_write <span style="color:#66d9ef">as</span> avg_io
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">from</span> sys.io_global_by_file_by_bytes <span style="color:#66d9ef">order</span> <span style="color:#66d9ef">by</span> avg_read <span style="color:#66d9ef">limit</span> <span style="color:#ae81ff">10</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span><span style="color:#ae81ff">1</span>. <span style="color:#960050;background-color:#1e0010">行锁阻塞情况</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">select</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">from</span> sys.innodb_lock_waits;
+</span></span></code></pre></div><h2 id="sql优化">SQL优化</h2>
+<p>SQL优化大方向主要分为以下两块：</p>
+<ul>
+<li>物理查询优化：通过<strong>索引</strong>和<strong>表连接</strong>方式等技术来优化。</li>
+<li>逻辑查询优化：通过<strong>SQL等价变换</strong>提升查询效率。</li>
+</ul>
+<h3 id="join语句原理">JOIN语句原理</h3>
+<p>join本质就是<strong>各个表之间数据的循环匹配</strong>，MySQL5.5之前，使用嵌套循环方式（Nested Loop Join），在MySQL5.5之后，引入BNLJ算法来优化嵌套执行。</p>
+<p>驱动表为主表，被驱动表为从表，小表驱动大表。通过<code>explain</code>关键字查看。</p>
+<h4 id="simple-nested-loop-join">Simple Nested-Loop Join</h4>
+<p>从驱动表A取出数据，遍历扫描表B，将匹配到的数据放到result中，以此类推，驱动表A，直到所有记录被遍历结束。性能消耗很大。</p>
+<h4 id="index-nested-loop-join">Index Nested-Loop Join</h4>
+<p>优化思路主要是为了<strong>减少内层表数据的匹配次数</strong>，所以要求被驱动表上必须有索引才行。通过外层表匹配条件直接与内层表索引进行匹配，减少了和内层表中每条记录去进行比较，这样大大提高了查询效率。</p>
+<h4 id="block-nested-loop-join">Block Nested-Loop Join</h4>
+<p>BNLJ引入了<code>Join Buffer</code>缓冲区，将驱动表数据按块缓存在<code>buffer</code>中然后全表扫描被驱动表，被驱动表的每一条记录一次性和<code>buffer</code>中所有记录进行匹配，降低了被驱动表的访问频率。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">查看</span>block_nested_loop状态<span style="color:#960050;background-color:#1e0010">，默认开启</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">show</span> VARIABLES <span style="color:#66d9ef">like</span> <span style="color:#e6db74">&#34;%optimizer_switch%&#34;</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">查看</span><span style="color:#66d9ef">join</span> buffer的大小<span style="color:#960050;background-color:#1e0010">，默认为</span><span style="color:#ae81ff">256</span>KB
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">show</span> VARIABLES <span style="color:#66d9ef">like</span> <span style="color:#e6db74">&#34;%join_buffer%&#34;</span>;
+</span></span></code></pre></div><h4 id="hash-join">hash join</h4>
+<ul>
+<li>
+<p>MySQL8.0.20开始废弃BNLJ，从MySQL8.0.18开始引入了Hash Join。</p>
+</li>
+<li>
+<p>Hash Join是做<strong>大数据集连接时</strong>的常用方式，优化器将较小的表利用<code>Join Key</code>在内存中建立哈希表，然后扫描大表并且探测哈希表，找到和哈希表匹配的行。</p>
+<ul>
+<li>适用于小表可以完全放在内存中，总成本：访问两个表的成本之和。</li>
+<li>表很大无法放入内存时，优化器将它分割成若干不同的分区，不能放入内存的部分写到磁盘的临时段。</li>
+<li>能很好的工作于没有索引的大表和并行查询的环境，但是只适用于等值连接</li>
+</ul>
+</li>
+</ul>
+<h4 id="总结">总结</h4>
+<ul>
+<li>
+<p>整体效率：INLJ &gt; BNLJ &gt; SNLJ</p>
+</li>
+<li>
+<p>用小结果集驱动大结果集，<strong>本质</strong>是：<strong>减少外层循环的数据层数</strong>。</p>
+</li>
+<li>
+<p>被驱动表的JOIN字段已经创建了索引。</p>
+</li>
+<li>
+<p>JOIN字段的数据类型保证绝对一致。</p>
+</li>
+<li>
+<p>LEFT JOIN 时选择小表为驱动表，INNER JOIN 时MySQL自动选择小表为驱动表。</p>
+</li>
+</ul>
+<h3 id="子查询优化">子查询优化</h3>
+<p>子查询可以一次完成逻辑上需要多个步骤才能完成的SQL操作，但是子查询的执行效率不高，原因如下：</p>
+<ul>
+<li>执行子查询时，MySQL需要为内层语句的结果建立一张临时表，然后外层语句从该表继续查询，完毕后再撤销临时表，这样会消耗很多系统资源。</li>
+<li>子查询产生的临时表不存在索引，故查询性能受限。</li>
+</ul>
+<p>使用JOIN查询代替子查询，并且可以考虑使用索引优化JOIN查询。</p>
+<blockquote>
+<p>尽量不要使用NOT IN 或者 NOT EXISTS，用LEFT JOIN xxx ON xx WHERE xx IS NULL替代</p>
+</blockquote>
+<h3 id="排序优化">排序优化</h3>
+<p>在MySQL中，支持<code>FileSort</code>和<code>Index</code>两种排序方式。</p>
+<ul>
+<li><code>Index</code>排序中，索引可以保证有序性，不需要再进行排序。</li>
+<li><code>FileSort</code>一般在内存中进行排序，效率较低。</li>
+</ul>
+<p>优化策略：</p>
+<ol>
+<li>在ORDER BY子句中使用索引，避免<code>FileSort</code>排序。</li>
+<li>无法使用<code>Index</code>时，需要对<code>FileSort</code>进行调优。</li>
+<li>where和order by使用最左前缀原则，且order by的多列同DESC或者ASC顺序</li>
+</ol>
+<p>filesort的两种算法：</p>
+<ul>
+<li>双路排序：读取行指针和order by列，对它们进行排序，然后扫描已经排序好的数据，再次读取其他所需字段。需要两次磁盘IO。</li>
+<li>单路排序：从磁盘读取查询需要的所有列，按照order by列进行排序，然后再输出。
+<ul>
+<li>单路排序存在的问题：<code>sort_buffer</code>需要占用较多空间。</li>
+<li>优化策略：
+<ul>
+<li>
+<ol>
+<li>尝试提高<code>sort_buffer_size</code></li>
+<li>尝试提高<code>max_length_for_sort_data</code></li>
+<li>order by时写清楚所需要的字段，禁止<code>*</code></li>
+</ol>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="group-by优化">group by优化</h3>
+<p>优化原则：</p>
+<ul>
+<li>group by使用索引的原则和order by几乎一致。</li>
+<li>group by先排序再分组，遵循最左前缀原则。</li>
+<li>where效率高于having，尽量使用where进行数据过滤</li>
+<li>包含了group by的查询语句，where过滤后的结果集尽量保持在1000行左右。</li>
+</ul>
+<h3 id="优化分页查询">优化分页查询</h3>
+<p>当<code>limit 2000000,10</code>时，MySQL获取前2000010条数据，但是只返回后十条记录，其他全部丢弃，查询的代价特别大。</p>
+<p>优化思路主要有以下几种方案：</p>
+<p>在索引上完成分页操作，最后根据主键回表查询其他列内容。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">EXPLAIN</span> <span style="color:#66d9ef">SELECT</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">FROM</span> student t,(<span style="color:#66d9ef">SELECT</span> id <span style="color:#66d9ef">FROM</span> student <span style="color:#66d9ef">ORDER</span> <span style="color:#66d9ef">BY</span> id <span style="color:#66d9ef">LIMIT</span> <span style="color:#ae81ff">2000000</span>,<span style="color:#ae81ff">10</span>) a <span style="color:#66d9ef">WHERE</span> t.id <span style="color:#f92672">=</span> a.id;
+</span></span></code></pre></div><p>将<code>limit</code>查询转换到指定主键的查询（需要主键自增的要求）</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">EXPLAIN</span> <span style="color:#66d9ef">SELECT</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">FROM</span> student <span style="color:#66d9ef">WHERE</span> id <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">2000000</span> <span style="color:#66d9ef">LIMIT</span> <span style="color:#ae81ff">10</span>;
+</span></span></code></pre></div><h3 id="优先考虑覆盖索引">优先考虑覆盖索引</h3>
+<p>覆盖索引：一个索引包含了查询所需要的数据，避免了回表操作。</p>
+<ul>
+<li>优点
+<ul>
+<li>避免了InnoDB的回表操作</li>
+<li>可以将随机IO变成顺序IO加快查询效率</li>
+</ul>
+</li>
+<li>缺点：
+<ul>
+<li>建立覆盖型的索引可能造成冗余。</li>
+</ul>
+</li>
+</ul>
+<h3 id="字符串添加索引">字符串添加索引</h3>
+<p>MySQL支持前缀索引，不指定前缀长度时，索引默认包含整个字符串。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span>mysql<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">alter</span> <span style="color:#66d9ef">table</span> teacher <span style="color:#66d9ef">add</span> <span style="color:#66d9ef">index</span> index1(email);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>mysql<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">alter</span> <span style="color:#66d9ef">table</span> teacher <span style="color:#66d9ef">add</span> <span style="color:#66d9ef">index</span> index2(email(<span style="color:#ae81ff">6</span>));
+</span></span></code></pre></div><p>前缀索引和整个字符串索引的区别如下：</p>
+<ol>
+<li>使用前缀索引更加节省空间，定义长度时考虑区分度。</li>
+<li>前缀索引不支持覆盖索引，需要综合考虑。</li>
+</ol>
+<h3 id="索引下推icp">索引下推(ICP)</h3>
+<p><strong>Index Condition Pushdown</strong>是MySQL 5.6中引入的新特性。</p>
+<p>未使用ICP的工作过程：</p>
+<ol>
+<li>storage层将满足index key条件的索引记录对应的整行取出，返回给server层。</li>
+<li>对返回的数据，使用where条件进行过滤。</li>
+</ol>
+<p>ICP工作过程：</p>
+<ol>
+<li>将满足index key条件满足的索引记录取出，使用<code>index filter</code>对where条件进行过滤，将满足条件的记录返回给server层。</li>
+<li>server层对返回的数据使用<code>table filter</code>条件进行过滤。</li>
+</ol>
+<p>成本差别在于：<strong>ICP在存储引擎层通过ICP筛选掉不符合条件的数据，减少了回表成本。</strong></p>
+<p>使用条件：</p>
+<ul>
+<li>只能用于二级索引</li>
+<li>ICP仅适用于索引列（通常是联合索引）</li>
+<li>ICP可以用于MyISAM和InnnoDB存储引擎</li>
+</ul>
+<h3 id="其他优化策略">其他优化策略</h3>
+<ul>
+<li>EXISTS和IN的区分：小表驱动大表原则，A表小用EXISTS，B表小用IN。</li>
+<li>COUNT(*)、COUNT(column)、COUNT(1)的效率对比
+<ul>
+<li>COUNT(*)、COUNT(1)：两者没有本质区别，都是对所有结果进行COUNT。
+<ul>
+<li>MyISAM只需要$O(1)$复杂度，因为每张数据表都有<code>row_count</code>存储行数，一致性由表级锁保证。</li>
+<li>InnoDB存储引擎采用行级锁+MVCC机制，故需要<strong>扫描全表</strong>，需要$O(n)$复杂度。</li>
+</ul>
+</li>
+<li>COUNT(column)：尽量采用二级索引，二级索引的空间比聚簇索引小。</li>
+</ul>
+</li>
+<li>SELECT(*)：禁止使用
+<ul>
+<li>无法使用覆盖索引</li>
+<li>增加查询分析器解析成本：通过查询数据字典将<code>*</code>转换为所有列名。</li>
+<li>无用字段增加消耗，例如BLOB等类型会有行溢出额外查询消耗。</li>
+</ul>
+</li>
+<li>LIMIT 1：针对全表扫描的情况，确定结果集只有一条，可以使用<code>LIMIT 1</code>优化，如果字段已经存在唯一索引，可以通过索引进行查询，则不需要<code>LIMIT 1</code>进行优化。</li>
+<li>使用COMMIT释放资源
+<ul>
+<li>回滚段上用于恢复数据的信息</li>
+<li>被程序语句获得的锁</li>
+<li>redo、undo中的buffer空间</li>
+</ul>
+</li>
+</ul>
+<h2 id="数据库设计">数据库设计</h2>
+<h3 id="主键的设计">主键的设计</h3>
+<p>自增ID存在的问题：</p>
+<ul>
+<li>可靠性不高：存在自增ID回溯问题，MySQL8.0修复</li>
+<li>安全性不高：<code>/user/{id}</code>这样的接口会导致恶意请求爬取相应数据。</li>
+<li>性能消耗：在服务器端生成</li>
+<li>交互多：业务还需要额外执行一次类似<code>last_insert_id()</code>的行数才能知道刚才插入的自增值，需要额外的网络交互。</li>
+<li>局部唯一性：自增ID只能在当前数据库实例中唯一，不能保证分布式系统中的唯一性。</li>
+</ul>
+<h3 id="uuid">UUID</h3>
+<p>UUID占用36字节，MySQL中UUID由以下几部分组成：</p>
+<pre tabindex="0"><code>UUID = 时间+UUID版本（16字节）- 时钟序列（4字节）- MAC地址（12字节）
+另外加上4个短横线，共36字节
+</code></pre><p>MySQL8.0将时间低位和高位互换位置，构成了有序UUID。同时将UUID改为二进制存储，只需16字节存储。</p>
+<p>可以通过<code>uuid_to_bin(@uuid, true)</code>将原来的UUID转换为有序递增UUID。</p>
+<h3 id="开源组件">开源组件</h3>
+<p>例如美团开发的Leaf分布式ID生成等。</p>
+<h3 id="反范式化">反范式化</h3>
+<ul>
+<li>为了满足性能目标，性能比规范化更重要。</li>
+<li>在表中增加冗余字段，以大量减少从中搜索的时间。</li>
+<li>存储空间增加，一个表的字段修改，另一个表的冗余字段也需要同步修改，否则数据不一致。</li>
+<li>只有大幅度提高查询效率，才考虑反范式化。</li>
+<li>常用于数仓设计，数仓通常用于存储历史数据，增删改的要求不高。</li>
+</ul>
+<h1 id="大表优化">大表优化</h1>
+<h2 id="限制查询范围">限制查询范围</h2>
+<p><strong>禁止使用不带任何限制数据范围条件的查询语句。</strong></p>
+<h2 id="读写分离">读写分离</h2>
+<ul>
+<li>一主一从模式</li>
+<li>双主双从模式</li>
+</ul>
+<h2 id="分表">分表</h2>
+<h3 id="垂直拆分">垂直拆分</h3>
+<p>当数据量级达到<strong>千万级</strong>以上时，可以键数据库切分成多块，放到多台数据库服务器中。</p>
+<ul>
+<li>
+<p>垂直分库：将关联的数据表放在同一台数据库中。</p>
+</li>
+<li>
+<p>垂直分表：将一张数据表拆分成多张数据表，按列划分。</p>
+</li>
+<li>
+<p><strong>优点</strong>：可以使得列数据变小，在查询时减少读取的Block数量，减少IO次数。</p>
+</li>
+<li>
+<p><strong>缺点</strong>：主键会冗余，并且会引起JOIN操作，增加业务复杂度。</p>
+</li>
+</ul>
+<h3 id="水平拆分">水平拆分</h3>
+<ul>
+<li>尽量控制单表数据量大小，保持在<strong>1000万条</strong>以内。</li>
+<li>水平分表仅是解决<strong>单一表数据量过大</strong>的问题。</li>
+<li>尽量不要对数据分片，拆分会带来逻辑、部署、运维的复杂度。</li>
+</ul>
+<h3 id="代理方案">代理方案</h3>
+<ul>
+<li>
+<p>客户端代理：分片逻辑在应用层，封装在JAR中，通过修改或封装JDBC层来实现，例如Sharding-JDBC等。</p>
+</li>
+<li>
+<p>中间件代理：在应用层和数据层中间加了个代理层，分片逻辑统一维护在中间件中，例如Mycat等。</p>
+</li>
+</ul>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/mysql/">
+                MySQL
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/mysql/mysql-structure-and-engine/">MySQL体系结构和存储引擎</a></li>
+    
+    <li><a href="/posts/mysql/mysql%E7%B4%A2%E5%BC%95%E7%BB%86%E8%8A%82/">深入MySQL索引细节</a></li>
+    
+    <li><a href="/posts/mysql/%E6%8E%A2%E7%B4%A2mysql%E7%9A%84%E4%BA%8B%E5%8A%A1%E4%B8%8E%E9%94%81%E6%9C%BA%E5%88%B6/">探索MySQL的事务与锁机制</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/jvm/jvm06-class-file/" />
+  <link rel="canonical" href="http://localhost:59500/posts/jvm/jvm06-class-file/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "JVM之类文件结构（六）",
+      "headline" : "JVM之类文件结构（六）",
+      "description" : "前言 实现语言无关性的基础是虚拟机和字节码存储格式。Java虚拟机不与任何程序语言绑定，它只与Class文件这种特定的二进制文件格式所关联。Class文件中包含了Java虚拟机指令集，符号表以及若干其他辅助信息。\nClass文件结构 任何一个Class文件对应着唯一的一个类或者接口的定义信息，Class文件是一组以八个字节为基础单位的二进制流，各个数据项目严格按照顺序紧凑的排列，中间没有任何分隔符，Class文件只有两种类型：无符号数、表。\n无符号数属于基本数据类型，以u1,u2,u4,u8分别代表1\/2\/4\/8个字节的无符号数，无符号数用来描述数字，索引引用，数量值。 表：由多个无符号数或者其他表作为数据项构成的复合数据类型。 魔数 Class文件的头4个字节被称为魔数，它的唯一作用就是确定这个文件是否为一个能被JVM接受的Class文件，魔数的十六进制表示为0xCAFEBABE。\n版本信息 紧接着魔数的4个字节的是版本信息，第5-6字节是次版本号，7-8字节是主版本号，表示Class文件使用的JDK版本。 高版本的JDK能向下兼容，但是不能向上兼容。\n常量池 版本信息之后是常量池入口，常量池主要存放两大类常量：字面量、符号引用。\n常量池中常量的数量是不固定的，所以在入口需要放置一项u2类型的数据，代表常量池容量计数值。\n字面量接近于常量概念，如字符串、被声明为final的值。 符号引用属于编译原理方面的概念：主要包括：\n被模块导出或开放的包 类和接口的全限定名 字段的名称和描述符 方法的名称和描述符 方法句柄和方法类型 动态调用点和动态产量 常量池的每个常量都是一个表，共有17钟不同类型的常量。表开始的第一位是个u1类型的标志位，代表当前常量属于哪种常量类型。\n17种常量类型：\n类型 tag 描述 CONSTANT_utf8_info 1 UTF-8编码的字符串 CONSTANT_Integer_info 3 整型字面量 CONSTANT_Float_info 4 浮点型字面量 CONSTANT_Long_info 5 长整型字面量 CONSTANT_Double_info 6 双精度浮点型字面量 CONSTANT_Class_info 7 类或接口的符号引用 CONSTANT_String_info 8 字符串类型字面量 CONSTANT_Fieldref_info 9 字段的符号引用 CONSTANT_Methodref_info 10 类中方法的符号引用 CONSTANT_InterfaceMethodref_info 11 接口中方法的符号引用 CONSTANT_NameAndType_info 12 字段或方法的符号引用 CONSTANT_MethodHandle_info 15 表示方法句柄 CONSTANT_MethodType_info 16 标识方法类型 CONSTANT_InvokeDynamic_info 18 表示一个动态方法调用点 类型 名称 数量 u1 tag 1 u2 name_index 1 tag 是标志位，用于区分常量类型；name_index 是一个索引值，它指向常量池中一个 CONSTANT_Utf8_info 类型常量，此常量代表这个类（或接口）的全限定名，这里 name_index 值若为 0x0002，也即是指向了常量池中的第二项常量。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-03-26 17:30:40 \u002b0000 UTC",
+      "dateModified" : "2020-03-26 17:30:40 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/jvm\/jvm06-class-file\/",
+      "keywords" : [ "Java","JVM", ]
+  }
+</script>
+<title>JVM之类文件结构（六）</title>
+  <meta property="og:title" content="JVM之类文件结构（六）" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="前言 实现语言无关性的基础是虚拟机和字节码存储格式。Java虚拟机不与任何程序语言绑定，它只与Class文件这种特定的二进制文件格式所关联。Class文件中包含了Java虚拟机指令集，符号表以及若干其他辅助信息。
+Class文件结构 任何一个Class文件对应着唯一的一个类或者接口的定义信息，Class文件是一组以八个字节为基础单位的二进制流，各个数据项目严格按照顺序紧凑的排列，中间没有任何分隔符，Class文件只有两种类型：无符号数、表。
+无符号数属于基本数据类型，以u1,u2,u4,u8分别代表1/2/4/8个字节的无符号数，无符号数用来描述数字，索引引用，数量值。 表：由多个无符号数或者其他表作为数据项构成的复合数据类型。 魔数 Class文件的头4个字节被称为魔数，它的唯一作用就是确定这个文件是否为一个能被JVM接受的Class文件，魔数的十六进制表示为0xCAFEBABE。
+版本信息 紧接着魔数的4个字节的是版本信息，第5-6字节是次版本号，7-8字节是主版本号，表示Class文件使用的JDK版本。 高版本的JDK能向下兼容，但是不能向上兼容。
+常量池 版本信息之后是常量池入口，常量池主要存放两大类常量：字面量、符号引用。
+常量池中常量的数量是不固定的，所以在入口需要放置一项u2类型的数据，代表常量池容量计数值。
+字面量接近于常量概念，如字符串、被声明为final的值。 符号引用属于编译原理方面的概念：主要包括：
+被模块导出或开放的包 类和接口的全限定名 字段的名称和描述符 方法的名称和描述符 方法句柄和方法类型 动态调用点和动态产量 常量池的每个常量都是一个表，共有17钟不同类型的常量。表开始的第一位是个u1类型的标志位，代表当前常量属于哪种常量类型。
+17种常量类型：
+类型 tag 描述 CONSTANT_utf8_info 1 UTF-8编码的字符串 CONSTANT_Integer_info 3 整型字面量 CONSTANT_Float_info 4 浮点型字面量 CONSTANT_Long_info 5 长整型字面量 CONSTANT_Double_info 6 双精度浮点型字面量 CONSTANT_Class_info 7 类或接口的符号引用 CONSTANT_String_info 8 字符串类型字面量 CONSTANT_Fieldref_info 9 字段的符号引用 CONSTANT_Methodref_info 10 类中方法的符号引用 CONSTANT_InterfaceMethodref_info 11 接口中方法的符号引用 CONSTANT_NameAndType_info 12 字段或方法的符号引用 CONSTANT_MethodHandle_info 15 表示方法句柄 CONSTANT_MethodType_info 16 标识方法类型 CONSTANT_InvokeDynamic_info 18 表示一个动态方法调用点 类型 名称 数量 u1 tag 1 u2 name_index 1 tag 是标志位，用于区分常量类型；name_index 是一个索引值，它指向常量池中一个 CONSTANT_Utf8_info 类型常量，此常量代表这个类（或接口）的全限定名，这里 name_index 值若为 0x0002，也即是指向了常量池中的第二项常量。
+" />
+  <meta name="description" content="前言 实现语言无关性的基础是虚拟机和字节码存储格式。Java虚拟机不与任何程序语言绑定，它只与Class文件这种特定的二进制文件格式所关联。Class文件中包含了Java虚拟机指令集，符号表以及若干其他辅助信息。
+Class文件结构 任何一个Class文件对应着唯一的一个类或者接口的定义信息，Class文件是一组以八个字节为基础单位的二进制流，各个数据项目严格按照顺序紧凑的排列，中间没有任何分隔符，Class文件只有两种类型：无符号数、表。
+无符号数属于基本数据类型，以u1,u2,u4,u8分别代表1/2/4/8个字节的无符号数，无符号数用来描述数字，索引引用，数量值。 表：由多个无符号数或者其他表作为数据项构成的复合数据类型。 魔数 Class文件的头4个字节被称为魔数，它的唯一作用就是确定这个文件是否为一个能被JVM接受的Class文件，魔数的十六进制表示为0xCAFEBABE。
+版本信息 紧接着魔数的4个字节的是版本信息，第5-6字节是次版本号，7-8字节是主版本号，表示Class文件使用的JDK版本。 高版本的JDK能向下兼容，但是不能向上兼容。
+常量池 版本信息之后是常量池入口，常量池主要存放两大类常量：字面量、符号引用。
+常量池中常量的数量是不固定的，所以在入口需要放置一项u2类型的数据，代表常量池容量计数值。
+字面量接近于常量概念，如字符串、被声明为final的值。 符号引用属于编译原理方面的概念：主要包括：
+被模块导出或开放的包 类和接口的全限定名 字段的名称和描述符 方法的名称和描述符 方法句柄和方法类型 动态调用点和动态产量 常量池的每个常量都是一个表，共有17钟不同类型的常量。表开始的第一位是个u1类型的标志位，代表当前常量属于哪种常量类型。
+17种常量类型：
+类型 tag 描述 CONSTANT_utf8_info 1 UTF-8编码的字符串 CONSTANT_Integer_info 3 整型字面量 CONSTANT_Float_info 4 浮点型字面量 CONSTANT_Long_info 5 长整型字面量 CONSTANT_Double_info 6 双精度浮点型字面量 CONSTANT_Class_info 7 类或接口的符号引用 CONSTANT_String_info 8 字符串类型字面量 CONSTANT_Fieldref_info 9 字段的符号引用 CONSTANT_Methodref_info 10 类中方法的符号引用 CONSTANT_InterfaceMethodref_info 11 接口中方法的符号引用 CONSTANT_NameAndType_info 12 字段或方法的符号引用 CONSTANT_MethodHandle_info 15 表示方法句柄 CONSTANT_MethodType_info 16 标识方法类型 CONSTANT_InvokeDynamic_info 18 表示一个动态方法调用点 类型 名称 数量 u1 tag 1 u2 name_index 1 tag 是标志位，用于区分常量类型；name_index 是一个索引值，它指向常量池中一个 CONSTANT_Utf8_info 类型常量，此常量代表这个类（或接口）的全限定名，这里 name_index 值若为 0x0002，也即是指向了常量池中的第二项常量。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">JVM之类文件结构（六）</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-03-26 17:30:40 UTC">
+                26 Mar 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="前言">前言</h2>
+<p>实现语言无关性的基础是虚拟机和字节码存储格式。Java虚拟机不与任何程序语言绑定，它只与Class文件这种特定的二进制文件格式所关联。Class文件中包含了Java虚拟机指令集，符号表以及若干其他辅助信息。</p>
+<h2 id="class文件结构">Class文件结构</h2>
+<p>任何一个Class文件对应着唯一的一个类或者接口的定义信息，Class文件是一组以八个字节为基础单位的<strong>二进制流</strong>，各个数据项目严格按照顺序紧凑的排列，中间没有任何分隔符，Class文件只有两种类型：<strong>无符号数</strong>、<strong>表</strong>。</p>
+<ul>
+<li>无符号数属于基本数据类型，以u1,u2,u4,u8分别代表1/2/4/8个字节的无符号数，无符号数用来描述数字，索引引用，数量值。</li>
+<li>表：由多个无符号数或者其他表作为数据项构成的复合数据类型。</li>
+</ul>
+<h3 id="魔数">魔数</h3>
+<p>Class文件的头4个字节被称为魔数，它的唯一作用就是确定这个文件是否为一个能被JVM接受的Class文件，魔数的十六进制表示为<code>0xCAFEBABE</code>。</p>
+<h3 id="版本信息">版本信息</h3>
+<p>紧接着魔数的4个字节的是版本信息，第5-6字节是次版本号，7-8字节是主版本号，表示Class文件使用的JDK版本。
+高版本的JDK能向下兼容，但是不能向上兼容。</p>
+<h3 id="常量池">常量池</h3>
+<p>版本信息之后是常量池入口，常量池主要存放两大类常量：<strong>字面量</strong>、<strong>符号引用</strong>。</p>
+<p>常量池中常量的数量是不固定的，所以在入口需要放置一项u2类型的数据，代表常量池容量计数值。</p>
+<p>字面量接近于常量概念，如字符串、被声明为final的值。
+符号引用属于编译原理方面的概念：主要包括：</p>
+<ul>
+<li>被模块导出或开放的包</li>
+<li>类和接口的全限定名</li>
+<li>字段的名称和描述符</li>
+<li>方法的名称和描述符</li>
+<li>方法句柄和方法类型</li>
+<li>动态调用点和动态产量</li>
+</ul>
+<p>常量池的每个常量都是一个表，共有17钟不同类型的常量。表开始的第一位是个u1类型的标志位，代表当前常量属于哪种常量类型。</p>
+<p>17种常量类型：</p>
+<table>
+  <thead>
+      <tr>
+          <th>类型</th>
+          <th>tag</th>
+          <th>描述</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>CONSTANT_utf8_info</td>
+          <td>1</td>
+          <td>UTF-8编码的字符串</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_Integer_info</td>
+          <td>3</td>
+          <td>整型字面量</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_Float_info</td>
+          <td>4</td>
+          <td>浮点型字面量</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_Long_info</td>
+          <td>5</td>
+          <td>长整型字面量</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_Double_info</td>
+          <td>6</td>
+          <td>双精度浮点型字面量</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_Class_info</td>
+          <td>7</td>
+          <td>类或接口的符号引用</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_String_info</td>
+          <td>8</td>
+          <td>字符串类型字面量</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_Fieldref_info</td>
+          <td>9</td>
+          <td>字段的符号引用</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_Methodref_info</td>
+          <td>10</td>
+          <td>类中方法的符号引用</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_InterfaceMethodref_info</td>
+          <td>11</td>
+          <td>接口中方法的符号引用</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_NameAndType_info</td>
+          <td>12</td>
+          <td>字段或方法的符号引用</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_MethodHandle_info</td>
+          <td>15</td>
+          <td>表示方法句柄</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_MethodType_info</td>
+          <td>16</td>
+          <td>标识方法类型</td>
+      </tr>
+      <tr>
+          <td>CONSTANT_InvokeDynamic_info</td>
+          <td>18</td>
+          <td>表示一个动态方法调用点</td>
+      </tr>
+  </tbody>
+</table>
+<!-- raw HTML omitted -->
+<table>
+  <thead>
+      <tr>
+          <th>类型</th>
+          <th>名称</th>
+          <th>数量</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>u1</td>
+          <td>tag</td>
+          <td>1</td>
+      </tr>
+      <tr>
+          <td>u2</td>
+          <td>name_index</td>
+          <td>1</td>
+      </tr>
+  </tbody>
+</table>
+<p>tag 是标志位，用于区分常量类型；name_index 是一个索引值，它指向常量池中一个 CONSTANT_Utf8_info 类型常量，此常量代表这个类（或接口）的全限定名，这里 name_index 值若为 0x0002，也即是指向了常量池中的第二项常量。</p>
+<!-- raw HTML omitted -->
+<table>
+  <thead>
+      <tr>
+          <th>类型</th>
+          <th>名称</th>
+          <th>数量</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>u1</td>
+          <td>tag</td>
+          <td>1</td>
+      </tr>
+      <tr>
+          <td>u2</td>
+          <td>length</td>
+          <td>1</td>
+      </tr>
+      <tr>
+          <td>u1</td>
+          <td>bytes</td>
+          <td>length</td>
+      </tr>
+  </tbody>
+</table>
+<p>tag 是当前常量的类型；length表示这个字符串的长度；bytes 是这个字符串的内容（采用缩略的 UTF8 编码）</p>
+<h3 id="访问标志">访问标志</h3>
+<p>常量池结束后，紧接着的两个字节表示访问标志，用来识别一些类或者接口层次的访问信息，包括：这个Class是类还是接口，是否定义为public类型，是否定义为abstract类型，是否被final修饰。</p>
+<h3 id="类索引父类索引接口索引集合">类索引，父类索引，接口索引集合</h3>
+<p>类索引和父类索引都是一个u2类型的数据，而接口索引集合是一组u2类型的数据集合，Class文件由这三项数据来确定该类的继承关系，类索引用来确定这个类的父类的全限定名。，父类索引只有一个，除了<code>java.lang.Object</code>之外，所有的Java类都有父类。接口索引集合用来描述这个类实现了哪些接口，这些接口按<code>implements</code>关键字后面的顺序从左到右排列在接口索引集合内。接口索引集合的第一项为u2类型的数据，表示索引表的容量，接下来就是接口的名字索引。</p>
+<p>类索引，父类索引引用两个u2类型的索引值标识，它们各自指向一个类型为 CONSTANT_Class_info 的类描述符常量，通过该常量总的索引值可以找到定义在 CONSTANT_Utf8_info 类型的常量中的全限定名字符串。</p>
+<h3 id="字段表集合">字段表集合</h3>
+<p>字段表用来描述接口或者类种声明的变量，包括实例变量和类变量，但是不包括方法中的局部变量。
+每个字段表只表示一个变量，本类中所有的成员变量构成字段表集合，字段表结构如下所示：</p>
+<table>
+  <thead>
+      <tr>
+          <th>类型</th>
+          <th>名称</th>
+          <th>数量</th>
+          <th>说明</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>u2</td>
+          <td>access_flags</td>
+          <td>1</td>
+          <td>字段的访问标志，与类稍有不同</td>
+      </tr>
+      <tr>
+          <td>u2</td>
+          <td>name_index</td>
+          <td>1</td>
+          <td>字段名字的索引</td>
+      </tr>
+      <tr>
+          <td>u2</td>
+          <td>descriptor_index</td>
+          <td>1</td>
+          <td>描述符，用于描述字段的数据类型。 基本数据类型用大写字母表示； 对象类型用“L 对象类型的全限定名”表示。</td>
+      </tr>
+      <tr>
+          <td>u2</td>
+          <td>attributes_count</td>
+          <td>1</td>
+          <td>属性表集合的长度</td>
+      </tr>
+      <tr>
+          <td>u2</td>
+          <td>attributes</td>
+          <td>attributes_count</td>
+          <td>属性表集合，用于存放属性的额外信息，如属性的值。</td>
+      </tr>
+  </tbody>
+</table>
+<h3 id="方法表集合">方法表集合</h3>
+<p>对方法的描述和对字段的描述采取了几乎完全一致的方式。依次包括访问标志，名称索引，描述符索引，属性表集合。</p>
+<p>因为volatile关键字和transient关键字不能修饰方法，所以方法表的访问标志中没有这两项。</p>
+<h3 id="属性表集合">属性表集合</h3>
+<p>字段表，方法表都可以携带自己的属性表集合，以描述某些场景专有的信息。</p>
+<p>属性表结构如下：</p>
+<table>
+  <thead>
+      <tr>
+          <th>类型</th>
+          <th>名称</th>
+          <th>数量</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>u2</td>
+          <td>attribute_name_index</td>
+          <td>1</td>
+      </tr>
+      <tr>
+          <td>u4</td>
+          <td>attribute_length</td>
+          <td>1</td>
+      </tr>
+      <tr>
+          <td>u1</td>
+          <td>info</td>
+          <td>attribute_length</td>
+      </tr>
+  </tbody>
+</table>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/jvm/">
+                JVM
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/jvm/jvm05-memory-allocate/">JVM之内存分配策略（五）</a></li>
+    
+    <li><a href="/posts/jvm/jvm04-gc-algorithrms/">JVM之垃圾收集算法与垃圾收集器（四）</a></li>
+    
+    <li><a href="/posts/jvm/jvm03-gc-strategy/">JVM之垃圾收集策略（三）</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

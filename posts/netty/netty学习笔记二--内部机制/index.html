@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/netty/netty%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%BA%8C--%E5%86%85%E9%83%A8%E6%9C%BA%E5%88%B6/" />
+  <link rel="canonical" href="http://localhost:59500/posts/netty/netty%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%BA%8C--%E5%86%85%E9%83%A8%E6%9C%BA%E5%88%B6/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Netty学习笔记(二)- 内部机制",
+      "headline" : "Netty学习笔记(二)- 内部机制",
+      "description" : "事件调度层 Reactor线程模型 Netty中三种Reactor线程模型来源于Scalable I\/O in Java，主要有以下三种：\n单线程模型：所有IO操作（连接建立、读写、事件分发）都由一个线程完成。 多线程模型：使用多线程处理任务。线程内部仍然是串行化。 主从多线程模型：主线程只负责连接的Accept事件，从线程负责除连接外的事件。 Reactor线程模型运行机制可以分为以下四个步骤：\n注册连接：将Channel注册到Reactor线程中的Selector。 事件轮询：轮询Selector中已注册的Channel的IO事件。 事件分发：将连接的IO事件分发给worker线程。 任务处理：Reactor线程负责队列中的非IO任务。 EventLoop EventLoop是一种事件处理模型，Netty中EventLoop运行机制如下图所示：\nBossEventLoopGroup：负责监听客户端的Accept事件，触发时将事件注册到WorkerEventLoopGroup中的一个NioEventLoop， WorkerEventLoopGroup：每建立一个Channel，都选择一个NioEventLoop与其绑定，Channel的所有事件都是线程独立的。不会和其他线程发生交集。 任务处理机制 NioEventLoop不仅负责处理IO事件，还要兼顾执行任务队列中的任务。任务队列遵守FIFO原则。任务基本可以分为三类：\n普通任务：通过NioEventLoop的execute()方法向taskQueue中添加的。 定时任务：通过NioEventLoop的schedule()方法向scheduledtaskQueue添加的定时任务，例如心跳消息可以通过该任务实现。 尾部队列：执行完taskQueue中任务后会去获取尾部队列tailTasks中的任务去执行。主要做收尾工作，例如统计事件循环的执行时间等。 使用技巧 使用Boss和Worker两个Group分别处理不同的事件，合理分担压力。 对于耗时较长的ChannelHandler可以考虑维护一个业务线程池，将任务封装成Task进行异步处理。，避免ChannelHandler阻塞而造成EventLoop不可用。 选用合理的ChannelHandler数量，明确业务和Netty的分层。 服务编排层 ChannelPipeline Pipeline如同字面意思，原始的网络字节流流经pipeline，被逐层处理，最终得到成品数据并返回。Netty中的ChannelPipeline采取责任链模式，调用链路环环相扣。\nChannelPipeline由一组ChannelHandlerContext组成，内部通过双向链表将ChannelHandlerContext连接起来，当IO事件触发时，依次调用Handler对数据进行处理。ChannelHandlerContext用于保存ChannelHandler的上下文，包含了其生命周期的所有事件：connect、bind、read等。\n根据数据流向，ChannelPipeline可以分为入站和出站两种处理器，对应ChannelInboundHandler和ChannelOutboundHandler。\n异常处理 ChannelHandler采用了责任链模式，如果前置的Handler抛出呢Exception，会传递到后置Handler，异常处理的最佳实践，就是在最后加上自定义的异常处理器。\npublic class ExceptionHandler extends ChannelDuplexHandler { @Override public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) { if (cause instanceof RuntimeException) { System.out.println(\u0026#34;Handle Business Exception Success.\u0026#34;); } } } 零拷贝 Netty中面向用户态的数据操作优化，主要包含以下几个方面：\n使用堆外内存，避免JVM内存到堆外内存之间的数据拷贝 使用CompositeByteBuf，可以组合多个Buffer，将其合并成逻辑上的一个对象，避免物理的内存拷贝。 使用Unpooled.wrappedBuffer，将byte数组包装成ByteBuf对象，过程间不产生内存拷贝。 ByteBuf.slice切分时不产生内存拷贝，底层共享一个byte数组。 使用FileRegion实现文件传输，使用的FileChannel#transferTo()，直接将缓冲区数据输出到目标Channel，避免内核缓冲区和用户态缓冲区的数据拷贝。 ",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2022",
+      "datePublished": "2022-11-19 08:12:54 \u002b0000 UTC",
+      "dateModified" : "2022-11-19 08:12:54 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/netty\/netty%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%BA%8C--%E5%86%85%E9%83%A8%E6%9C%BA%E5%88%B6\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Netty学习笔记(二)- 内部机制</title>
+  <meta property="og:title" content="Netty学习笔记(二)- 内部机制" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="事件调度层 Reactor线程模型 Netty中三种Reactor线程模型来源于Scalable I/O in Java，主要有以下三种：
+单线程模型：所有IO操作（连接建立、读写、事件分发）都由一个线程完成。 多线程模型：使用多线程处理任务。线程内部仍然是串行化。 主从多线程模型：主线程只负责连接的Accept事件，从线程负责除连接外的事件。 Reactor线程模型运行机制可以分为以下四个步骤：
+注册连接：将Channel注册到Reactor线程中的Selector。 事件轮询：轮询Selector中已注册的Channel的IO事件。 事件分发：将连接的IO事件分发给worker线程。 任务处理：Reactor线程负责队列中的非IO任务。 EventLoop EventLoop是一种事件处理模型，Netty中EventLoop运行机制如下图所示：
+BossEventLoopGroup：负责监听客户端的Accept事件，触发时将事件注册到WorkerEventLoopGroup中的一个NioEventLoop， WorkerEventLoopGroup：每建立一个Channel，都选择一个NioEventLoop与其绑定，Channel的所有事件都是线程独立的。不会和其他线程发生交集。 任务处理机制 NioEventLoop不仅负责处理IO事件，还要兼顾执行任务队列中的任务。任务队列遵守FIFO原则。任务基本可以分为三类：
+普通任务：通过NioEventLoop的execute()方法向taskQueue中添加的。 定时任务：通过NioEventLoop的schedule()方法向scheduledtaskQueue添加的定时任务，例如心跳消息可以通过该任务实现。 尾部队列：执行完taskQueue中任务后会去获取尾部队列tailTasks中的任务去执行。主要做收尾工作，例如统计事件循环的执行时间等。 使用技巧 使用Boss和Worker两个Group分别处理不同的事件，合理分担压力。 对于耗时较长的ChannelHandler可以考虑维护一个业务线程池，将任务封装成Task进行异步处理。，避免ChannelHandler阻塞而造成EventLoop不可用。 选用合理的ChannelHandler数量，明确业务和Netty的分层。 服务编排层 ChannelPipeline Pipeline如同字面意思，原始的网络字节流流经pipeline，被逐层处理，最终得到成品数据并返回。Netty中的ChannelPipeline采取责任链模式，调用链路环环相扣。
+ChannelPipeline由一组ChannelHandlerContext组成，内部通过双向链表将ChannelHandlerContext连接起来，当IO事件触发时，依次调用Handler对数据进行处理。ChannelHandlerContext用于保存ChannelHandler的上下文，包含了其生命周期的所有事件：connect、bind、read等。
+根据数据流向，ChannelPipeline可以分为入站和出站两种处理器，对应ChannelInboundHandler和ChannelOutboundHandler。
+异常处理 ChannelHandler采用了责任链模式，如果前置的Handler抛出呢Exception，会传递到后置Handler，异常处理的最佳实践，就是在最后加上自定义的异常处理器。
+public class ExceptionHandler extends ChannelDuplexHandler { @Override public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) { if (cause instanceof RuntimeException) { System.out.println(&#34;Handle Business Exception Success.&#34;); } } } 零拷贝 Netty中面向用户态的数据操作优化，主要包含以下几个方面：
+使用堆外内存，避免JVM内存到堆外内存之间的数据拷贝 使用CompositeByteBuf，可以组合多个Buffer，将其合并成逻辑上的一个对象，避免物理的内存拷贝。 使用Unpooled.wrappedBuffer，将byte数组包装成ByteBuf对象，过程间不产生内存拷贝。 ByteBuf.slice切分时不产生内存拷贝，底层共享一个byte数组。 使用FileRegion实现文件传输，使用的FileChannel#transferTo()，直接将缓冲区数据输出到目标Channel，避免内核缓冲区和用户态缓冲区的数据拷贝。 " />
+  <meta name="description" content="事件调度层 Reactor线程模型 Netty中三种Reactor线程模型来源于Scalable I/O in Java，主要有以下三种：
+单线程模型：所有IO操作（连接建立、读写、事件分发）都由一个线程完成。 多线程模型：使用多线程处理任务。线程内部仍然是串行化。 主从多线程模型：主线程只负责连接的Accept事件，从线程负责除连接外的事件。 Reactor线程模型运行机制可以分为以下四个步骤：
+注册连接：将Channel注册到Reactor线程中的Selector。 事件轮询：轮询Selector中已注册的Channel的IO事件。 事件分发：将连接的IO事件分发给worker线程。 任务处理：Reactor线程负责队列中的非IO任务。 EventLoop EventLoop是一种事件处理模型，Netty中EventLoop运行机制如下图所示：
+BossEventLoopGroup：负责监听客户端的Accept事件，触发时将事件注册到WorkerEventLoopGroup中的一个NioEventLoop， WorkerEventLoopGroup：每建立一个Channel，都选择一个NioEventLoop与其绑定，Channel的所有事件都是线程独立的。不会和其他线程发生交集。 任务处理机制 NioEventLoop不仅负责处理IO事件，还要兼顾执行任务队列中的任务。任务队列遵守FIFO原则。任务基本可以分为三类：
+普通任务：通过NioEventLoop的execute()方法向taskQueue中添加的。 定时任务：通过NioEventLoop的schedule()方法向scheduledtaskQueue添加的定时任务，例如心跳消息可以通过该任务实现。 尾部队列：执行完taskQueue中任务后会去获取尾部队列tailTasks中的任务去执行。主要做收尾工作，例如统计事件循环的执行时间等。 使用技巧 使用Boss和Worker两个Group分别处理不同的事件，合理分担压力。 对于耗时较长的ChannelHandler可以考虑维护一个业务线程池，将任务封装成Task进行异步处理。，避免ChannelHandler阻塞而造成EventLoop不可用。 选用合理的ChannelHandler数量，明确业务和Netty的分层。 服务编排层 ChannelPipeline Pipeline如同字面意思，原始的网络字节流流经pipeline，被逐层处理，最终得到成品数据并返回。Netty中的ChannelPipeline采取责任链模式，调用链路环环相扣。
+ChannelPipeline由一组ChannelHandlerContext组成，内部通过双向链表将ChannelHandlerContext连接起来，当IO事件触发时，依次调用Handler对数据进行处理。ChannelHandlerContext用于保存ChannelHandler的上下文，包含了其生命周期的所有事件：connect、bind、read等。
+根据数据流向，ChannelPipeline可以分为入站和出站两种处理器，对应ChannelInboundHandler和ChannelOutboundHandler。
+异常处理 ChannelHandler采用了责任链模式，如果前置的Handler抛出呢Exception，会传递到后置Handler，异常处理的最佳实践，就是在最后加上自定义的异常处理器。
+public class ExceptionHandler extends ChannelDuplexHandler { @Override public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) { if (cause instanceof RuntimeException) { System.out.println(&#34;Handle Business Exception Success.&#34;); } } } 零拷贝 Netty中面向用户态的数据操作优化，主要包含以下几个方面：
+使用堆外内存，避免JVM内存到堆外内存之间的数据拷贝 使用CompositeByteBuf，可以组合多个Buffer，将其合并成逻辑上的一个对象，避免物理的内存拷贝。 使用Unpooled.wrappedBuffer，将byte数组包装成ByteBuf对象，过程间不产生内存拷贝。 ByteBuf.slice切分时不产生内存拷贝，底层共享一个byte数组。 使用FileRegion实现文件传输，使用的FileChannel#transferTo()，直接将缓冲区数据输出到目标Channel，避免内核缓冲区和用户态缓冲区的数据拷贝。 " />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Netty学习笔记(二)- 内部机制</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2022-11-19 08:12:54 UTC">
+                19 Nov 2022
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="事件调度层">事件调度层</h1>
+<h2 id="reactor线程模型">Reactor线程模型</h2>
+<p>Netty中三种Reactor线程模型来源于<a href="https://gee.cs.oswego.edu/dl/cpjslides/nio.pdf">Scalable I/O in Java</a>，主要有以下三种：</p>
+<ul>
+<li>单线程模型：所有IO操作（连接建立、读写、事件分发）都由一个线程完成。</li>
+<li>多线程模型：使用多线程处理任务。线程内部仍然是串行化。</li>
+<li>主从多线程模型：主线程只负责连接的Accept事件，从线程负责除连接外的事件。</li>
+</ul>
+<p>Reactor线程模型运行机制可以分为以下四个步骤：</p>
+<ul>
+<li>注册连接：将Channel注册到Reactor线程中的Selector。</li>
+<li>事件轮询：轮询Selector中已注册的Channel的IO事件。</li>
+<li>事件分发：将连接的IO事件分发给worker线程。</li>
+<li>任务处理：Reactor线程负责队列中的非IO任务。</li>
+</ul>
+<h2 id="eventloop">EventLoop</h2>
+<p>EventLoop是一种<strong>事件处理模型</strong>，Netty中EventLoop运行机制如下图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20221113182321659.png" alt="EventLoop运行机制"></p>
+<ul>
+<li>BossEventLoopGroup：负责监听客户端的Accept事件，触发时将事件注册到WorkerEventLoopGroup中的一个NioEventLoop，</li>
+<li>WorkerEventLoopGroup：每建立一个Channel，都选择一个NioEventLoop与其绑定，Channel的所有事件都是线程独立的。不会和其他线程发生交集。</li>
+</ul>
+<h3 id="任务处理机制">任务处理机制</h3>
+<p>NioEventLoop不仅负责处理IO事件，还要兼顾执行任务队列中的任务。任务队列遵守FIFO原则。任务基本可以分为三类：</p>
+<ul>
+<li>普通任务：通过NioEventLoop的execute()方法向taskQueue中添加的。</li>
+<li>定时任务：通过NioEventLoop的schedule()方法向scheduledtaskQueue添加的定时任务，例如心跳消息可以通过该任务实现。</li>
+<li>尾部队列：执行完taskQueue中任务后会去获取尾部队列tailTasks中的任务去执行。主要做收尾工作，例如统计事件循环的执行时间等。</li>
+</ul>
+<h3 id="使用技巧">使用技巧</h3>
+<ul>
+<li>使用Boss和Worker两个Group分别处理不同的事件，合理分担压力。</li>
+<li>对于耗时较长的ChannelHandler可以考虑维护一个业务线程池，将任务封装成Task进行异步处理。，避免ChannelHandler阻塞而造成EventLoop不可用。</li>
+<li>选用合理的ChannelHandler数量，明确业务和Netty的分层。</li>
+</ul>
+<h1 id="服务编排层">服务编排层</h1>
+<h2 id="channelpipeline">ChannelPipeline</h2>
+<p>Pipeline如同字面意思，原始的网络字节流流经pipeline，被逐层处理，最终得到成品数据并返回。Netty中的ChannelPipeline采取责任链模式，调用链路环环相扣。</p>
+<p>ChannelPipeline由一组ChannelHandlerContext组成，内部通过双向链表将ChannelHandlerContext连接起来，当IO事件触发时，依次调用Handler对数据进行处理。ChannelHandlerContext用于保存ChannelHandler的上下文，包含了其生命周期的所有事件：connect、bind、read等。</p>
+<p>根据数据流向，ChannelPipeline可以分为入站和出站两种处理器，对应<strong>ChannelInboundHandler</strong>和<strong>ChannelOutboundHandler</strong>。</p>
+<h2 id="异常处理">异常处理</h2>
+<p>ChannelHandler采用了责任链模式，如果前置的Handler抛出呢Exception，会传递到后置Handler，异常处理的最佳实践，就是在最后加上自定义的异常处理器。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ExceptionHandler</span> <span style="color:#66d9ef">extends</span> ChannelDuplexHandler {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">exceptionCaught</span>(ChannelHandlerContext ctx, Throwable cause) {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (cause <span style="color:#66d9ef">instanceof</span> RuntimeException) {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;Handle Business Exception Success.&#34;</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h1 id="零拷贝">零拷贝</h1>
+<p>Netty中面向用户态的数据操作优化，主要包含以下几个方面：</p>
+<ol>
+<li>使用堆外内存，避免JVM内存到堆外内存之间的数据拷贝</li>
+<li>使用CompositeByteBuf，可以组合多个Buffer，将其合并成逻辑上的一个对象，避免物理的内存拷贝。</li>
+<li>使用Unpooled.wrappedBuffer，将byte数组包装成ByteBuf对象，过程间不产生内存拷贝。</li>
+<li>ByteBuf.slice切分时不产生内存拷贝，底层共享一个byte数组。</li>
+<li>使用FileRegion实现文件传输，使用的FileChannel#transferTo()，直接将缓冲区数据输出到目标Channel，避免内核缓冲区和用户态缓冲区的数据拷贝。</li>
+</ol>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

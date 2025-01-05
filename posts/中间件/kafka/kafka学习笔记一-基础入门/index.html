@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%B8%80-%E5%9F%BA%E7%A1%80%E5%85%A5%E9%97%A8/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%B8%80-%E5%9F%BA%E7%A1%80%E5%85%A5%E9%97%A8/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Kafka学习笔记(一)-基础入门",
+      "headline" : "Kafka学习笔记(一)-基础入门",
+      "description" : "简介 Kafka是由LinkedIn使用Scala语言开发的分布式消息引擎系统，目前已被捐献给Apache基金会，它以高吞吐量、可持久化、流数据处理等特性而被广泛使用。它主要有以下三种主要功能：\n消息中间件：具备常见的消息队列功能：系统解耦、冗余存储、流量削峰填谷、缓冲、异步通信，同时具备消息顺序性保障、回溯消费等功能。 数据存储系统：使用Kafka存储各种服务的log，然后统一输出，ELK可使用Kafka进行数据中转。 流数据处理平台：与flink、spark、storm等组件整合，提供实时计算。 Kafka支持两种常见消息传输模型：\n点对点模型：也称为消息队列模型，系统A发送的消息只能被系统B接收，其它系统读取不到。 发布\/订阅模型：使用Topic接收消息，Publisher和Subscriber都可以有多个，可以同时向Topic发送接收消息。 基本概念 Kafka体系结构：一个Kafka集群包括若干Producer、Customer、Broker，以及一个Zookeeper集群。 Broker：服务端由被称为Broker的服务进程构成，Broker负责接受和处理客户端请求，以及对消息进行持久化。 可以简单看作为一个独立的Kafka服务节点（进程示例） Broker层面的领导者被称为Controller Producer：客户端节点，发送消息的一方。 Customer：客户端节点，接收消息的一方。 Customer Group：消费者组内每个消费者负责消费不同分区的数据。一个分区只能由组内一个消费者消费，不同消费组之间互不影响。 Zookeeper集群：负责元数据管理，集群选举。目前最新版3.1.0提供了KRaft模式，集群不再依赖ZK。 ZK主要负责存储Kafka集群的元数据，协调集群工作。 记录信息如下： \/brokers\/ids\/{0-n}：记录broker服务器节点，不同的broker使用不同的brokerid，会将自己的ip地址和端口信息记录到节点 \/brokers\/topics\/{topic}：记录topic分区以及broker的对应信息 \/comsumers\/{group_id}\/ids\/{consumer_id}：消费者负载均衡 Topic：逻辑概念，Kafka中消息以topic为单位进行分类，生产者将消息发送到特定的topic，消费者订阅topic进行消费。 分区（partition） Partition：topic可以分为多个partition，分区在物理存储层面可以看作一个可Append的Log文件，消息被Append到Log中会分配一个offset，这个属性是消息的唯一标识 ，Kafka通过它来保证消息在分区内的顺序性，因此Kafka保证分区有序而不是主题有序。 主题中的partition可以分布在不同的Broker中。 消息到达broker后，根据分区规则存储到指定的partition。 多副本机制（Replica） 多副本机制（Replica）：是对于分区而言的，同一分区的不同副本中保存的是相同的消息。 Leader：分区中的主副本，负责处理读写请求，Producer\/Consumer交互的对象。 Follower：分区中的从副本，只会实时从Leader副本同步数据。 所有副本被称为AR（Assigned Replicas），所有与Leader副本数据一致性差距过多的副本组成OSR（Out-of-Sync Replicas），于leader保持一定程度同步的副本称为ISR（In-Sync Replicas）。 Leader故障后，从ISR中选举新的Leader。 高水位（HW-High Watermark）：消费者能消费的最大offset位置，相当于所有副本中都存在的消息（木桶效应） LEO（Log End Offset）：标识当前日志文件中下一条待写入消息的offset，每个副本都会维护自身的LEO，ISR中最小的LEO即为分区的HW。 多副本的作用：提高Kafka的可用性。\n涉及参数：\nunclean.leader.election.enable：为true则ISR为空也能选举，为false则只能从ISR选举。 metadata Q：客户端如何知道请求哪个broker？\nclient通过metadata从任意broker获取集群信息，其中包括：\ntopic信息 每个topic的分区、副本情况 leader分区所在的broker连接信息 每个broker的连接信息 其他信息 部署 使用WSL 2环境进行单机部署。\nzero@Pluto:~$ uname -a Linux Pluto 4.19.128-microsoft-standard #1 SMP Tue Jun 23 12:58:10 UTC 2020 x86_64 x86_64 x86_64 GNU\/Linux Kafka需要Java环境，由于Kafka最新版本3.1.0不再支持Java8，故使用Java11。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2022",
+      "datePublished": "2022-05-06 15:08:22 \u002b0000 UTC",
+      "dateModified" : "2022-05-06 15:08:22 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/kafka\/kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%B8%80-%E5%9F%BA%E7%A1%80%E5%85%A5%E9%97%A8\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Kafka学习笔记(一)-基础入门</title>
+  <meta property="og:title" content="Kafka学习笔记(一)-基础入门" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 Kafka是由LinkedIn使用Scala语言开发的分布式消息引擎系统，目前已被捐献给Apache基金会，它以高吞吐量、可持久化、流数据处理等特性而被广泛使用。它主要有以下三种主要功能：
+消息中间件：具备常见的消息队列功能：系统解耦、冗余存储、流量削峰填谷、缓冲、异步通信，同时具备消息顺序性保障、回溯消费等功能。 数据存储系统：使用Kafka存储各种服务的log，然后统一输出，ELK可使用Kafka进行数据中转。 流数据处理平台：与flink、spark、storm等组件整合，提供实时计算。 Kafka支持两种常见消息传输模型：
+点对点模型：也称为消息队列模型，系统A发送的消息只能被系统B接收，其它系统读取不到。 发布/订阅模型：使用Topic接收消息，Publisher和Subscriber都可以有多个，可以同时向Topic发送接收消息。 基本概念 Kafka体系结构：一个Kafka集群包括若干Producer、Customer、Broker，以及一个Zookeeper集群。 Broker：服务端由被称为Broker的服务进程构成，Broker负责接受和处理客户端请求，以及对消息进行持久化。 可以简单看作为一个独立的Kafka服务节点（进程示例） Broker层面的领导者被称为Controller Producer：客户端节点，发送消息的一方。 Customer：客户端节点，接收消息的一方。 Customer Group：消费者组内每个消费者负责消费不同分区的数据。一个分区只能由组内一个消费者消费，不同消费组之间互不影响。 Zookeeper集群：负责元数据管理，集群选举。目前最新版3.1.0提供了KRaft模式，集群不再依赖ZK。 ZK主要负责存储Kafka集群的元数据，协调集群工作。 记录信息如下： /brokers/ids/{0-n}：记录broker服务器节点，不同的broker使用不同的brokerid，会将自己的ip地址和端口信息记录到节点 /brokers/topics/{topic}：记录topic分区以及broker的对应信息 /comsumers/{group_id}/ids/{consumer_id}：消费者负载均衡 Topic：逻辑概念，Kafka中消息以topic为单位进行分类，生产者将消息发送到特定的topic，消费者订阅topic进行消费。 分区（partition） Partition：topic可以分为多个partition，分区在物理存储层面可以看作一个可Append的Log文件，消息被Append到Log中会分配一个offset，这个属性是消息的唯一标识 ，Kafka通过它来保证消息在分区内的顺序性，因此Kafka保证分区有序而不是主题有序。 主题中的partition可以分布在不同的Broker中。 消息到达broker后，根据分区规则存储到指定的partition。 多副本机制（Replica） 多副本机制（Replica）：是对于分区而言的，同一分区的不同副本中保存的是相同的消息。 Leader：分区中的主副本，负责处理读写请求，Producer/Consumer交互的对象。 Follower：分区中的从副本，只会实时从Leader副本同步数据。 所有副本被称为AR（Assigned Replicas），所有与Leader副本数据一致性差距过多的副本组成OSR（Out-of-Sync Replicas），于leader保持一定程度同步的副本称为ISR（In-Sync Replicas）。 Leader故障后，从ISR中选举新的Leader。 高水位（HW-High Watermark）：消费者能消费的最大offset位置，相当于所有副本中都存在的消息（木桶效应） LEO（Log End Offset）：标识当前日志文件中下一条待写入消息的offset，每个副本都会维护自身的LEO，ISR中最小的LEO即为分区的HW。 多副本的作用：提高Kafka的可用性。
+涉及参数：
+unclean.leader.election.enable：为true则ISR为空也能选举，为false则只能从ISR选举。 metadata Q：客户端如何知道请求哪个broker？
+client通过metadata从任意broker获取集群信息，其中包括：
+topic信息 每个topic的分区、副本情况 leader分区所在的broker连接信息 每个broker的连接信息 其他信息 部署 使用WSL 2环境进行单机部署。
+zero@Pluto:~$ uname -a Linux Pluto 4.19.128-microsoft-standard #1 SMP Tue Jun 23 12:58:10 UTC 2020 x86_64 x86_64 x86_64 GNU/Linux Kafka需要Java环境，由于Kafka最新版本3.1.0不再支持Java8，故使用Java11。
+" />
+  <meta name="description" content="简介 Kafka是由LinkedIn使用Scala语言开发的分布式消息引擎系统，目前已被捐献给Apache基金会，它以高吞吐量、可持久化、流数据处理等特性而被广泛使用。它主要有以下三种主要功能：
+消息中间件：具备常见的消息队列功能：系统解耦、冗余存储、流量削峰填谷、缓冲、异步通信，同时具备消息顺序性保障、回溯消费等功能。 数据存储系统：使用Kafka存储各种服务的log，然后统一输出，ELK可使用Kafka进行数据中转。 流数据处理平台：与flink、spark、storm等组件整合，提供实时计算。 Kafka支持两种常见消息传输模型：
+点对点模型：也称为消息队列模型，系统A发送的消息只能被系统B接收，其它系统读取不到。 发布/订阅模型：使用Topic接收消息，Publisher和Subscriber都可以有多个，可以同时向Topic发送接收消息。 基本概念 Kafka体系结构：一个Kafka集群包括若干Producer、Customer、Broker，以及一个Zookeeper集群。 Broker：服务端由被称为Broker的服务进程构成，Broker负责接受和处理客户端请求，以及对消息进行持久化。 可以简单看作为一个独立的Kafka服务节点（进程示例） Broker层面的领导者被称为Controller Producer：客户端节点，发送消息的一方。 Customer：客户端节点，接收消息的一方。 Customer Group：消费者组内每个消费者负责消费不同分区的数据。一个分区只能由组内一个消费者消费，不同消费组之间互不影响。 Zookeeper集群：负责元数据管理，集群选举。目前最新版3.1.0提供了KRaft模式，集群不再依赖ZK。 ZK主要负责存储Kafka集群的元数据，协调集群工作。 记录信息如下： /brokers/ids/{0-n}：记录broker服务器节点，不同的broker使用不同的brokerid，会将自己的ip地址和端口信息记录到节点 /brokers/topics/{topic}：记录topic分区以及broker的对应信息 /comsumers/{group_id}/ids/{consumer_id}：消费者负载均衡 Topic：逻辑概念，Kafka中消息以topic为单位进行分类，生产者将消息发送到特定的topic，消费者订阅topic进行消费。 分区（partition） Partition：topic可以分为多个partition，分区在物理存储层面可以看作一个可Append的Log文件，消息被Append到Log中会分配一个offset，这个属性是消息的唯一标识 ，Kafka通过它来保证消息在分区内的顺序性，因此Kafka保证分区有序而不是主题有序。 主题中的partition可以分布在不同的Broker中。 消息到达broker后，根据分区规则存储到指定的partition。 多副本机制（Replica） 多副本机制（Replica）：是对于分区而言的，同一分区的不同副本中保存的是相同的消息。 Leader：分区中的主副本，负责处理读写请求，Producer/Consumer交互的对象。 Follower：分区中的从副本，只会实时从Leader副本同步数据。 所有副本被称为AR（Assigned Replicas），所有与Leader副本数据一致性差距过多的副本组成OSR（Out-of-Sync Replicas），于leader保持一定程度同步的副本称为ISR（In-Sync Replicas）。 Leader故障后，从ISR中选举新的Leader。 高水位（HW-High Watermark）：消费者能消费的最大offset位置，相当于所有副本中都存在的消息（木桶效应） LEO（Log End Offset）：标识当前日志文件中下一条待写入消息的offset，每个副本都会维护自身的LEO，ISR中最小的LEO即为分区的HW。 多副本的作用：提高Kafka的可用性。
+涉及参数：
+unclean.leader.election.enable：为true则ISR为空也能选举，为false则只能从ISR选举。 metadata Q：客户端如何知道请求哪个broker？
+client通过metadata从任意broker获取集群信息，其中包括：
+topic信息 每个topic的分区、副本情况 leader分区所在的broker连接信息 每个broker的连接信息 其他信息 部署 使用WSL 2环境进行单机部署。
+zero@Pluto:~$ uname -a Linux Pluto 4.19.128-microsoft-standard #1 SMP Tue Jun 23 12:58:10 UTC 2020 x86_64 x86_64 x86_64 GNU/Linux Kafka需要Java环境，由于Kafka最新版本3.1.0不再支持Java8，故使用Java11。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Kafka学习笔记(一)-基础入门</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2022-05-06 15:08:22 UTC">
+                06 May 2022
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="简介">简介</h2>
+<p>Kafka是由LinkedIn使用Scala语言开发的分布式消息引擎系统，目前已被捐献给Apache基金会，它以高吞吐量、可持久化、流数据处理等特性而被广泛使用。它主要有以下三种主要功能：</p>
+<ul>
+<li>消息中间件：具备常见的消息队列功能：系统解耦、冗余存储、流量削峰填谷、缓冲、异步通信，同时具备消息顺序性保障、回溯消费等功能。</li>
+<li>数据存储系统：使用Kafka存储各种服务的log，然后统一输出，ELK可使用Kafka进行数据中转。</li>
+<li>流数据处理平台：与flink、spark、storm等组件整合，提供实时计算。</li>
+</ul>
+<p>Kafka支持两种常见消息传输模型：</p>
+<ul>
+<li><strong>点对点模型</strong>：也称为消息队列模型，系统A发送的消息只能被系统B接收，其它系统读取不到。</li>
+<li><strong>发布/订阅模型</strong>：使用<code>Topic</code>接收消息，<code>Publisher</code>和<code>Subscriber</code>都可以有多个，可以同时向Topic发送接收消息。</li>
+</ul>
+<h2 id="基本概念">基本概念</h2>
+<ul>
+<li>Kafka体系结构：一个Kafka集群包括若干Producer、Customer、Broker，以及一个Zookeeper集群。
+<ul>
+<li>Broker：服务端由被称为<code>Broker</code>的服务进程构成，<code>Broker</code>负责接受和处理客户端请求，以及对消息进行持久化。
+<ul>
+<li>可以简单看作为一个独立的Kafka服务节点（进程示例）</li>
+<li>Broker层面的领导者被称为Controller</li>
+</ul>
+</li>
+<li>Producer：客户端节点，发送消息的一方。</li>
+<li>Customer：客户端节点，接收消息的一方。</li>
+<li>Customer Group：消费者组内每个消费者负责消费不同分区的数据。一个分区只能由组内一个消费者消费，不同消费组之间互不影响。</li>
+<li><!-- raw HTML omitted -->Zookeeper集群：负责元数据管理，集群选举。<!-- raw HTML omitted -->目前最新版3.1.0提供了KRaft模式，集群不再依赖ZK。
+<ul>
+<li>ZK主要负责存储Kafka集群的元数据，协调集群工作。</li>
+<li>记录信息如下：
+<ul>
+<li>
+<ol>
+<li>/brokers/ids/{0-n}：记录broker服务器节点，不同的broker使用不同的brokerid，会将自己的ip地址和端口信息记录到节点</li>
+</ol>
+</li>
+<li>
+<ol start="2">
+<li>/brokers/topics/{topic}：记录topic分区以及broker的对应信息</li>
+</ol>
+</li>
+<li>
+<ol start="3">
+<li>/comsumers/{group_id}/ids/{consumer_id}：消费者负载均衡</li>
+</ol>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Topic：<strong>逻辑概念</strong>，Kafka中消息以topic为单位进行分类，生产者将消息发送到特定的topic，消费者订阅topic进行消费。</li>
+</ul>
+<h3 id="分区partition">分区（partition）</h3>
+<ul>
+<li>Partition：topic可以分为多个partition，分区在物理存储层面可以看作一个可Append的Log文件，消息被Append到Log中会分配一个<code>offset</code>，这个属性是消息的唯一标识 ，<strong>Kafka通过它来保证消息在分区内的顺序性</strong>，因此Kafka<strong>保证分区有序</strong>而不是主题有序。
+<ul>
+<li>主题中的partition可以分布在不同的Broker中。</li>
+<li>消息到达broker后，根据分区规则存储到指定的partition。</li>
+</ul>
+</li>
+</ul>
+<h3 id="多副本机制replica">多副本机制（Replica）</h3>
+<ul>
+<li>多副本机制（Replica）：是对于<strong>分区</strong>而言的，<strong>同一分区的不同副本中保存的是相同的消息。</strong>
+<ul>
+<li>Leader：分区中的主副本，负责处理读写请求，Producer/Consumer交互的对象。</li>
+<li>Follower：分区中的从副本，只会实时从Leader副本同步数据。</li>
+<li>所有副本被称为AR（Assigned Replicas），所有与Leader副本数据一致性差距过多的副本组成OSR（Out-of-Sync Replicas），于leader保持一定程度同步的副本称为ISR（In-Sync Replicas）。</li>
+<li>Leader故障后，从ISR中选举新的Leader。</li>
+<li>高水位（HW-High Watermark）：消费者能消费的最大offset位置，相当于<strong>所有副本中都存在的消息</strong>（木桶效应）</li>
+<li>LEO（Log End Offset）：标识当前日志文件中下一条待写入消息的offset，每个副本都会维护自身的LEO，<strong>ISR中最小的LEO即为分区的HW</strong>。</li>
+</ul>
+</li>
+</ul>
+<p>多副本的作用：提高Kafka的可用性。</p>
+<p>涉及参数：</p>
+<ul>
+<li>unclean.leader.election.enable：为true则ISR为空也能选举，为false则只能从ISR选举。</li>
+</ul>
+<h3 id="metadata">metadata</h3>
+<p>Q：客户端如何知道请求哪个broker？</p>
+<p>client通过metadata从任意broker获取集群信息，其中包括：</p>
+<ol>
+<li>topic信息</li>
+<li>每个topic的分区、副本情况</li>
+<li>leader分区所在的broker连接信息</li>
+<li>每个broker的连接信息</li>
+<li>其他信息</li>
+</ol>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20230718224608.png" alt="Kafka应用架构(https://developer.confluent.io/courses/architecture/get-started/)"></p>
+<h2 id="部署">部署</h2>
+<p>使用WSL 2环境进行单机部署。</p>
+<pre tabindex="0"><code>zero@Pluto:~$ uname -a
+Linux Pluto 4.19.128-microsoft-standard #1 SMP Tue Jun 23 12:58:10 UTC 2020 x86_64 x86_64 x86_64 GNU/Linux
+</code></pre><p>Kafka需要Java环境，由于Kafka最新版本3.1.0不再支持Java8，故使用Java11。</p>
+<pre tabindex="0"><code>zero@Pluto:~$ java -version
+openjdk version &#34;11.0.15&#34; 2022-04-19
+OpenJDK Runtime Environment (build 11.0.15+10-Ubuntu-0ubuntu0.18.04.1)
+OpenJDK 64-Bit Server VM (build 11.0.15+10-Ubuntu-0ubuntu0.18.04.1, mixed mode, sharing)
+</code></pre><pre tabindex="0"><code>cd /opt
+wget https://dlcdn.apache.org/kafka/3.1.0/kafka_2.13-3.1.0.tgz
+tar -zxvf kafka_2.13-3.1.0.tgz
+cd kafka_2.13-3.1.0
+</code></pre><p>运行下面命令单机部署：</p>
+<pre tabindex="0"><code>bin/kafka-server-start.sh config/server.properties
+</code></pre><h3 id="创建主题测试">创建主题测试</h3>
+<p>创建一个topic名称为test，副本因子为1，分区个数为1的Topic。</p>
+<pre tabindex="0"><code>bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 1 --topic test
+</code></pre><p>通过<code>--describe</code>可以进行查看。</p>
+<pre tabindex="0"><code>bin/kafka-topics.sh --describe --topic test --bootstrap-server localhost:9092
+Topic: test     TopicId: Zb5Tr1MpS1ukdX22mnoBoQ PartitionCount: 1       ReplicationFactor: 1    Configs: segment.bytes=1073741824
+        Topic: test     Partition: 0    Leader: 0       Replicas: 0     Isr: 0
+</code></pre><h3 id="发送消费消息测试">发送/消费消息测试</h3>
+<p><code>bin/kafka-console-producer.sh</code>可以通过命令行输入消息并发送给Kafka，每一行是一条消息。</p>
+<pre tabindex="0"><code>bin/kafka-console-producer.sh --broker-list localhost:9092 --topic test
+</code></pre><p>同时提供了<code>bin/kafka-console-consumer.sh</code>提供消费消息的功能。</p>
+<pre tabindex="0"><code>bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic test --from-beginning
+</code></pre><h3 id="配置参数">配置参数</h3>
+<pre tabindex="0"><code># 指明连接的Zookeeper集群服务地址，使用逗号进行分割
+# 
+zookeeper.connect=localhost:2181
+
+# 指定kakfa集群中broker的唯一标识
+broker.id=0
+
+# Kafka日志文件位置
+log.dirs=/opt/kafka_2.13-2.8.1/logs
+
+#  定义Kafka Broker的Listener
+listeners=PLAINTEXT://:9092
+
+#将Broker的Listener信息发布到Zookeeper中
+advertised.listeners=PLAINTEXT://172.19.143.59:9092
+</code></pre><h3 id="部署kafka-map">部署kafka-map</h3>
+<p><code>kafka-map</code>是使用<code>Java11</code>和<code>React</code>开发的一款<code>kafka</code>可视化工具。</p>
+<pre tabindex="0"><code>docker run -d \
+    -p 8080:8080 \
+    -v /opt/kafka-map/data:/usr/local/kafka-map/data \
+    -e DEFAULT_USERNAME=admin \
+    -e DEFAULT_PASSWORD=zero... \
+    --name kafka-map \
+    --restart always dushixiang/kafka-map:latest
+</code></pre><h2 id="应用场景">应用场景</h2>
+<ul>
+<li>消息队列：可以替代传统消息队列，比如ActiveMQ、RabbitMQ等。</li>
+<li>流处理平台：对数据进行实时流处理。</li>
+<li>网站活动追踪：用户活动（浏览网页、搜索等）、网站活动发布到不同的主题，进行实时处理监测，可替代Hadoop或其他离线数仓。</li>
+<li>日志聚合</li>
+<li>事件采集</li>
+</ul>
+<h2 id="使用">使用</h2>
+<p>Kafka有5个核心API：</p>
+<ul>
+<li>Producer API：客户端发送消息到Kafka集群中的Topic。</li>
+<li>Consumer API：客户端从Kafka集群读取消息。</li>
+<li>Streams API：允许从输入topic转换数据流到输出topic。</li>
+<li>Connect API：通过实现<code>connector</code>，不断从源系统拉取数据到Kafka，或者从Kafka提交数据到系统。</li>
+<li>Admin API：用于检查和管理topic、broker等资源。</li>
+</ul>
+<p>Maven工程添加如下依赖：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-xml" data-lang="xml"><span style="display:flex;"><span><span style="color:#f92672">&lt;dependency&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;groupId&gt;</span>org.apache.kafka<span style="color:#f92672">&lt;/groupId&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;artifactId&gt;</span>kafka-clients<span style="color:#f92672">&lt;/artifactId&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;version&gt;</span>3.1.0<span style="color:#f92672">&lt;/version&gt;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">&lt;/dependency&gt;</span>
+</span></span></code></pre></div><h3 id="生产者-api">生产者 API</h3>
+<p>生产者的缓冲池保存尚未发送给服务端的消息，后台的IO线程负责将消息转换为请求发送给服务端，<strong>如果使用后不关闭生产者，会丢失这些消息。</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>        Properties props <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Properties();
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;bootstrap.servers&#34;</span>, <span style="color:#e6db74">&#34;172.28.203.172:9092&#34;</span>);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;acks&#34;</span>, <span style="color:#e6db74">&#34;all&#34;</span>);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;retries&#34;</span>, 0);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;batch.size&#34;</span>, 16384);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;linger.ms&#34;</span>, 1);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;buffer.memory&#34;</span>, 33554432);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;key.serializer&#34;</span>, <span style="color:#e6db74">&#34;org.apache.kafka.common.serialization.StringSerializer&#34;</span>);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">put</span>(<span style="color:#e6db74">&#34;value.serializer&#34;</span>, <span style="color:#e6db74">&#34;org.apache.kafka.common.serialization.StringSerializer&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        Producer<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> producer <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> KafkaProducer<span style="color:#f92672">&lt;&gt;</span>(props);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span>(<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> 100; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>            producer.<span style="color:#a6e22e">send</span>(<span style="color:#66d9ef">new</span> ProducerRecord<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span>(<span style="color:#e6db74">&#34;test&#34;</span>, Integer.<span style="color:#a6e22e">toString</span>(i), Integer.<span style="color:#a6e22e">toString</span>(i)));
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        producer.<span style="color:#a6e22e">close</span>();
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h4 id="配置参数-1">配置参数</h4>
+<p><code>Properties</code>各配置字段含义：</p>
+<ul>
+<li>bootstrap.servers：Kafka集群的地址，集群地址使用逗号隔开。</li>
+<li>acks：指定分区中必须要有多少个副本收到这条消息，之后生产者认为这条消息是成功写入的。取值如下：
+<ul>
+<li>1：只要Leader副本成功写入，就会收到来自服务端的成功响应。</li>
+<li>0：生产者发送消息之后不需要等待任何服务器的响应，可以得到最大吞吐量，但是消息丢失无法得知。</li>
+<li>-1/all：消息发送后，需要等待所有副本都写入消息后才能收到服务器的响应，可以达到最强的可靠性。</li>
+</ul>
+</li>
+<li>retries：请求发送失败，生产者会重试，设置为0禁止重试。</li>
+<li>batch.size：缓冲区大小</li>
+<li>linger.ms：生产者发送请求前等待一段时间，希望更多请求进入缓冲区。</li>
+<li>buffer.memory：生产者可用的缓存大小。</li>
+<li>key.serializer、value.serializer：将key和value对象ProducerRecord转换为字节。（broker端需要以<code>byte[]</code>形式存在）</li>
+<li>max.request.size：限制生产者客户端能发送消息的最大值。默认值为1MB。</li>
+<li>connections.max.idle.ms：指定多久之后关闭限制的连接。</li>
+<li>compression.type: 压缩方式，默认为none</li>
+</ul>
+<p>实际使用过程中，可以使用<code>ProducerConfig</code>类来对Producer进行配置。</p>
+<h4 id="发送过程">发送过程</h4>
+<ol>
+<li>连接到任意broker，获取集群元数据</li>
+<li>发送消息到指定分区leader副本所在的broker</li>
+<li>其他broker上的副本向leader同步数据</li>
+</ol>
+<h4 id="消息对象字段">消息对象字段</h4>
+<p><code>ProducerRecord</code>作为消息对象，包含以下字段：</p>
+<ul>
+<li>
+<p>topic：主题</p>
+</li>
+<li>
+<p>partition：分区号</p>
+</li>
+<li>
+<p>headers：消息头部，用于设定相关信息</p>
+</li>
+<li>
+<p>key：指定消息的键，可以用来计算分区号从而发送给特定分区<strong>实现分类功能。</strong></p>
+<ul>
+<li>同一个key的消息会被划分到同一个分区。</li>
+</ul>
+</li>
+<li>
+<p>value：消息体</p>
+</li>
+<li>
+<p>timestamp：消息时间戳</p>
+</li>
+</ul>
+<h4 id="发送模式">发送模式</h4>
+<ul>
+<li>
+<p>fire-and-forget：发后即忘，发送后不关心消息是否正确到达，可能会导致消息丢失。</p>
+<ul>
+<li>适用场景：只关心消息的吞吐量，并允许少量消息发送失败。配合参数<code>acks = 0</code>使用</li>
+</ul>
+</li>
+<li>
+<p>sync：同步发送，可以通过在<code>send()</code>后链式调用<code>get()</code>等到Kafka响应。</p>
+<ul>
+<li>适用场景：业务要求消息必须按照<strong>顺序发送</strong>，并且数据只能存储在同一个Partition中。</li>
+</ul>
+</li>
+<li>
+<p>async：异步发送，<code>send()</code>为异步发送。</p>
+<ul>
+<li>可以在send方法中指定<code>Callback()</code>函数，在消息返回响应时调用。</li>
+<li>适用场景：要求知道是否发送成功，并对消息顺序不关心。</li>
+</ul>
+</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//fire-and-forget 模式   </span>
+</span></span><span style="display:flex;"><span>producer.<span style="color:#a6e22e">send</span>(record);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//sync 模式 调用future.get()</span>
+</span></span><span style="display:flex;"><span>future <span style="color:#f92672">=</span> producer.<span style="color:#a6e22e">send</span>(record);
+</span></span><span style="display:flex;"><span>RecordMetadata metadata <span style="color:#f92672">=</span> future.<span style="color:#a6e22e">get</span>();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//async</span>
+</span></span><span style="display:flex;"><span>Future<span style="color:#f92672">&lt;</span>RecordMetadata<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">send</span>(ProducerRecord<span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> record, Callback callback);
+</span></span></code></pre></div><h4 id="生产者类型">生产者类型</h4>
+<p>生产者主要有两种类型：</p>
+<ul>
+<li>幂等生产者：要求多次交付结果一致。
+<ul>
+<li>启动幂等，需要将<code>enable.idempotence</code>设置为<code>true</code>，并且<code>retries</code>会被默认配置为<code>Integer.MAX_VALUE</code>，acks默认配置为<code>all</code>。</li>
+</ul>
+</li>
+<li>事务生产者：允许将消息原子性地发送给多个分区。</li>
+</ul>
+<h4 id="分区器">分区器</h4>
+<p>分区器用来确定消息发往的分区，如果指定了<code>partition</code>字段，则不需要分区器。<strong>若未指定，通过消息的key来计算partition值</strong>。默认的分区器<code>org.apache.kafka.clients.producer.internals.DefaultPartitioner</code>中的<code>partition</code>方法定义了分区逻辑如下：</p>
+<ul>
+<li>如果key不为null，那么分区器对key使用<code>MurmurHash2</code>算法进行哈希，从而得到分区号。</li>
+<li>如果key为null，消息将以轮询的方式发往主题内的各个可用分区。</li>
+</ul>
+<p>选择分区的策略有以下几种方式：</p>
+<ul>
+<li>轮询策略：顺序分配消息</li>
+<li>消息key指定分区策略：上述hash方式</li>
+<li>随机策略：随机发送到某个分区上</li>
+<li>自定义策略：实现<code>org.apache.kafka.clients.producer.Partitioner</code>接口，重写 <code>partition</code>方法。</li>
+</ul>
+<h4 id="生产者拦截器">生产者拦截器</h4>
+<p>可以在消息发送之前做一些准备工作，例如：按照某个规则过滤不符合要求的消息、修改消息的内容等发送前的操作。<code>ProducerInterceptor</code>为默认拦截器。通过重写<code>onSend</code>来实现对消息的拦截修改等操作</p>
+<h4 id="生产者客户端架构">生产者客户端架构</h4>
+<p>整个生产者客户端由两个线程协调运行，分别为主线程和Sender线程。其分工如下：</p>
+<ul>
+<li>主线程：创建消息，通过拦截器，序列化器、分区器作用后缓存到<code>RecordAccumulator</code>中。</li>
+<li>Sender线程：负责从<code>RecordAccumulator</code>中获取消息并发送给Kafka服务端。</li>
+</ul>
+<p><strong>RecordAccumulator</strong>细节：</p>
+<ul>
+<li>缓存消息以便Sender线程可以批量发送，减少网络资源消耗。</li>
+<li>缓存大小通过<code>buffer.memory</code>来设置，默认为32MB。</li>
+<li>如果缓存空间被全部使用，send方法会被阻塞，可通过<code>max.block.ms</code>来控制阻塞时间。</li>
+<li>消息都会被追加到累加器中的<code>Deque&lt;ProducerBatch&gt;</code>中，写入追加到双端队列尾部，Sender获取消息并发送时，从队列头部读取。<code>ProducerBatch</code>中包含多个<code>ProducerRecord</code>。</li>
+<li>内部有一个<code>BufferPool</code>来实现对缓存的复用，使用<code>batch.size</code>对大小进行指定，该部分主要对发送给Kafka服务端消息之前进行保存。</li>
+<li>当<code>ProducerRecord</code>传入累加器中，会首先寻找与消息分区对应的Deque，并获取尾部的<code>ProducerBatch</code> ，判断是否还可写入，不可写入则创建新的<code>ProducerBatch</code>。</li>
+<li>一个Batch默认大小为16KB。</li>
+</ul>
+<h4 id="元数据">元数据</h4>
+<ul>
+<li>记录了：存在哪些主题、分区、分区的leader是哪个节点，副本节点是哪几个等元数据。</li>
+<li>需要更新元数据时，会挑选出<code>leastLoadedNode</code>，然后向Node发出请求获取元数据，请求由Sender线程发出，会使用sync来保证线程安全。</li>
+</ul>
+<h3 id="消费者-api">消费者 API</h3>
+<p>消费者负责订阅Kafka中的<code>Topic</code>，并且从订阅的<code>Topic</code>上拉取消息。每个消费者都有一个对应的消费组，当消息发送到主题后，只会被投递给订阅它的消费组中的一个消费者。</p>
+<p>当新消费者加入组中时，会通过分区分配策略去给消费者分配分区。</p>
+<p>消费逻辑需要具备以下几个步骤：</p>
+<ol>
+<li>配置消费者客户端参数并创建消费者实例。</li>
+<li>订阅主题。</li>
+<li>拉取消息并消费。</li>
+<li>提交消费位移。</li>
+<li>关闭实例。</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#a6e22e">@Test</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">test01</span>() {
+</span></span><span style="display:flex;"><span>        Properties props <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Properties();
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">setProperty</span>(<span style="color:#e6db74">&#34;bootstrap.servers&#34;</span>, <span style="color:#e6db74">&#34;localhost:9092&#34;</span>);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">setProperty</span>(<span style="color:#e6db74">&#34;group.id&#34;</span>, <span style="color:#e6db74">&#34;test&#34;</span>);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">setProperty</span>(<span style="color:#e6db74">&#34;key.deserializer&#34;</span>, <span style="color:#e6db74">&#34;org.apache.kafka.common.serialization.StringDeserializer&#34;</span>);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">setProperty</span>(<span style="color:#e6db74">&#34;value.deserializer&#34;</span>, <span style="color:#e6db74">&#34;org.apache.kafka.common.serialization.StringDeserializer&#34;</span>);
+</span></span><span style="display:flex;"><span>        props.<span style="color:#a6e22e">setProperty</span>(<span style="color:#e6db74">&#34;client.id&#34;</span>,<span style="color:#e6db74">&#34;consumer.client.id.demo&#34;</span>);
+</span></span><span style="display:flex;"><span>        KafkaConsumer<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> consumer <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> KafkaConsumer<span style="color:#f92672">&lt;&gt;</span>(props);
+</span></span><span style="display:flex;"><span>        consumer.<span style="color:#a6e22e">subscribe</span>(Arrays.<span style="color:#a6e22e">asList</span>(topic));
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (<span style="color:#66d9ef">true</span>) {
+</span></span><span style="display:flex;"><span>            ConsumerRecords<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> records <span style="color:#f92672">=</span> consumer.<span style="color:#a6e22e">poll</span>(Duration.<span style="color:#a6e22e">ofMillis</span>(100));
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (ConsumerRecord<span style="color:#f92672">&lt;</span>String, String<span style="color:#f92672">&gt;</span> record : records)
+</span></span><span style="display:flex;"><span>                System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;offset = %d, key = %s, value = %s%n&#34;</span>, record.<span style="color:#a6e22e">offset</span>(), record.<span style="color:#a6e22e">key</span>(), record.<span style="color:#a6e22e">value</span>());
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h4 id="配置参数-2">配置参数</h4>
+<ul>
+<li>bootstrap.servers：集群地址</li>
+<li>group.id：隶属的消费组名称，默认为&quot;&quot;</li>
+<li>key.deserializer 和 value.deserializer：与生产者对应</li>
+<li>client.id：消费者id</li>
+<li>fetch.min(max).bytes：消费者一次拉取的最小（大）数据量。</li>
+<li>max.poll.records：消费者一次拉取的最大消息数量。</li>
+</ul>
+<h4 id="消费过程">消费过程</h4>
+<ol>
+<li>连接到任意Broker，获取Kafka集群元数据</li>
+<li>通过上一步的元数据，找到自己所属Coordinator所在的broker</li>
+<li>加入Consumer Group，获取分区消费方案</li>
+<li>获取相关分区消费进度，从上次消费的offset开始继续拉取消息</li>
+<li>提交消费进度到Coordinator</li>
+</ol>
+<h4 id="常用方法">常用方法</h4>
+<p><code>KafkaConsumer</code>提供了<code>subscribe</code>方法来订阅主题，若多次调用，以最后一次作为消费的主题。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">subscribe</span>(Collection<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> topics) {
+</span></span><span style="display:flex;"><span>        subscribe(topics, <span style="color:#66d9ef">new</span> NoOpConsumerRebalanceListener());
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p>还提供了<code>assign()</code>方法订阅主题中的特定分区，参数为<code>Collection&lt;TopicPartition&gt;</code></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">assign</span>(Collection<span style="color:#f92672">&lt;</span>TopicPartition<span style="color:#f92672">&gt;</span> partitions);
+</span></span></code></pre></div><p><code>TopicPartition</code>类有两个属性：topic和partition，分别代表分区所属的主题和自身的分区编号。</p>
+<p><code>partitionsFor</code>用于查询指定主题的元数据，传入<code>topic</code>，返回<code>List&lt;PartitionInfo&gt;</code>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> List<span style="color:#f92672">&lt;</span>PartitionInfo<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">partitionsFor</span>(String topic)
+</span></span></code></pre></div><p><code>PartitionInfo</code>包含如下字段：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//主题名称</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> String topic;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//分区编号</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> partition;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//leader节点的位置</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Node leader;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//AR集合</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Node<span style="color:#f92672">[]</span> replicas;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//ISR集合</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Node<span style="color:#f92672">[]</span> inSyncReplicas;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//OSR集合</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Node<span style="color:#f92672">[]</span> offlineReplicas;
+</span></span></code></pre></div><p>提供了<code>unsubscribe</code>方法来取消主题的订阅，若将<code>subscribe</code>方法中参数设置为空集合，效果等同于取消订阅。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unsubscribe</span>()
+</span></span></code></pre></div><h4 id="反序列化">反序列化</h4>
+<p>生产者对数据进行序列化， 消费者端用反序列化来恢复数据，其中包括ByteBufferDeserializer、ByteArrayDeserializer、BytesDeserializer、DoubleDeserializer、FloatDeserializer、IntegerDeserializer、LongDeserializer、ShortDeserializer、StringDeserializer，分别提供不同的类型反序列化。</p>
+<p>可以考虑Thrift、Protocol Buffer等通用序列化工具来实现。</p>
+<h4 id="消费模式">消费模式</h4>
+<ul>
+<li>push：服务端主动将消息推送给消费者。</li>
+<li>pull：消费者主动向服务端发起请求来拉取消息。提供的为<code>poll()</code>，Kafka采用的此种方式。</li>
+</ul>
+<p>为什么不使用Push：Push方式无法确定消费者的消费速度，并且推送效率是Broker进行控制的，容易发生<strong>消息堆积</strong>的情况。</p>
+<p>对于<code>poll()</code>，若分区中没有可消费的消息，拉去的结果为空，需要传入超时时间，用来控制该方法的阻塞时间。</p>
+<h4 id="consumer-group机制">Consumer Group机制</h4>
+<p>为什么要设计<code>Consumer Group</code>？</p>
+<ul>
+<li>当Topic数据量非常大的时候，凭单个Consumer线程消费十分缓慢，需要用扩展性较好的机制来保证消费进度，Group机制是Kafka提供的消费者机制。</li>
+</ul>
+<h4 id="consumerrecord">ConsumerRecord</h4>
+<p>对于消费者取回的消息，封装成<code>ConsumerRecord</code>类，各字段含义如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//主题</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> String topic;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//分区</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> partition;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//偏移量</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> offset;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//时间戳</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> timestamp;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//时间戳类型，CreateTime 和LogAppendTime</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> TimestampType timestampType;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//key被序列化之后的大小</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> serializedKeySize;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//value被序列化之后的大小</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> serializedValueSize;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//消息头部</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Headers headers;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//消息键值对</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> K key;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> V value;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//领导者节点任期</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Optional<span style="color:#f92672">&lt;</span>Integer<span style="color:#f92672">&gt;</span> leaderEpoch;
+</span></span></code></pre></div><h4 id="位移提交">位移提交</h4>
+<p>消息的<code>commited offset</code>用于表示消息在分区中的相应位置，同样有一个<code>consumed offset</code>用来保存消费者消费位置。一般情况下<code>position = commited offset = consumed offset + 1</code>。自动提交可能造成重复消费和消息丢失的现象。</p>
+<p>位移提交的动作是消费完所有拉取到的信息之后执行的，如果消费过程中出现了异常，在故障恢复之后，会发生重复消费的现象，consumer需要做幂等性保障。</p>
+<p>Kafka中消费位移的提交方式是自动提交，由消费者客户端参数<code>enable.auto.commit</code>控制，默认为true，定期提交的周期时间由<code>auto.commit.interval.ms</code>控制，默认为5s。</p>
+<p>消费者每隔5秒会将拉取到的每个分区中最大的消息位移进行提交。自动位移提交的动作是在<code>poll()</code>方法的逻辑里完成的，在每次真正向服务端发起拉取请求之前会检查是否可以进行位移提交，如果可以，那么就会提交上一次轮询的位移。</p>
+<p>服务端将<code>commited offset</code>保存在<code>__consumer_offsets</code>，它是由Kafka自动创建的，和普通的Topic存储格式相同。</p>
+<h4 id="消费者拦截器">消费者拦截器</h4>
+<p>功能类似于生产者拦截器，可自定义。</p>
+<h4 id="多线程实现">多线程实现</h4>
+<p><code>KafkaConsumer</code>是非线程安全的，<code>acquire</code>检测当前是否只有一个线程在操作，若有其他线程则会抛出<code>ConcurrentModificationException</code>。</p>
+<p>由于Kafka消息保留机制的作用，有些消息消费前可能被清理，可以通过线程封闭的方式来实现多线程消费：每个线程实例化一个<code>KafkaConsumer</code>对象。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

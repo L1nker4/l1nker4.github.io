@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/locksupport%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" />
+  <link rel="canonical" href="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/locksupport%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "LockSupport源码分析",
+      "headline" : "LockSupport源码分析",
+      "description" : "简介 Basic thread blocking primitives for creating locks and other synchronization classes. \u0026ndash; Java Doc\nLockSupport是用来创建锁和其它同步类的基本线程阻塞原语。底层依赖Unsafe实现，我们可以在其它的并发同步工具类的实现中看到该类的使用。LockSupport提供了park()和unpark()方法来分别实现阻塞线程和唤醒线程，每个使用LockSupport的线程都有一个permit，该值默认为0，取值0,1。\nunpark()：如果permit当前值为0，将其自增1。 park()：如果当前permit为1，将其自减1并立即返回，如果为0，直接阻塞。 这两个方法不会有Thread.suspend 和Thread.resume所可能引发的死锁问题，因为permit存在，调用 park 的线程和另一个试图将其 unpark 的线程之间的竞争将保持活性。\n如果调用线程被中断，那么park将会返回。park方法可能在任何时间no reason地返回，因此通常在重新检查返回条件地循环里调用此方法。在某种意义上，park是busy wait（忙则等待）的一种优化，减少了自旋对性能的消耗。当时必须与unpark配合使用才会更加高效。\npark还提供了支持blocker参数的方法，blocker对象在线程受阻塞时被记录，用于允许监视和诊断工具确定线程被阻塞的原因。提供了getBlocker(Thread t)来访问blocker。\n下面是Java Docs中的示例用法：一个先进先出非重入锁类的基本框架：\nclass FIFOMutex { private final AtomicBoolean locked = new AtomicBoolean(false); private final Queue\u0026lt;Thread\u0026gt; waiters = new ConcurrentLinkedQueue\u0026lt;Thread\u0026gt;(); public void lock() { boolean wasInterrupted = false; Thread current = Thread.currentThread(); waiters.add(current); \/\/ Block while not first in queue or cannot acquire lock while (waiters.peek() != current || !locked.compareAndSet(false, true)) { LockSupport.park(this); if (Thread.interrupted()) \/\/ ignore interrupts while waiting wasInterrupted = true; } waiters.remove(); if (wasInterrupted) \/\/ reassert interrupt status on exit current.interrupt(); } public void unlock() { locked.set(false); LockSupport.unpark(waiters.peek()); } }} 源码解读 成员变量 UNSAFE：用于进行内存级别操作的工具类。 parkBlockerOffset：存储Thread.parkBlocker的内存偏移地址，记录线程被谁阻塞的。用于线程监控和分析工具用来定位原因的。可以通过getBlocker获取到阻塞的对象。 SEED：存储Thread.threadLocalRandomSeed的内存偏移地址 PROBE：存储Thread.threadLocalRandomProbe的内存偏移地址 SECONDARY：存储Thread.threadLocalRandomSecondarySeed的内存偏移地址 private static final sun.misc.Unsafe UNSAFE; private static final long parkBlockerOffset; private static final long SEED; private static final long PROBE; private static final long SECONDARY; 构造方法 不允许实例化，只能通过调用静态方法来完成操作。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-11-08 12:46:28 \u002b0000 UTC",
+      "dateModified" : "2020-11-08 12:46:28 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/java%E5%B9%B6%E5%8F%91\/locksupport%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90\/",
+      "keywords" : [ "Java","并发", ]
+  }
+</script>
+<title>LockSupport源码分析</title>
+  <meta property="og:title" content="LockSupport源码分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 Basic thread blocking primitives for creating locks and other synchronization classes. &ndash; Java Doc
+LockSupport是用来创建锁和其它同步类的基本线程阻塞原语。底层依赖Unsafe实现，我们可以在其它的并发同步工具类的实现中看到该类的使用。LockSupport提供了park()和unpark()方法来分别实现阻塞线程和唤醒线程，每个使用LockSupport的线程都有一个permit，该值默认为0，取值0,1。
+unpark()：如果permit当前值为0，将其自增1。 park()：如果当前permit为1，将其自减1并立即返回，如果为0，直接阻塞。 这两个方法不会有Thread.suspend 和Thread.resume所可能引发的死锁问题，因为permit存在，调用 park 的线程和另一个试图将其 unpark 的线程之间的竞争将保持活性。
+如果调用线程被中断，那么park将会返回。park方法可能在任何时间no reason地返回，因此通常在重新检查返回条件地循环里调用此方法。在某种意义上，park是busy wait（忙则等待）的一种优化，减少了自旋对性能的消耗。当时必须与unpark配合使用才会更加高效。
+park还提供了支持blocker参数的方法，blocker对象在线程受阻塞时被记录，用于允许监视和诊断工具确定线程被阻塞的原因。提供了getBlocker(Thread t)来访问blocker。
+下面是Java Docs中的示例用法：一个先进先出非重入锁类的基本框架：
+class FIFOMutex { private final AtomicBoolean locked = new AtomicBoolean(false); private final Queue&lt;Thread&gt; waiters = new ConcurrentLinkedQueue&lt;Thread&gt;(); public void lock() { boolean wasInterrupted = false; Thread current = Thread.currentThread(); waiters.add(current); // Block while not first in queue or cannot acquire lock while (waiters.peek() != current || !locked.compareAndSet(false, true)) { LockSupport.park(this); if (Thread.interrupted()) // ignore interrupts while waiting wasInterrupted = true; } waiters.remove(); if (wasInterrupted) // reassert interrupt status on exit current.interrupt(); } public void unlock() { locked.set(false); LockSupport.unpark(waiters.peek()); } }} 源码解读 成员变量 UNSAFE：用于进行内存级别操作的工具类。 parkBlockerOffset：存储Thread.parkBlocker的内存偏移地址，记录线程被谁阻塞的。用于线程监控和分析工具用来定位原因的。可以通过getBlocker获取到阻塞的对象。 SEED：存储Thread.threadLocalRandomSeed的内存偏移地址 PROBE：存储Thread.threadLocalRandomProbe的内存偏移地址 SECONDARY：存储Thread.threadLocalRandomSecondarySeed的内存偏移地址 private static final sun.misc.Unsafe UNSAFE; private static final long parkBlockerOffset; private static final long SEED; private static final long PROBE; private static final long SECONDARY; 构造方法 不允许实例化，只能通过调用静态方法来完成操作。
+" />
+  <meta name="description" content="简介 Basic thread blocking primitives for creating locks and other synchronization classes. &ndash; Java Doc
+LockSupport是用来创建锁和其它同步类的基本线程阻塞原语。底层依赖Unsafe实现，我们可以在其它的并发同步工具类的实现中看到该类的使用。LockSupport提供了park()和unpark()方法来分别实现阻塞线程和唤醒线程，每个使用LockSupport的线程都有一个permit，该值默认为0，取值0,1。
+unpark()：如果permit当前值为0，将其自增1。 park()：如果当前permit为1，将其自减1并立即返回，如果为0，直接阻塞。 这两个方法不会有Thread.suspend 和Thread.resume所可能引发的死锁问题，因为permit存在，调用 park 的线程和另一个试图将其 unpark 的线程之间的竞争将保持活性。
+如果调用线程被中断，那么park将会返回。park方法可能在任何时间no reason地返回，因此通常在重新检查返回条件地循环里调用此方法。在某种意义上，park是busy wait（忙则等待）的一种优化，减少了自旋对性能的消耗。当时必须与unpark配合使用才会更加高效。
+park还提供了支持blocker参数的方法，blocker对象在线程受阻塞时被记录，用于允许监视和诊断工具确定线程被阻塞的原因。提供了getBlocker(Thread t)来访问blocker。
+下面是Java Docs中的示例用法：一个先进先出非重入锁类的基本框架：
+class FIFOMutex { private final AtomicBoolean locked = new AtomicBoolean(false); private final Queue&lt;Thread&gt; waiters = new ConcurrentLinkedQueue&lt;Thread&gt;(); public void lock() { boolean wasInterrupted = false; Thread current = Thread.currentThread(); waiters.add(current); // Block while not first in queue or cannot acquire lock while (waiters.peek() != current || !locked.compareAndSet(false, true)) { LockSupport.park(this); if (Thread.interrupted()) // ignore interrupts while waiting wasInterrupted = true; } waiters.remove(); if (wasInterrupted) // reassert interrupt status on exit current.interrupt(); } public void unlock() { locked.set(false); LockSupport.unpark(waiters.peek()); } }} 源码解读 成员变量 UNSAFE：用于进行内存级别操作的工具类。 parkBlockerOffset：存储Thread.parkBlocker的内存偏移地址，记录线程被谁阻塞的。用于线程监控和分析工具用来定位原因的。可以通过getBlocker获取到阻塞的对象。 SEED：存储Thread.threadLocalRandomSeed的内存偏移地址 PROBE：存储Thread.threadLocalRandomProbe的内存偏移地址 SECONDARY：存储Thread.threadLocalRandomSecondarySeed的内存偏移地址 private static final sun.misc.Unsafe UNSAFE; private static final long parkBlockerOffset; private static final long SEED; private static final long PROBE; private static final long SECONDARY; 构造方法 不允许实例化，只能通过调用静态方法来完成操作。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">LockSupport源码分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-11-08 12:46:28 UTC">
+                08 Nov 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="简介">简介</h2>
+<blockquote>
+<p>Basic thread blocking primitives for creating locks and other synchronization classes.   &ndash; Java Doc</p>
+</blockquote>
+<p><code>LockSupport</code>是用来创建锁和其它同步类的基本线程阻塞原语。底层依赖<code>Unsafe</code>实现，我们可以在其它的并发同步工具类的实现中看到该类的使用。<code>LockSupport</code>提供了<code>park()</code>和<code>unpark()</code>方法来分别实现阻塞线程和唤醒线程，每个使用<code>LockSupport</code>的线程都有一个<code>permit</code>，该值默认为0，取值0,1。</p>
+<ul>
+<li><code>unpark()</code>：如果<code>permit</code>当前值为0，将其自增1。</li>
+<li><code>park()</code>：如果当前<code>permit</code>为1，将其自减1并立即返回，如果为0，直接阻塞。</li>
+</ul>
+<p>这两个方法不会有<code>Thread.suspend</code> 和<code>Thread.resume</code>所可能引发的死锁问题，因为<code>permit</code>存在，调用 <code>park </code>的线程和另一个试图将其 <code>unpark </code>的线程之间的竞争将保持活性。</p>
+<p>如果调用线程被中断，那么<code>park</code>将会返回。<code>park</code>方法可能在任何时间<strong>no reason</strong>地返回，因此通常在重新检查返回条件地循环里调用此方法。在某种意义上，<code>park</code>是<strong>busy wait</strong>（忙则等待）的一种优化，减少了自旋对性能的消耗。当时必须与<code>unpark</code>配合使用才会更加高效。</p>
+<p><code>park</code>还提供了支持<code>blocker</code>参数的方法，<code>blocker</code>对象在线程受阻塞时被记录，用于允许监视和诊断工具确定线程被阻塞的原因。提供了<code>getBlocker(Thread t)</code>来访问<code>blocker</code>。</p>
+<p>下面是<code>Java Docs</code>中的示例用法：一个先进先出非重入锁类的基本框架：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">FIFOMutex</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> AtomicBoolean locked <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> AtomicBoolean(<span style="color:#66d9ef">false</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Queue<span style="color:#f92672">&lt;</span>Thread<span style="color:#f92672">&gt;</span> waiters
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ConcurrentLinkedQueue<span style="color:#f92672">&lt;</span>Thread<span style="color:#f92672">&gt;</span>();
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>() {
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">boolean</span> wasInterrupted <span style="color:#f92672">=</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>      Thread current <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>      waiters.<span style="color:#a6e22e">add</span>(current);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// Block while not first in queue or cannot acquire lock</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">while</span> (waiters.<span style="color:#a6e22e">peek</span>() <span style="color:#f92672">!=</span> current <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>             <span style="color:#f92672">!</span>locked.<span style="color:#a6e22e">compareAndSet</span>(<span style="color:#66d9ef">false</span>, <span style="color:#66d9ef">true</span>)) {
+</span></span><span style="display:flex;"><span>        LockSupport.<span style="color:#a6e22e">park</span>(<span style="color:#66d9ef">this</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (Thread.<span style="color:#a6e22e">interrupted</span>()) <span style="color:#75715e">// ignore interrupts while waiting</span>
+</span></span><span style="display:flex;"><span>          wasInterrupted <span style="color:#f92672">=</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>      waiters.<span style="color:#a6e22e">remove</span>();
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (wasInterrupted)          <span style="color:#75715e">// reassert interrupt status on exit</span>
+</span></span><span style="display:flex;"><span>        current.<span style="color:#a6e22e">interrupt</span>();
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unlock</span>() {
+</span></span><span style="display:flex;"><span>      locked.<span style="color:#a6e22e">set</span>(<span style="color:#66d9ef">false</span>);
+</span></span><span style="display:flex;"><span>      LockSupport.<span style="color:#a6e22e">unpark</span>(waiters.<span style="color:#a6e22e">peek</span>());
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  }}
+</span></span></code></pre></div><hr>
+<h2 id="源码解读">源码解读</h2>
+<h3 id="成员变量">成员变量</h3>
+<ul>
+<li>UNSAFE：用于进行内存级别操作的工具类。</li>
+<li>parkBlockerOffset：存储<code>Thread.parkBlocker</code>的内存偏移地址，记录线程被谁阻塞的。用于线程监控和分析工具用来定位原因的。可以通过<code>getBlocker</code>获取到阻塞的对象。</li>
+<li>SEED：存储<code>Thread.threadLocalRandomSeed</code>的内存偏移地址</li>
+<li>PROBE：存储<code>Thread.threadLocalRandomProbe</code>的内存偏移地址</li>
+<li>SECONDARY：存储<code>Thread.threadLocalRandomSecondarySeed</code>的内存偏移地址</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> sun.<span style="color:#a6e22e">misc</span>.<span style="color:#a6e22e">Unsafe</span> UNSAFE;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> parkBlockerOffset;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> SEED;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> PROBE;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> SECONDARY;
+</span></span></code></pre></div><h3 id="构造方法">构造方法</h3>
+<p>不允许实例化，只能通过调用静态方法来完成操作。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#a6e22e">LockSupport</span>() {} <span style="color:#75715e">// Cannot be instantiated.</span>
+</span></span></code></pre></div><h3 id="静态代码块">静态代码块</h3>
+<p>通过反射机制获取<code>Thread</code>类的<code>parkBlocker</code>字段，然后通过<code>UNSAFE.objectFieldOffset</code>获取到<code>parkBlocker</code>在内存的偏移量。</p>
+<blockquote>
+<p>Q：为什么不通过get/set方式获取某个字段？</p>
+<p>A：parkBlocker在线程处于阻塞状态下才会被赋值，此时直接调用线程内的方法，线程不会作出回应的。</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//获取unsafe实例</span>
+</span></span><span style="display:flex;"><span>            UNSAFE <span style="color:#f92672">=</span> sun.<span style="color:#a6e22e">misc</span>.<span style="color:#a6e22e">Unsafe</span>.<span style="color:#a6e22e">getUnsafe</span>();
+</span></span><span style="display:flex;"><span>            Class<span style="color:#f92672">&lt;?&gt;</span> tk <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">class</span>;
+</span></span><span style="display:flex;"><span>            parkBlockerOffset <span style="color:#f92672">=</span> UNSAFE.<span style="color:#a6e22e">objectFieldOffset</span>
+</span></span><span style="display:flex;"><span>                (tk.<span style="color:#a6e22e">getDeclaredField</span>(<span style="color:#e6db74">&#34;parkBlocker&#34;</span>));
+</span></span><span style="display:flex;"><span>            SEED <span style="color:#f92672">=</span> UNSAFE.<span style="color:#a6e22e">objectFieldOffset</span>
+</span></span><span style="display:flex;"><span>                (tk.<span style="color:#a6e22e">getDeclaredField</span>(<span style="color:#e6db74">&#34;threadLocalRandomSeed&#34;</span>));
+</span></span><span style="display:flex;"><span>            PROBE <span style="color:#f92672">=</span> UNSAFE.<span style="color:#a6e22e">objectFieldOffset</span>
+</span></span><span style="display:flex;"><span>                (tk.<span style="color:#a6e22e">getDeclaredField</span>(<span style="color:#e6db74">&#34;threadLocalRandomProbe&#34;</span>));
+</span></span><span style="display:flex;"><span>            SECONDARY <span style="color:#f92672">=</span> UNSAFE.<span style="color:#a6e22e">objectFieldOffset</span>
+</span></span><span style="display:flex;"><span>                (tk.<span style="color:#a6e22e">getDeclaredField</span>(<span style="color:#e6db74">&#34;threadLocalRandomSecondarySeed&#34;</span>));
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">catch</span> (Exception ex) { <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> Error(ex); }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="setblocker">setBlocker</h3>
+<p>对给定的线程<code>t</code>的<code>parkBlocker</code>赋值。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">setBlocker</span>(Thread t, Object arg) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Even though volatile, hotspot doesn&#39;t need a write barrier here.</span>
+</span></span><span style="display:flex;"><span>        UNSAFE.<span style="color:#a6e22e">putObject</span>(t, parkBlockerOffset, arg);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="getblocker">getBlocker</h3>
+<p>返回线程<code>t</code>的<code>parkBlocker</code>对象。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> Object <span style="color:#a6e22e">getBlocker</span>(Thread t) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (t <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> NullPointerException();
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> UNSAFE.<span style="color:#a6e22e">getObjectVolatile</span>(t, parkBlockerOffset);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="park">park</h3>
+<p>park方法阻塞线程，发生以下情况时，当前线程会继续执行：</p>
+<ul>
+<li>其它线程调用<code>unpark</code>方法唤醒该线程</li>
+<li>其它线程中断当前线程</li>
+<li><strong>no reason</strong>地返回</li>
+</ul>
+<p>该方法有两个重载版本。</p>
+<blockquote>
+<p>Q：为什么调用两次setBlocker方法？</p>
+</blockquote>
+<p>A：调用<code>park</code>方法时，当前线程首先设置好<code>parkBlocker</code>字段，然后调用<code>UNSAFE.park</code>方法，此时，当前线程阻塞，第二个<code>setBlocker</code>无法执行，过了一段时间，该线程的<code>unpark</code>方法被调用，该线程拿到<code>permit</code>后执行，将该线程的<code>blocker</code>字段置空。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">park</span>(Object blocker) {
+</span></span><span style="display:flex;"><span>        Thread t <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>        setBlocker(t, blocker);
+</span></span><span style="display:flex;"><span>        UNSAFE.<span style="color:#a6e22e">park</span>(<span style="color:#66d9ef">false</span>, 0L);
+</span></span><span style="display:flex;"><span>        setBlocker(t, <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">park</span>() {
+</span></span><span style="display:flex;"><span>        UNSAFE.<span style="color:#a6e22e">park</span>(<span style="color:#66d9ef">false</span>, 0L);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="parknanos">parkNanos</h3>
+<p>阻塞当前线程，最长不超过<code>nanos</code>纳秒</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">parkNanos</span>(<span style="color:#66d9ef">long</span> nanos) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (nanos <span style="color:#f92672">&gt;</span> 0)
+</span></span><span style="display:flex;"><span>            UNSAFE.<span style="color:#a6e22e">park</span>(<span style="color:#66d9ef">false</span>, nanos);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">parkNanos</span>(Object blocker, <span style="color:#66d9ef">long</span> nanos) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (nanos <span style="color:#f92672">&gt;</span> 0) {
+</span></span><span style="display:flex;"><span>            Thread t <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>            setBlocker(t, blocker);
+</span></span><span style="display:flex;"><span>            UNSAFE.<span style="color:#a6e22e">park</span>(<span style="color:#66d9ef">false</span>, nanos);
+</span></span><span style="display:flex;"><span>            setBlocker(t, <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="parkuntil">parkUntil</h3>
+<p>该方法表示在限定的时间内将阻塞。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">parkUntil</span>(<span style="color:#66d9ef">long</span> deadline) {
+</span></span><span style="display:flex;"><span>        UNSAFE.<span style="color:#a6e22e">park</span>(<span style="color:#66d9ef">true</span>, deadline);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="unpark">unpark</h3>
+<p>如果给定线程的<code>permit</code>不可用，则将其置为可用，如果该线程阻塞，则将它解除阻塞状态。否则，保证下一次调用<code>park</code>不会受阻塞。如果给定线程尚未启动，则无法保证该操作有任何效果。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unpark</span>(Thread thread) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (thread <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>        UNSAFE.<span style="color:#a6e22e">unpark</span>(thread);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="参考">参考</h2>
+<p><a href="https://docs.oracle.com/javase/8/docs/api/java/util/concurrent/locks/LockSupport.html#park--">Java SE Doc</a></p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E5%B9%B6%E5%8F%91/">
+                并发
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/java%E5%8E%9F%E5%AD%90%E7%B1%BB%E7%9A%84%E4%BD%BF%E7%94%A8%E4%B8%8E%E5%AE%9E%E7%8E%B0/">Java原子类的使用与实现</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/volatile%E5%85%B3%E9%94%AE%E5%AD%97%E5%89%96%E6%9E%90/">volatile关键字剖析</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/synchronized%E5%85%B3%E9%94%AE%E5%AD%97%E5%89%96%E6%9E%90/">synchronized关键字剖析</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

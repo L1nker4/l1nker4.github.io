@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%BA%8C-%E5%AD%98%E5%82%A8%E7%BB%93%E6%9E%84/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%BA%8C-%E5%AD%98%E5%82%A8%E7%BB%93%E6%9E%84/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Kafka学习笔记(二)-存储架构",
+      "headline" : "Kafka学习笔记(二)-存储架构",
+      "description" : "Kafka存储架构 Kafka是为了解决大数据量的实时日志流而产生的，日志流主要特点包括：\n数据实时存储 海量数据存储与处理 Kafka需要保证以下几点：\n存储的主要是消息流 要保证海量数据的高效存储 要支持海量数据的高效检索 要保证数据的安全性和稳定性 Kafka使用的存储方案是：磁盘顺序写 \u002b 稀疏哈希索引。\n日志目录布局 Kafka中消息以Topic为单位归类，各个Topic下面分为多个分区，分区中每条消息都会被分配一个唯一的序列号（offset）。日志命名方式为：\u0026lt;topic\u0026gt;-\u0026lt;partition\u0026gt;\n在不考虑多副本的情况下，一个分区对应一个Log，为了防止Log过大，Kafka引入LogSegment，将Log切分为多个LogSegment。其结构如下所示：\nLog LogSegment：每个 LogSegment 都有一个基准偏移量 baseOffset，用来表示当前 LogSegment中第一条消息的offset。只有最后一个LogSegment才能写入。下述文件根据baseOffset命名，长度固定为20位数字，没有达到的位数用0填充。 .log：日志文件 .index：偏移量索引文件 .timeindex：时间戳索引文件 .snapshot：快照索引文件 消息格式 消息格式关系到存储性能，比如冗余字段会增加分区的存储空间、网络传输的开销较大。\nKafka3.0中将BatchRecords作为磁盘中的存储单元，一个BatchRecords中包含多个Record。\nBatchRecords的格式如下：\nbaseOffset: int64 batchLength: int32 partitionLeaderEpoch: int32 magic: int8 (current magic value is 2) crc: int32 attributes: int16 bit 0~2: 0: no compression 1: gzip 2: snappy 3: lz4 4: zstd bit 3: timestampType bit 4: isTransactional (0 means not transactional) bit 5: isControlBatch (0 means not a control batch) bit 6: hasDeleteHorizonMs (0 means baseTimestamp is not set as the delete horizon for compaction) bit 7~15: unused lastOffsetDelta: int32 baseTimestamp: int64 maxTimestamp: int64 producerId: int64 producerEpoch: int16 baseSequence: int32 records: [Record] 字段解释如下：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2022",
+      "datePublished": "2022-06-29 20:06:22 \u002b0000 UTC",
+      "dateModified" : "2022-06-29 20:06:22 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/kafka\/kafka%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%BA%8C-%E5%AD%98%E5%82%A8%E7%BB%93%E6%9E%84\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Kafka学习笔记(二)-存储架构</title>
+  <meta property="og:title" content="Kafka学习笔记(二)-存储架构" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="Kafka存储架构 Kafka是为了解决大数据量的实时日志流而产生的，日志流主要特点包括：
+数据实时存储 海量数据存储与处理 Kafka需要保证以下几点：
+存储的主要是消息流 要保证海量数据的高效存储 要支持海量数据的高效检索 要保证数据的安全性和稳定性 Kafka使用的存储方案是：磁盘顺序写 &#43; 稀疏哈希索引。
+日志目录布局 Kafka中消息以Topic为单位归类，各个Topic下面分为多个分区，分区中每条消息都会被分配一个唯一的序列号（offset）。日志命名方式为：&lt;topic&gt;-&lt;partition&gt;
+在不考虑多副本的情况下，一个分区对应一个Log，为了防止Log过大，Kafka引入LogSegment，将Log切分为多个LogSegment。其结构如下所示：
+Log LogSegment：每个 LogSegment 都有一个基准偏移量 baseOffset，用来表示当前 LogSegment中第一条消息的offset。只有最后一个LogSegment才能写入。下述文件根据baseOffset命名，长度固定为20位数字，没有达到的位数用0填充。 .log：日志文件 .index：偏移量索引文件 .timeindex：时间戳索引文件 .snapshot：快照索引文件 消息格式 消息格式关系到存储性能，比如冗余字段会增加分区的存储空间、网络传输的开销较大。
+Kafka3.0中将BatchRecords作为磁盘中的存储单元，一个BatchRecords中包含多个Record。
+BatchRecords的格式如下：
+baseOffset: int64 batchLength: int32 partitionLeaderEpoch: int32 magic: int8 (current magic value is 2) crc: int32 attributes: int16 bit 0~2: 0: no compression 1: gzip 2: snappy 3: lz4 4: zstd bit 3: timestampType bit 4: isTransactional (0 means not transactional) bit 5: isControlBatch (0 means not a control batch) bit 6: hasDeleteHorizonMs (0 means baseTimestamp is not set as the delete horizon for compaction) bit 7~15: unused lastOffsetDelta: int32 baseTimestamp: int64 maxTimestamp: int64 producerId: int64 producerEpoch: int16 baseSequence: int32 records: [Record] 字段解释如下：
+" />
+  <meta name="description" content="Kafka存储架构 Kafka是为了解决大数据量的实时日志流而产生的，日志流主要特点包括：
+数据实时存储 海量数据存储与处理 Kafka需要保证以下几点：
+存储的主要是消息流 要保证海量数据的高效存储 要支持海量数据的高效检索 要保证数据的安全性和稳定性 Kafka使用的存储方案是：磁盘顺序写 &#43; 稀疏哈希索引。
+日志目录布局 Kafka中消息以Topic为单位归类，各个Topic下面分为多个分区，分区中每条消息都会被分配一个唯一的序列号（offset）。日志命名方式为：&lt;topic&gt;-&lt;partition&gt;
+在不考虑多副本的情况下，一个分区对应一个Log，为了防止Log过大，Kafka引入LogSegment，将Log切分为多个LogSegment。其结构如下所示：
+Log LogSegment：每个 LogSegment 都有一个基准偏移量 baseOffset，用来表示当前 LogSegment中第一条消息的offset。只有最后一个LogSegment才能写入。下述文件根据baseOffset命名，长度固定为20位数字，没有达到的位数用0填充。 .log：日志文件 .index：偏移量索引文件 .timeindex：时间戳索引文件 .snapshot：快照索引文件 消息格式 消息格式关系到存储性能，比如冗余字段会增加分区的存储空间、网络传输的开销较大。
+Kafka3.0中将BatchRecords作为磁盘中的存储单元，一个BatchRecords中包含多个Record。
+BatchRecords的格式如下：
+baseOffset: int64 batchLength: int32 partitionLeaderEpoch: int32 magic: int8 (current magic value is 2) crc: int32 attributes: int16 bit 0~2: 0: no compression 1: gzip 2: snappy 3: lz4 4: zstd bit 3: timestampType bit 4: isTransactional (0 means not transactional) bit 5: isControlBatch (0 means not a control batch) bit 6: hasDeleteHorizonMs (0 means baseTimestamp is not set as the delete horizon for compaction) bit 7~15: unused lastOffsetDelta: int32 baseTimestamp: int64 maxTimestamp: int64 producerId: int64 producerEpoch: int16 baseSequence: int32 records: [Record] 字段解释如下：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Kafka学习笔记(二)-存储架构</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2022-06-29 20:06:22 UTC">
+                29 Jun 2022
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="kafka存储架构">Kafka存储架构</h1>
+<p>Kafka是为了解决大数据量的实时日志流而产生的，日志流主要特点包括：</p>
+<ol>
+<li>数据实时存储</li>
+<li>海量数据存储与处理</li>
+</ol>
+<p>Kafka需要保证以下几点：</p>
+<ul>
+<li>存储的主要是消息流</li>
+<li>要保证海量数据的高效存储</li>
+<li>要支持海量数据的高效检索</li>
+<li>要保证数据的安全性和稳定性</li>
+</ul>
+<p>Kafka使用的存储方案是：磁盘顺序写 + 稀疏哈希索引。</p>
+<h2 id="日志目录布局">日志目录布局</h2>
+<p>Kafka中消息以Topic为单位归类，各个Topic下面分为多个分区，分区中每条消息都会被分配一个唯一的序列号（offset）。日志命名方式为：<code>&lt;topic&gt;-&lt;partition&gt;</code></p>
+<p>在不考虑多副本的情况下，一个分区对应一个Log，为了防止Log过大，Kafka引入<code>LogSegment</code>，将Log切分为多个<code>LogSegment</code>。其结构如下所示：</p>
+<ul>
+<li>Log
+<ul>
+<li>LogSegment：每个 LogSegment 都有一个基准偏移量 baseOffset，用来表示当前 LogSegment中第一条消息的offset。只有最后一个LogSegment才能写入。下述文件根据<code>baseOffset</code>命名，长度固定为20位数字，没有达到的位数用0填充。
+<ul>
+<li>.log：日志文件</li>
+<li>.index：偏移量索引文件</li>
+<li>.timeindex：时间戳索引文件</li>
+<li>.snapshot：快照索引文件</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h2 id="消息格式">消息格式</h2>
+<p>消息格式关系到存储性能，比如冗余字段会增加分区的存储空间、网络传输的开销较大。</p>
+<p>Kafka3.0中将<code>BatchRecords</code>作为磁盘中的存储单元，一个<code>BatchRecords</code>中包含多个<code>Record</code>。</p>
+<p><code>BatchRecords</code>的格式如下：</p>
+<pre tabindex="0"><code>baseOffset: int64
+batchLength: int32
+partitionLeaderEpoch: int32
+magic: int8 (current magic value is 2)
+crc: int32
+attributes: int16
+    bit 0~2:
+        0: no compression
+        1: gzip
+        2: snappy
+        3: lz4
+        4: zstd
+    bit 3: timestampType
+    bit 4: isTransactional (0 means not transactional)
+    bit 5: isControlBatch (0 means not a control batch)
+    bit 6: hasDeleteHorizonMs (0 means baseTimestamp is not set as the delete horizon for compaction)
+    bit 7~15: unused
+lastOffsetDelta: int32
+baseTimestamp: int64
+maxTimestamp: int64
+producerId: int64
+producerEpoch: int16
+baseSequence: int32
+records: [Record]
+</code></pre><p>字段解释如下：</p>
+<table>
+  <thead>
+      <tr>
+          <th style="text-align: center">字段</th>
+          <th style="text-align: center">含义</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td style="text-align: center">baseOffset</td>
+          <td style="text-align: center">这批消息的起始Offset</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">partitionLeaderEpoch</td>
+          <td style="text-align: center">用于分区恢复时保护数据的一致性</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">batchLength</td>
+          <td style="text-align: center">BatchRecords的长度</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">magic</td>
+          <td style="text-align: center">魔数，可以用于拓展存储一些信息，当前3.0版本的magic是2</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">crc</td>
+          <td style="text-align: center">crc校验码，包含从attributes开始到BatchRecords结束的数据的校验码</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">attributes</td>
+          <td style="text-align: center">int16，其中bit0-2中包含了使用的压缩算法，bit3是timestampType，bit4表示是否失误，bit5表示是否是控制指令，bit6-15暂未使用</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">lastOffsetDelta</td>
+          <td style="text-align: center">BatchRecords中最后一个Offset，是相对baseOffset的值</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">firstTimestamp</td>
+          <td style="text-align: center">BatchRecords中最小的timestamp</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">maxTimestamp</td>
+          <td style="text-align: center">BatchRecords中最大的timestamp</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">producerId</td>
+          <td style="text-align: center">发送端的唯一ID，用于做消息的幂等处理</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">producerEpoch</td>
+          <td style="text-align: center">发送端的Epoch，用于做消息的幂等处理</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">baseSequence</td>
+          <td style="text-align: center">BatchRecords的序列号，用于做消息的幂等处理</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">records</td>
+          <td style="text-align: center">具体的消息内容</td>
+      </tr>
+  </tbody>
+</table>
+<p>Record格式如下：</p>
+<pre tabindex="0"><code>length: varint
+attributes: int8
+    bit 0~7: unused
+timestampDelta: varlong
+offsetDelta: varint
+keyLength: varint
+key: byte[]
+valueLen: varint
+value: byte[]
+Headers =&gt; [Header]
+
+headerKeyLength: varint
+headerKey: String
+headerValueLength: varint
+Value: byte[]
+</code></pre><p>上述使用的<code>Varint</code>编码方式，该编码起到很好的压缩效果。ProtoBuf使用的也是该编码方式。</p>
+<h3 id="消息压缩">消息压缩</h3>
+<p>压缩算法在生产者客户端进行配置，通过<code>compression.type</code>参数选择合适的算法，主要有<code>gzip</code>, <code>lz4</code>, <code>snappy</code>,<code>zstd</code></p>
+<h2 id="日志索引">日志索引</h2>
+<p>索引用来提高查找的效率，<strong>偏移量索引文件</strong>建立了offset到物理地址之间的映射关系，时间戳索引文件根据指定的时间戳来查找对应的偏移量信息。</p>
+<p>Kafka中索引文件以<strong>稀疏索引</strong>的方式构造消息的索引，不能保证每个消息在索引文件中都有对应的索引项，每写入一定量的消息（由broker端的<code>log.index.interval.bytes</code>指定）时，两个索引文件分别增加一个偏移量索引项和时间戳索引项。</p>
+<p>稀疏索引通过<code>MappedByteBuffer</code>将索引文件映射到内存中，以加快索引的查询速度。两个索引文件中索引项根据偏移量和时间戳单调递增的，可以使用<strong>二分查找</strong>快速定位到。</p>
+<p>日志分段策略由以下配置决定（满足其一即可）：</p>
+<ul>
+<li>broker的<code>log.segment.bytes </code>：当前LogSegment大小超过该值，默认1GB</li>
+<li>当前日志分段中消息的最大时间戳与当前系统的时间戳的差值大于 <code>log.roll.ms</code>或<code>log.roll.hours</code>参数配置的值。</li>
+<li>偏移量索引文件或时间戳索引文件的大小达到broker端参数<code>log.index.size.max.bytes</code>配置的值。默认为10MB</li>
+<li>追加的消息的偏移量与当前日志分段的偏移量之间的差值大于<code>Integer.MAX_VALUE</code></li>
+</ul>
+<h3 id="偏移量索引项">偏移量索引项</h3>
+<p>每个索引项占用8个字节，分为以下两个部分：</p>
+<ul>
+<li>relativeOffset：相对偏移量，消息相对于<code>baseOffset</code>的偏移量，占用4个字节</li>
+<li>position：物理地址，消息在日志分段文件中的物理位置，占用4个字节。</li>
+</ul>
+<p>Kafka要求索引文件大小必须是索引项的整数倍。</p>
+<h3 id="时间戳索引项">时间戳索引项</h3>
+<p>时间戳索引项占用12字节，分为以下两个部分：</p>
+<ul>
+<li>timestamp：当前日志分段最大的时间戳
+<ul>
+<li>追加的索引项该字段必须大于前面的时间戳，保持单调递增属性</li>
+</ul>
+</li>
+<li>relativeOffset：时间戳对应的相对偏移量</li>
+</ul>
+<h2 id="日志清理">日志清理</h2>
+<p>Kafka将消息存储在磁盘上，为了控制占用空间的不断增加，需要对消息做一定的清理操作。提供了两种日志清理策略：</p>
+<ul>
+<li>日志删除：按照一定的保留策略直接删除不符合条件的日志分段。</li>
+<li>日志压缩：对相同key进行整合，保留最新版本的value。</li>
+</ul>
+<p>通过broker端参数<code>log.cleanup.policy</code>来设置日志清理策略，默认采用<code>delete</code>策略，日志清理的粒度可以控制到主题级别</p>
+<h3 id="日志删除">日志删除</h3>
+<p>日志管理器中会有一个日志删除任务来周期性检测并删除不符合保留条件的日志分段文件，周期通过<code>log.retention.check.interval.ms</code>来配置，默认五分钟，保留策略如下：</p>
+<ul>
+<li>基于时间的保留策略：删除日志文件中超过设定阈值的日志分段</li>
+<li>基于日志大小的保留策略：删除超过阈值的日志分段</li>
+<li>基于日志起始偏移量的保留策略：某日志分段的下一个日志分段的起始偏移量baseOffset 是否小于等于logStartOffset，若是，则可以删除此日志分段。</li>
+</ul>
+<h3 id="日志压缩">日志压缩</h3>
+<p><code>Log Compaction</code>前后，分段中每条消息的偏移量和写入时偏移量保持一致，日志中每条消息的物理位置会改变，类似Redis的RDB过程</p>
+<h2 id="磁盘存储">磁盘存储</h2>
+<p><strong>磁盘顺序写速度比磁盘随机写快，比内存随机写快</strong>。</p>
+<p>Kafka采用append的方式写入消息，并且不允许修改写入的消息，这种方式属于<strong>磁盘顺序写</strong>。</p>
+<h3 id="page-cache">Page Cache</h3>
+<p><code>Page Cache</code>是OS实现的一种主要的磁盘缓存，以此减少对磁盘IO的操作。具体流程：将磁盘数据缓存到内存，将对磁盘的访问转为对内存的访问，极大提高访问效率。</p>
+<p>当进程访问磁盘时，会首先查看数据所在的页是否在<code>page cache</code>中，没有命中，则向磁盘发起读取请求并将数据存入缓存。</p>
+<p>Kafka中大量使用了页缓存，这是Kafka实现高吞吐的重要因素之一，虽然刷盘由OS控制，Kafka同样提供了<code>fsync</code>强制刷盘来保证数据可靠性。</p>
+<h3 id="磁盘io流程">磁盘IO流程</h3>
+<p>磁盘IO的场景从编程角度分为以下几种：</p>
+<ul>
+<li>调用C标准库，数据流向：进程buffer-&gt;C 标准IO库 buffer-&gt;page cache-&gt;磁盘上的具体文件</li>
+<li>调用文件IO，数据流向：进程buffer-&gt;page cache -&gt;磁盘</li>
+<li>打开文件使用<code>O_DIRECT</code>，直接读磁盘</li>
+</ul>
+<p>磁盘IO流程如下：</p>
+<ul>
+<li><strong>写操作</strong>：调用<code>fwrite</code>把数据写入 IO Buffer（会存在将多个请求打包在一个buffer）。调用<code>write</code>将数据写入页缓存，此时不会主动刷盘，存在<code>pdflush</code>线程不断检测脏页，并判断是否写回磁盘。</li>
+<li><strong>读操作</strong>：调用<code>fread</code>去IO Buffer中读取数据，读取到成功返回，否则去页缓存读取，不存在去磁盘读。</li>
+<li><strong>IO请求处理</strong>：通用块层将IO请求构造成多个bio结构提交给调度层，调度器将bio结构排序：<strong>尽可能将随机读写变为顺序读写</strong></li>
+</ul>
+<p>从上到下，逐层分别为：</p>
+<ul>
+<li>应用层：应用程序</li>
+<li>内核层：虚拟文件系统 + 具体文件系统，接收应用层的内核调用，并并封装请求发送给通用块层。</li>
+<li>通用块层：接受上层发出的磁盘请求，并调整结构传给设备层，该层隐藏了底层硬件块的特性，提供了通用视图。</li>
+<li>设备层：磁盘</li>
+</ul>
+<p>Linux的IO调度策略：</p>
+<ul>
+<li>NOOP：FIFO队列</li>
+<li>CFQ：按照IO请求地址进行排序</li>
+<li>DEADLINE：在CFQ的基础上，解决了IO请求饥饿问题。</li>
+<li>ANTICIPATORY：为每个读IO设置了6ms的等待时间窗口，如果在此期间内，收到了相邻位置的读IO请求，立即满足</li>
+</ul>
+<p>Kafka还采用了<strong>零拷贝</strong>技术来提升性能，直接将数据从磁盘文件复制到网卡设备，不经过应用程序的进程空间，减少了内核态和用户态的切换次数，大大提升了性能，Java的NIO采用<code>FileChannal.transferTo()</code>实现零拷贝。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/reentrantlock%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" />
+  <link rel="canonical" href="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/reentrantlock%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "ReentrantLock源码分析",
+      "headline" : "ReentrantLock源码分析",
+      "description" : "简介 相对于synchronized关键字，ReentrantLock具备以下特点：\n可中断 可设置超时时间 可设置为公平锁 支持多个条件变量 源码实现 可重入锁的实现上，主要关注两点：\n可重入线程的再次获取锁的处理\n可重入锁的释放机制\n类的继承关系 ReentrantLock实现了Lock接口，Lock接口定义了锁的通用方法。\npublic class ReentrantLock implements Lock, java.io.Serializable 成员变量 sync代表当前ReentrantLock使用的获取策略。\nprivate final Sync sync; private static final long serialVersionUID = 7373984872572414699L; 构造方法 无参构造方法 默认是非公平策略 有参构造方法 传入true使用公平策略。 \/** * Creates an instance of {@code ReentrantLock}. * This is equivalent to using {@code ReentrantLock(false)}. *\/ public ReentrantLock() { sync = new NonfairSync(); } \/** * Creates an instance of {@code ReentrantLock} with the * given fairness policy. * * @param fair {@code true} if this lock should use a fair ordering policy *\/ public ReentrantLock(boolean fair) { sync = fair ? new FairSync() : new NonfairSync(); } 获取锁的策略 ReentrantLock内部有三个内部类，其中Sync是其它两个类NonfairSync和FairSync的父类，分别代表着非公平策略和公平策略。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-11-20 12:40:08 \u002b0000 UTC",
+      "dateModified" : "2020-11-20 12:40:08 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/java%E5%B9%B6%E5%8F%91\/reentrantlock%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90\/",
+      "keywords" : [ "Java","并发", ]
+  }
+</script>
+<title>ReentrantLock源码分析</title>
+  <meta property="og:title" content="ReentrantLock源码分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 相对于synchronized关键字，ReentrantLock具备以下特点：
+可中断 可设置超时时间 可设置为公平锁 支持多个条件变量 源码实现 可重入锁的实现上，主要关注两点：
+可重入线程的再次获取锁的处理
+可重入锁的释放机制
+类的继承关系 ReentrantLock实现了Lock接口，Lock接口定义了锁的通用方法。
+public class ReentrantLock implements Lock, java.io.Serializable 成员变量 sync代表当前ReentrantLock使用的获取策略。
+private final Sync sync; private static final long serialVersionUID = 7373984872572414699L; 构造方法 无参构造方法 默认是非公平策略 有参构造方法 传入true使用公平策略。 /** * Creates an instance of {@code ReentrantLock}. * This is equivalent to using {@code ReentrantLock(false)}. */ public ReentrantLock() { sync = new NonfairSync(); } /** * Creates an instance of {@code ReentrantLock} with the * given fairness policy. * * @param fair {@code true} if this lock should use a fair ordering policy */ public ReentrantLock(boolean fair) { sync = fair ? new FairSync() : new NonfairSync(); } 获取锁的策略 ReentrantLock内部有三个内部类，其中Sync是其它两个类NonfairSync和FairSync的父类，分别代表着非公平策略和公平策略。
+" />
+  <meta name="description" content="简介 相对于synchronized关键字，ReentrantLock具备以下特点：
+可中断 可设置超时时间 可设置为公平锁 支持多个条件变量 源码实现 可重入锁的实现上，主要关注两点：
+可重入线程的再次获取锁的处理
+可重入锁的释放机制
+类的继承关系 ReentrantLock实现了Lock接口，Lock接口定义了锁的通用方法。
+public class ReentrantLock implements Lock, java.io.Serializable 成员变量 sync代表当前ReentrantLock使用的获取策略。
+private final Sync sync; private static final long serialVersionUID = 7373984872572414699L; 构造方法 无参构造方法 默认是非公平策略 有参构造方法 传入true使用公平策略。 /** * Creates an instance of {@code ReentrantLock}. * This is equivalent to using {@code ReentrantLock(false)}. */ public ReentrantLock() { sync = new NonfairSync(); } /** * Creates an instance of {@code ReentrantLock} with the * given fairness policy. * * @param fair {@code true} if this lock should use a fair ordering policy */ public ReentrantLock(boolean fair) { sync = fair ? new FairSync() : new NonfairSync(); } 获取锁的策略 ReentrantLock内部有三个内部类，其中Sync是其它两个类NonfairSync和FairSync的父类，分别代表着非公平策略和公平策略。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">ReentrantLock源码分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-11-20 12:40:08 UTC">
+                20 Nov 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="简介">简介</h1>
+<p>相对于<code>synchronized</code>关键字，<code>ReentrantLock</code>具备以下特点：</p>
+<ul>
+<li>可中断</li>
+<li>可设置超时时间</li>
+<li>可设置为公平锁</li>
+<li>支持多个条件变量</li>
+</ul>
+<h1 id="源码实现">源码实现</h1>
+<p>可重入锁的实现上，主要关注两点：</p>
+<ul>
+<li>
+<p>可重入线程的再次获取锁的处理</p>
+</li>
+<li>
+<p>可重入锁的释放机制</p>
+</li>
+</ul>
+<h2 id="类的继承关系">类的继承关系</h2>
+<p><code>ReentrantLock</code>实现了<code>Lock</code>接口，<code>Lock</code>接口定义了锁的通用方法。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ReentrantLock</span> <span style="color:#66d9ef">implements</span> Lock, java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">Serializable</span> 
+</span></span></code></pre></div><h2 id="成员变量">成员变量</h2>
+<p><code>sync</code>代表当前<code>ReentrantLock</code>使用的获取策略。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Sync sync;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> serialVersionUID <span style="color:#f92672">=</span> 7373984872572414699L;
+</span></span></code></pre></div><h2 id="构造方法">构造方法</h2>
+<ul>
+<li>无参构造方法
+<ul>
+<li>默认是非公平策略</li>
+</ul>
+</li>
+<li>有参构造方法
+<ul>
+<li>传入<code>true</code>使用公平策略。</li>
+</ul>
+</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Creates an instance of {@code ReentrantLock}.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * This is equivalent to using {@code ReentrantLock(false)}.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">ReentrantLock</span>() {
+</span></span><span style="display:flex;"><span>        sync <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> NonfairSync();
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Creates an instance of {@code ReentrantLock} with the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * given fairness policy.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * @param fair {@code true} if this lock should use a fair ordering policy
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">ReentrantLock</span>(<span style="color:#66d9ef">boolean</span> fair) {
+</span></span><span style="display:flex;"><span>        sync <span style="color:#f92672">=</span> fair <span style="color:#f92672">?</span> <span style="color:#66d9ef">new</span> FairSync() : <span style="color:#66d9ef">new</span> NonfairSync();
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="获取锁的策略">获取锁的策略</h2>
+<p><code>ReentrantLock</code>内部有三个内部类，其中<code>Sync</code>是其它两个类<code>NonfairSync</code>和<code>FairSync</code>的父类，分别代表着非公平策略和公平策略。</p>
+<p>两者之间各有优缺点：</p>
+<ul>
+<li>公平策略：频繁进行上下文切换，造成较大的资源消耗。</li>
+<li>非公平策略：存在线程饥饿问题，但是与公平策略相比，少量的上下文切换保证了更大的吞吐量。</li>
+</ul>
+<h3 id="sync">Sync</h3>
+<p>继承自<code>AbstractQueuedSynchronizer</code>，实现了对<code>state</code>字段的修改操作。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">abstract</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Sync</span> <span style="color:#66d9ef">extends</span> AbstractQueuedSynchronizer {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> serialVersionUID <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>5179523762034025860L;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * Performs {@link Lock#lock}. The main reason for subclassing
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * is to allow fast path for nonfair version.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">abstract</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * Performs non-fair tryLock.  tryAcquire is implemented in
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * subclasses, but both need nonfair try for trylock method.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//非公平方式尝试获取锁</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">nonfairTryAcquire</span>(<span style="color:#66d9ef">int</span> acquires) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//获取当前线程</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">final</span> Thread current <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//获取AQS的state状态</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> getState();
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//为0表示暂无线程占用锁</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (c <span style="color:#f92672">==</span> 0) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//通过CAS设置state</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (compareAndSetState(0, acquires)) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//设置成功之后，设置当前线程独占</span>
+</span></span><span style="display:flex;"><span>                    setExclusiveOwnerThread(current);
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果当前线程拥有锁，则表示进行重入</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (current <span style="color:#f92672">==</span> getExclusiveOwnerThread()) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//添加重入次数</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">int</span> nextc <span style="color:#f92672">=</span> c <span style="color:#f92672">+</span> acquires;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (nextc <span style="color:#f92672">&lt;</span> 0) <span style="color:#75715e">// overflow</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> Error(<span style="color:#e6db74">&#34;Maximum lock count exceeded&#34;</span>);
+</span></span><span style="display:flex;"><span>                setState(nextc);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//尝试释放锁资源，全部释放则返回true</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryRelease</span>(<span style="color:#66d9ef">int</span> releases) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//c是释放后的资源量</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> getState() <span style="color:#f92672">-</span> releases;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果当前线程不是占有锁的线程，抛出异常</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (Thread.<span style="color:#a6e22e">currentThread</span>() <span style="color:#f92672">!=</span> getExclusiveOwnerThread())
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalMonitorStateException();
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//free是全部释放的标识</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">boolean</span> free <span style="color:#f92672">=</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果c = 0，说明全部释放资源，可重入环境</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (c <span style="color:#f92672">==</span> 0) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//设置全部释放标识</span>
+</span></span><span style="display:flex;"><span>                free <span style="color:#f92672">=</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//置空独占线程</span>
+</span></span><span style="display:flex;"><span>                setExclusiveOwnerThread(<span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            setState(c);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> free;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">//判断资源是否被当前线程占有</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">isHeldExclusively</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// While we must in general read state before owner,</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// we don&#39;t need to do so to check if current thread is owner</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> getExclusiveOwnerThread() <span style="color:#f92672">==</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>		
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//生成一个条件</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> ConditionObject <span style="color:#a6e22e">newCondition</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> ConditionObject();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Methods relayed from outer class</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">//返回占用锁的线程</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> Thread <span style="color:#a6e22e">getOwner</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> getState() <span style="color:#f92672">==</span> 0 <span style="color:#f92672">?</span> <span style="color:#66d9ef">null</span> : getExclusiveOwnerThread();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">//如果锁被线程占有，则返回state</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">getHoldCount</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> isHeldExclusively() <span style="color:#f92672">?</span> getState() : 0;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>		
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//判断锁是否被线程占有</span>
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//state不等于0则锁被线程占用</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">isLocked</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> getState() <span style="color:#f92672">!=</span> 0;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//自定义反序列化逻辑</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">readObject</span>(java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">ObjectInputStream</span> s)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throws</span> java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">IOException</span>, ClassNotFoundException {
+</span></span><span style="display:flex;"><span>            s.<span style="color:#a6e22e">defaultReadObject</span>();
+</span></span><span style="display:flex;"><span>            setState(0); <span style="color:#75715e">// reset to unlocked state</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="nonfairsync">NonfairSync</h3>
+<p><code>NonfairSync</code>表示是非公平策略获取锁。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">NonfairSync</span> <span style="color:#66d9ef">extends</span> Sync {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> serialVersionUID <span style="color:#f92672">=</span> 7316153563782823691L;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//获得锁</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//CAS操作设置state为1</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (compareAndSetState(0, 1))
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//CAS设置成功，则设置独占进程为当前进程</span>
+</span></span><span style="display:flex;"><span>                setExclusiveOwnerThread(Thread.<span style="color:#a6e22e">currentThread</span>());
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//锁已经被占用，或者set失败</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//独占方式进行获取</span>
+</span></span><span style="display:flex;"><span>                acquire(1);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryAcquire</span>(<span style="color:#66d9ef">int</span> acquires) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> nonfairTryAcquire(acquires);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="fairsync">FairSync</h3>
+<p>采用公平策略获取锁。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">FairSync</span> <span style="color:#66d9ef">extends</span> Sync {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> serialVersionUID <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>3000897897090466540L;
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">//调用acquire方法，以独占方式获取锁</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>() {
+</span></span><span style="display:flex;"><span>            acquire(1);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//尝试获取公平锁</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryAcquire</span>(<span style="color:#66d9ef">int</span> acquires) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//获取当前线程</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">final</span> Thread current <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//获取AQS的state</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> getState();
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果当前没有线程占有锁</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (c <span style="color:#f92672">==</span> 0) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//判断AQS Queue是否有线程在等待</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//如果没有则直接通过CAS获取锁资源</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>hasQueuedPredecessors() <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                    compareAndSetState(0, acquires)) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//设置当前线程为独占线程</span>
+</span></span><span style="display:flex;"><span>                    setExclusiveOwnerThread(current);
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//获取成功</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果当前线程已经占有锁，则更新可重入信息</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (current <span style="color:#f92672">==</span> getExclusiveOwnerThread()) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//更新可重入信息</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">int</span> nextc <span style="color:#f92672">=</span> c <span style="color:#f92672">+</span> acquires;
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//检查边界</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (nextc <span style="color:#f92672">&lt;</span> 0)
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> Error(<span style="color:#e6db74">&#34;Maximum lock count exceeded&#34;</span>);
+</span></span><span style="display:flex;"><span>                setState(nextc);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="核心方法">核心方法</h2>
+<h3 id="lock">lock</h3>
+<p>调用<code>sync.lock()</code></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>() {
+</span></span><span style="display:flex;"><span>        sync.<span style="color:#a6e22e">lock</span>();
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="lockinterruptibly">lockInterruptibly</h3>
+<p>响应中断的获取锁的方法，调用<code>AQS.acquireInterruptibly()</code>完成。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lockInterruptibly</span>() <span style="color:#66d9ef">throws</span> InterruptedException {
+</span></span><span style="display:flex;"><span>        sync.<span style="color:#a6e22e">acquireInterruptibly</span>(1);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">acquireInterruptibly</span>(<span style="color:#66d9ef">int</span> arg)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throws</span> InterruptedException {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (Thread.<span style="color:#a6e22e">interrupted</span>())
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> InterruptedException();
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>tryAcquire(arg))
+</span></span><span style="display:flex;"><span>            doAcquireInterruptibly(arg);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="trylock">tryLock</h3>
+<p>非公平方式尝试获取锁，调用<code>sync.nonfairTryAcquire(1)</code>完成。重载方法提供了超时策略，同时响应中断。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryLock</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> sync.<span style="color:#a6e22e">nonfairTryAcquire</span>(1);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryLock</span>(<span style="color:#66d9ef">long</span> timeout, TimeUnit unit)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throws</span> InterruptedException {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> sync.<span style="color:#a6e22e">tryAcquireNanos</span>(1, unit.<span style="color:#a6e22e">toNanos</span>(timeout));
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryAcquireNanos</span>(<span style="color:#66d9ef">int</span> arg, <span style="color:#66d9ef">long</span> nanosTimeout)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throws</span> InterruptedException {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (Thread.<span style="color:#a6e22e">interrupted</span>())
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> InterruptedException();
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> tryAcquire(arg) <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>            doAcquireNanos(arg, nanosTimeout);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="unlock">unlock</h3>
+<p>调用<code>sync.release(1)</code>完成<code>unlock()</code>操作。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unlock</span>() {
+</span></span><span style="display:flex;"><span>        sync.<span style="color:#a6e22e">release</span>(1);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="总结">总结</h2>
+<p><code>ReentrantLock</code>的核心功能主要通过内部类<code>Sync</code>完成。而<code>Sync</code>继承自<code>AQS</code>，通过<code>AQS</code>中的<code>Sync Queue</code>完成对线程排队的功能。<code>ReentrantLock</code>的公平策略和非公平策略通过另外两个内部类<code>FairSync</code>、<code>NonfairSync</code>实现。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E5%B9%B6%E5%8F%91/">
+                并发
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/locksupport%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">LockSupport源码分析</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/java%E5%8E%9F%E5%AD%90%E7%B1%BB%E7%9A%84%E4%BD%BF%E7%94%A8%E4%B8%8E%E5%AE%9E%E7%8E%B0/">Java原子类的使用与实现</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/volatile%E5%85%B3%E9%94%AE%E5%AD%97%E5%89%96%E6%9E%90/">volatile关键字剖析</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

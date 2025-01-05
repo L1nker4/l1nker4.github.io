@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/paper-reading/finding-a-needle-in-haystack-facebooks-photo-storage/" />
+  <link rel="canonical" href="http://localhost:59500/posts/paper-reading/finding-a-needle-in-haystack-facebooks-photo-storage/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "OSDI\u002710 《Finding a needle in Haystack Facebook’s photo storage》",
+      "headline" : "OSDI\u002710 《Finding a needle in Haystack Facebook’s photo storage》",
+      "description" : "业务量级 FaceBook存储超过2600亿张图片，20PB，一周存储10亿张，峰值每秒100W图片。一次性写、不修改、很少删除的图片数据。\n原始设计的挑战 访问webserver，获取图片URL，先去CDN获取，cache hit则返回，miss则去Storage加载到CDN再返回。\n当文件存储NAS的文件夹存储数千个文件时，请求单个图片的请求会产生多于10次的磁盘IO，即使文件夹内文件数量下降到几百时，还是会产生三次磁盘IO。\n可以看出，原始架构的性能瓶颈：读操作存在多次磁盘IO。\n传统POSIX filesystem缺点：文件元信息，例如权限等信息占用较多存储成本。对于巨量数据的情况，成本极大，对于NAS，一个文件读写需要三次磁盘IO：\n根据filename获取inode number 读取指定inode 读取文件信息本身 设计目标 Haystack结构实现的四个目标：\n高吞吐量与低延迟：所有metadata都存储在内存，最多执行一次磁盘IO 容错：异地容灾 低成本 简单 新设计 Haystack主要解决上述架构的瓶颈问题：多次磁盘IO，关键方法：将多个图片存储为单个大文件，由此仅需要保存大文件的文件元信息。\nHaystack架构包括以下三部分：\nHaystack Store：真正存储文件的组件，管理文件系统元信息。使用物理volume进行管理，可以将不同主机上的某些物理volume组成一个逻辑volume，这样就可以产生多份副本，进行容错或分流。 Haystack Directory：管理逻辑到物理volume的映射关系，以及一些应用元信息，例如图片到逻辑volume的映射，逻辑volume的空闲空间等信息。 Haystack Cache：内部缓存CDN，减少对外部CDN的依赖。 浏览器从Haystack Directory组件获取到的URL如下：\nhttp:\/\/〈CDN〉\/〈Cache〉\/〈Machine id〉\/〈Logical volume, Photo〉 CDN，Haystack Cache层如果hit cache就返回，否则去掉该层地址，请求转发到下一层。\nHaystack Directory 四个功能：\n逻辑volume到物理volume的映射。 跨逻辑卷读写的负载均衡能力。 决定一个请求是由CDN处理还是Cache处理。 检查逻辑卷是否因为操作原因或达到存储容量导致read-only Haystack Cache 从浏览器或CDN接收HTTP请求。该组件使用图片id定位数据，将其组织成了分布式hash table，如果cache miss，则去Haystack Store服务器获取图片信息。\n对图片进行cache的两个必要条件：\n请求直接来自浏览器而非CDN 图片从可写服务器获取的 Haystack Store 每台存储服务器都维护了多个逻辑volume，每个volume都可以理解为一个大文件（100 GB ），文件名为\/hay\/haystack_\u0026lt;volume_id\u0026gt;，可以通过逻辑volume id和图片offset快速定位到图片信息，可以不通过磁盘IO读取图片（Q：为什么能不通过磁盘操作读取到磁盘数据？），服务器都在内存中维护着物理卷对应文件描述符和图片id到文件系统元信息的映射关系\n具体的物理结构如下图所示：\n每台存储服务器代表着一个物理卷，同时也称为superblock，其中包括多个needle，每个needle存储着图片元信息和图片数据。\nRead 来自Cache服务器的读请求会有以下参数：逻辑volume id、key、alternate key、cookie，Store服务器首先从内存中查找对应元信息，然后读取图片数据，使用checksum进行校验后返回。\nWrite 写请求会包括以下参数：逻辑volume id、key、alternate key、cookie、data，Store服务器将数据组装成needle结构并追加到volume file中。如果(key, alternate key)唯一二元组存在重复问题，有两种情况：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2023",
+      "datePublished": "2023-12-08 22:57:50 \u002b0000 UTC",
+      "dateModified" : "2023-12-08 22:57:50 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/paper-reading\/finding-a-needle-in-haystack-facebooks-photo-storage\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>OSDI&#39;10 《Finding a needle in Haystack Facebook’s photo storage》</title>
+  <meta property="og:title" content="OSDI&#39;10 《Finding a needle in Haystack Facebook’s photo storage》" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="业务量级 FaceBook存储超过2600亿张图片，20PB，一周存储10亿张，峰值每秒100W图片。一次性写、不修改、很少删除的图片数据。
+原始设计的挑战 访问webserver，获取图片URL，先去CDN获取，cache hit则返回，miss则去Storage加载到CDN再返回。
+当文件存储NAS的文件夹存储数千个文件时，请求单个图片的请求会产生多于10次的磁盘IO，即使文件夹内文件数量下降到几百时，还是会产生三次磁盘IO。
+可以看出，原始架构的性能瓶颈：读操作存在多次磁盘IO。
+传统POSIX filesystem缺点：文件元信息，例如权限等信息占用较多存储成本。对于巨量数据的情况，成本极大，对于NAS，一个文件读写需要三次磁盘IO：
+根据filename获取inode number 读取指定inode 读取文件信息本身 设计目标 Haystack结构实现的四个目标：
+高吞吐量与低延迟：所有metadata都存储在内存，最多执行一次磁盘IO 容错：异地容灾 低成本 简单 新设计 Haystack主要解决上述架构的瓶颈问题：多次磁盘IO，关键方法：将多个图片存储为单个大文件，由此仅需要保存大文件的文件元信息。
+Haystack架构包括以下三部分：
+Haystack Store：真正存储文件的组件，管理文件系统元信息。使用物理volume进行管理，可以将不同主机上的某些物理volume组成一个逻辑volume，这样就可以产生多份副本，进行容错或分流。 Haystack Directory：管理逻辑到物理volume的映射关系，以及一些应用元信息，例如图片到逻辑volume的映射，逻辑volume的空闲空间等信息。 Haystack Cache：内部缓存CDN，减少对外部CDN的依赖。 浏览器从Haystack Directory组件获取到的URL如下：
+http://〈CDN〉/〈Cache〉/〈Machine id〉/〈Logical volume, Photo〉 CDN，Haystack Cache层如果hit cache就返回，否则去掉该层地址，请求转发到下一层。
+Haystack Directory 四个功能：
+逻辑volume到物理volume的映射。 跨逻辑卷读写的负载均衡能力。 决定一个请求是由CDN处理还是Cache处理。 检查逻辑卷是否因为操作原因或达到存储容量导致read-only Haystack Cache 从浏览器或CDN接收HTTP请求。该组件使用图片id定位数据，将其组织成了分布式hash table，如果cache miss，则去Haystack Store服务器获取图片信息。
+对图片进行cache的两个必要条件：
+请求直接来自浏览器而非CDN 图片从可写服务器获取的 Haystack Store 每台存储服务器都维护了多个逻辑volume，每个volume都可以理解为一个大文件（100 GB ），文件名为/hay/haystack_&lt;volume_id&gt;，可以通过逻辑volume id和图片offset快速定位到图片信息，可以不通过磁盘IO读取图片（Q：为什么能不通过磁盘操作读取到磁盘数据？），服务器都在内存中维护着物理卷对应文件描述符和图片id到文件系统元信息的映射关系
+具体的物理结构如下图所示：
+每台存储服务器代表着一个物理卷，同时也称为superblock，其中包括多个needle，每个needle存储着图片元信息和图片数据。
+Read 来自Cache服务器的读请求会有以下参数：逻辑volume id、key、alternate key、cookie，Store服务器首先从内存中查找对应元信息，然后读取图片数据，使用checksum进行校验后返回。
+Write 写请求会包括以下参数：逻辑volume id、key、alternate key、cookie、data，Store服务器将数据组装成needle结构并追加到volume file中。如果(key, alternate key)唯一二元组存在重复问题，有两种情况：
+" />
+  <meta name="description" content="业务量级 FaceBook存储超过2600亿张图片，20PB，一周存储10亿张，峰值每秒100W图片。一次性写、不修改、很少删除的图片数据。
+原始设计的挑战 访问webserver，获取图片URL，先去CDN获取，cache hit则返回，miss则去Storage加载到CDN再返回。
+当文件存储NAS的文件夹存储数千个文件时，请求单个图片的请求会产生多于10次的磁盘IO，即使文件夹内文件数量下降到几百时，还是会产生三次磁盘IO。
+可以看出，原始架构的性能瓶颈：读操作存在多次磁盘IO。
+传统POSIX filesystem缺点：文件元信息，例如权限等信息占用较多存储成本。对于巨量数据的情况，成本极大，对于NAS，一个文件读写需要三次磁盘IO：
+根据filename获取inode number 读取指定inode 读取文件信息本身 设计目标 Haystack结构实现的四个目标：
+高吞吐量与低延迟：所有metadata都存储在内存，最多执行一次磁盘IO 容错：异地容灾 低成本 简单 新设计 Haystack主要解决上述架构的瓶颈问题：多次磁盘IO，关键方法：将多个图片存储为单个大文件，由此仅需要保存大文件的文件元信息。
+Haystack架构包括以下三部分：
+Haystack Store：真正存储文件的组件，管理文件系统元信息。使用物理volume进行管理，可以将不同主机上的某些物理volume组成一个逻辑volume，这样就可以产生多份副本，进行容错或分流。 Haystack Directory：管理逻辑到物理volume的映射关系，以及一些应用元信息，例如图片到逻辑volume的映射，逻辑volume的空闲空间等信息。 Haystack Cache：内部缓存CDN，减少对外部CDN的依赖。 浏览器从Haystack Directory组件获取到的URL如下：
+http://〈CDN〉/〈Cache〉/〈Machine id〉/〈Logical volume, Photo〉 CDN，Haystack Cache层如果hit cache就返回，否则去掉该层地址，请求转发到下一层。
+Haystack Directory 四个功能：
+逻辑volume到物理volume的映射。 跨逻辑卷读写的负载均衡能力。 决定一个请求是由CDN处理还是Cache处理。 检查逻辑卷是否因为操作原因或达到存储容量导致read-only Haystack Cache 从浏览器或CDN接收HTTP请求。该组件使用图片id定位数据，将其组织成了分布式hash table，如果cache miss，则去Haystack Store服务器获取图片信息。
+对图片进行cache的两个必要条件：
+请求直接来自浏览器而非CDN 图片从可写服务器获取的 Haystack Store 每台存储服务器都维护了多个逻辑volume，每个volume都可以理解为一个大文件（100 GB ），文件名为/hay/haystack_&lt;volume_id&gt;，可以通过逻辑volume id和图片offset快速定位到图片信息，可以不通过磁盘IO读取图片（Q：为什么能不通过磁盘操作读取到磁盘数据？），服务器都在内存中维护着物理卷对应文件描述符和图片id到文件系统元信息的映射关系
+具体的物理结构如下图所示：
+每台存储服务器代表着一个物理卷，同时也称为superblock，其中包括多个needle，每个needle存储着图片元信息和图片数据。
+Read 来自Cache服务器的读请求会有以下参数：逻辑volume id、key、alternate key、cookie，Store服务器首先从内存中查找对应元信息，然后读取图片数据，使用checksum进行校验后返回。
+Write 写请求会包括以下参数：逻辑volume id、key、alternate key、cookie、data，Store服务器将数据组装成needle结构并追加到volume file中。如果(key, alternate key)唯一二元组存在重复问题，有两种情况：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">OSDI&#39;10 《Finding a needle in Haystack Facebook’s photo storage》</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2023-12-08 22:57:50 UTC">
+                08 Dec 2023
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="业务量级">业务量级</h2>
+<p>FaceBook存储超过2600亿张图片，20PB，一周存储10亿张，峰值每秒100W图片。一次性写、不修改、很少删除的图片数据。</p>
+<h2 id="原始设计的挑战">原始设计的挑战</h2>
+<p>访问webserver，获取图片URL，先去CDN获取，cache hit则返回，miss则去Storage加载到CDN再返回。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20231125152100170.png" alt="Typical Design"></p>
+<p>当文件存储NAS的文件夹存储数千个文件时，请求单个图片的请求会产生多于10次的磁盘IO，即使文件夹内文件数量下降到几百时，还是会产生三次磁盘IO。</p>
+<p>可以看出，原始架构的性能瓶颈：读操作存在多次磁盘IO。</p>
+<p>传统POSIX filesystem缺点：文件元信息，例如权限等信息占用较多存储成本。对于巨量数据的情况，成本极大，对于NAS，一个文件读写需要三次磁盘IO：</p>
+<ol>
+<li>根据filename获取inode number</li>
+<li>读取指定inode</li>
+<li>读取文件信息本身</li>
+</ol>
+<h2 id="设计目标">设计目标</h2>
+<p>Haystack结构实现的四个目标：</p>
+<ol>
+<li>高吞吐量与低延迟：所有metadata都存储在内存，最多执行一次磁盘IO</li>
+<li>容错：异地容灾</li>
+<li>低成本</li>
+<li>简单</li>
+</ol>
+<h2 id="新设计">新设计</h2>
+<p>Haystack主要解决上述架构的瓶颈问题：多次磁盘IO，关键方法：将多个图片存储为单个大文件，由此仅需要保存大文件的文件元信息。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20231125190839452.png" alt="Haystack架构"></p>
+<p>Haystack架构包括以下三部分：</p>
+<ol>
+<li>Haystack Store：真正存储文件的组件，管理文件系统元信息。使用物理volume进行管理，可以将不同主机上的某些物理volume组成一个逻辑volume，这样就可以产生多份副本，进行容错或分流。</li>
+<li>Haystack Directory：管理逻辑到物理volume的映射关系，以及一些应用元信息，例如图片到逻辑volume的映射，逻辑volume的空闲空间等信息。</li>
+<li>Haystack Cache：内部缓存CDN，减少对外部CDN的依赖。</li>
+</ol>
+<p>浏览器从Haystack Directory组件获取到的URL如下：</p>
+<pre tabindex="0"><code>http://〈CDN〉/〈Cache〉/〈Machine id〉/〈Logical volume, Photo〉
+</code></pre><p>CDN，Haystack Cache层如果hit cache就返回，否则去掉该层地址，请求转发到下一层。</p>
+<h3 id="haystack-directory">Haystack Directory</h3>
+<p>四个功能：</p>
+<ol>
+<li>逻辑volume到物理volume的映射。</li>
+<li>跨逻辑卷读写的负载均衡能力。</li>
+<li>决定一个请求是由CDN处理还是Cache处理。</li>
+<li>检查逻辑卷是否因为操作原因或达到存储容量导致read-only</li>
+</ol>
+<h3 id="haystack-cache">Haystack Cache</h3>
+<p>从浏览器或CDN接收HTTP请求。该组件使用图片id定位数据，将其组织成了分布式hash table，如果cache miss，则去Haystack Store服务器获取图片信息。</p>
+<p>对图片进行cache的两个必要条件：</p>
+<ol>
+<li>请求直接来自浏览器而非CDN</li>
+<li>图片从可写服务器获取的</li>
+</ol>
+<h3 id="haystack-store">Haystack Store</h3>
+<p>每台存储服务器都维护了多个逻辑volume，每个volume都可以理解为一个大文件（100 GB ），文件名为/hay/haystack_&lt;volume_id&gt;，可以通过逻辑volume id和图片offset快速定位到图片信息，可以不通过磁盘IO读取图片（<strong>Q：为什么能不通过磁盘操作读取到磁盘数据？</strong>），服务器都在内存中维护着物理卷对应文件描述符和图片id到文件系统元信息的映射关系</p>
+<p>具体的物理结构如下图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20231205220244979.png" alt="Haystack-Store"></p>
+<p>每台存储服务器代表着一个物理卷，同时也称为superblock，其中包括多个needle，每个needle存储着图片元信息和图片数据。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20231205222508419.png" alt="fields-explanation"></p>
+<h4 id="read">Read</h4>
+<p>来自Cache服务器的读请求会有以下参数：逻辑volume id、key、alternate key、cookie，Store服务器首先从内存中查找对应元信息，然后读取图片数据，使用checksum进行校验后返回。</p>
+<h4 id="write">Write</h4>
+<p>写请求会包括以下参数：逻辑volume id、key、alternate key、cookie、data，Store服务器将数据组装成needle结构并追加到volume file中。如果(key, alternate key)唯一二元组存在重复问题，有两种情况：</p>
+<ol>
+<li>不同逻辑volume：Directory更新图片到逻辑volume的映射关系</li>
+<li>相同逻辑volume：通过offset区分，最新版本的数据为offset大的needle</li>
+</ol>
+<h4 id="delete">Delete</h4>
+<p>同步设置内存和volume file中对应元信息的delFlag，如果请求到被删除的图片信息，抛出异常。在定期compact时，会清理被删除的数据。</p>
+<h4 id="index-file">Index File</h4>
+<p>系统宕机后，重建内存中的索引是较为耗时的操作，因此使用index file存储了内存的映射关系，以便机器重启时能更快的重建映射关系。Store服务器每个volume都会维护一个index file。</p>
+<p>当前存在以下问题：</p>
+<ol>
+<li>新文件写入到磁盘volume和内存映射后，还没写入到index file就宕机。</li>
+<li>删除文件后，同步设置volume和内存中的delflag后，还没写入index file就宕机。</li>
+</ol>
+<p>解法：</p>
+<ol>
+<li>读取index file时，将needle中不符合索引记录的，构建成新记录并追加到index file末尾（Q：为什么读取needles？）</li>
+<li>每次读取文件时，检查删除标记，并同步到内存和index file。</li>
+</ol>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20231205220840006.png" alt="index-file"></p>
+<h4 id="文件系统">文件系统</h4>
+<p>Haystack并不需要使用很多内存来支持大文件的随机IO，因此Store服务器都使用XFS，它有两个有点：</p>
+<ol>
+<li>对于多个相邻的大文件的块映射可以足够小到存储到内存中。</li>
+<li>XFS提供了搞笑的文件预分配、减少了碎片并控制了块映射的增长。</li>
+</ol>
+<p>不能保证每一个读请求都只有一次磁盘IO，因为存在数据跨界的情况。</p>
+<h3 id="错误恢复">错误恢复</h3>
+<p>Store服务器避免不了硬件故障，应对方法主要是：定期检测、适时恢复。</p>
+<ol>
+<li>定期检测：启动一个后台任务（称为pitchfork），定期检查每台Store服务器的联通情况和volume file的可用性，如果检查出问题，该任务会标记Store服务器所有volume只读。</li>
+<li>恢复：存在问题后会尽快修复，无法修复的使用bulk sync从备份节点全量同步数据过来。</li>
+</ol>
+<h3 id="优化">优化</h3>
+<h4 id="compaction">Compaction</h4>
+<p>compacttion是一个在线操作，实现思路：生成一个新文件，将needle逐个拷贝到新文件，其中会跳过被删除和重复的needle，一旦完成，它会阻塞任意打到该volume file的请求并原子性交换文件和内存映射关系。</p>
+<p>实际业务中，大约25%的图片被删除。</p>
+<h4 id="节约内存">节约内存</h4>
+<p>当前系统的flag字段仅用作于删除标志，设置删除标记的同时，可以将offset设为0。同时将cookie从内存中删除，改为从磁盘中读取（needle header），上述两个优化点节约了20%的内存。</p>
+<h4 id="批量上传">批量上传</h4>
+<p>磁盘的顺序写性能优于随机写，同时用户都是同时上传一批图片，该应用场景也契合于磁盘特点。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

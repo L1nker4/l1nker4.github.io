@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/reentrantreadwritelock/" />
+  <link rel="canonical" href="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/reentrantreadwritelock/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "ReentrantReadWriteLock源码分析",
+      "headline" : "ReentrantReadWriteLock源码分析",
+      "description" : "简介 ReentrantReadWriteLock分为读锁和写锁两个实例，读锁是共享锁，可被多个读线程同时使用，写锁是独占锁。持有写锁的线程可以继续获取读锁，反之不行。\nDoug Lea 将持有写锁的线程，去获取读锁，之后释放读锁，最后释放写锁，从写锁降级为读锁的过程称为锁降级（Lock downgrading）。\n但是，锁升级是不可以的。线程持有读锁的话，在没释放的情况下不能去获取写锁，因为会发生死锁。\n类的继承关系 ReentrantReadWriteLock实现了ReadWriteLock接口，该接口定义了两个方法，分别返回读锁和写锁。\npublic class ReentrantReadWriteLock implements ReadWriteLock, java.io.Serializable {} public interface ReadWriteLock { \/** * Returns the lock used for reading. * * @return the lock used for reading *\/ Lock readLock(); \/** * Returns the lock used for writing. * * @return the lock used for writing *\/ Lock writeLock(); } 类成员属性 \/\/读锁 private final ReentrantReadWriteLock.ReadLock readerLock; \/\/写锁 private final ReentrantReadWriteLock.WriteLock writerLock; \/\/Sync是AQS的实现类 final Sync sync; \/\/Unsafe实例 private static final sun.misc.Unsafe UNSAFE; \/\/获取Thread.tid的内存偏移值 private static final long TID_OFFSET; static { try { UNSAFE = sun.misc.Unsafe.getUnsafe(); Class\u0026lt;?\u0026gt; tk = Thread.class; TID_OFFSET = UNSAFE.objectFieldOffset (tk.getDeclaredField(\u0026#34;tid\u0026#34;)); } catch (Exception e) { throw new Error(e); } } 构造方法 默认的构造方法创建非公平策略的ReentrantReadWriteLock，传入true则可以创建公平策略的ReentrantReadWriteLock。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-11-22 17:00:43 \u002b0000 UTC",
+      "dateModified" : "2020-11-22 17:00:43 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/java%E5%B9%B6%E5%8F%91\/reentrantreadwritelock\/",
+      "keywords" : [ "Java","并发", ]
+  }
+</script>
+<title>ReentrantReadWriteLock源码分析</title>
+  <meta property="og:title" content="ReentrantReadWriteLock源码分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 ReentrantReadWriteLock分为读锁和写锁两个实例，读锁是共享锁，可被多个读线程同时使用，写锁是独占锁。持有写锁的线程可以继续获取读锁，反之不行。
+Doug Lea 将持有写锁的线程，去获取读锁，之后释放读锁，最后释放写锁，从写锁降级为读锁的过程称为锁降级（Lock downgrading）。
+但是，锁升级是不可以的。线程持有读锁的话，在没释放的情况下不能去获取写锁，因为会发生死锁。
+类的继承关系 ReentrantReadWriteLock实现了ReadWriteLock接口，该接口定义了两个方法，分别返回读锁和写锁。
+public class ReentrantReadWriteLock implements ReadWriteLock, java.io.Serializable {} public interface ReadWriteLock { /** * Returns the lock used for reading. * * @return the lock used for reading */ Lock readLock(); /** * Returns the lock used for writing. * * @return the lock used for writing */ Lock writeLock(); } 类成员属性 //读锁 private final ReentrantReadWriteLock.ReadLock readerLock; //写锁 private final ReentrantReadWriteLock.WriteLock writerLock; //Sync是AQS的实现类 final Sync sync; //Unsafe实例 private static final sun.misc.Unsafe UNSAFE; //获取Thread.tid的内存偏移值 private static final long TID_OFFSET; static { try { UNSAFE = sun.misc.Unsafe.getUnsafe(); Class&lt;?&gt; tk = Thread.class; TID_OFFSET = UNSAFE.objectFieldOffset (tk.getDeclaredField(&#34;tid&#34;)); } catch (Exception e) { throw new Error(e); } } 构造方法 默认的构造方法创建非公平策略的ReentrantReadWriteLock，传入true则可以创建公平策略的ReentrantReadWriteLock。
+" />
+  <meta name="description" content="简介 ReentrantReadWriteLock分为读锁和写锁两个实例，读锁是共享锁，可被多个读线程同时使用，写锁是独占锁。持有写锁的线程可以继续获取读锁，反之不行。
+Doug Lea 将持有写锁的线程，去获取读锁，之后释放读锁，最后释放写锁，从写锁降级为读锁的过程称为锁降级（Lock downgrading）。
+但是，锁升级是不可以的。线程持有读锁的话，在没释放的情况下不能去获取写锁，因为会发生死锁。
+类的继承关系 ReentrantReadWriteLock实现了ReadWriteLock接口，该接口定义了两个方法，分别返回读锁和写锁。
+public class ReentrantReadWriteLock implements ReadWriteLock, java.io.Serializable {} public interface ReadWriteLock { /** * Returns the lock used for reading. * * @return the lock used for reading */ Lock readLock(); /** * Returns the lock used for writing. * * @return the lock used for writing */ Lock writeLock(); } 类成员属性 //读锁 private final ReentrantReadWriteLock.ReadLock readerLock; //写锁 private final ReentrantReadWriteLock.WriteLock writerLock; //Sync是AQS的实现类 final Sync sync; //Unsafe实例 private static final sun.misc.Unsafe UNSAFE; //获取Thread.tid的内存偏移值 private static final long TID_OFFSET; static { try { UNSAFE = sun.misc.Unsafe.getUnsafe(); Class&lt;?&gt; tk = Thread.class; TID_OFFSET = UNSAFE.objectFieldOffset (tk.getDeclaredField(&#34;tid&#34;)); } catch (Exception e) { throw new Error(e); } } 构造方法 默认的构造方法创建非公平策略的ReentrantReadWriteLock，传入true则可以创建公平策略的ReentrantReadWriteLock。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">ReentrantReadWriteLock源码分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-11-22 17:00:43 UTC">
+                22 Nov 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="简介">简介</h1>
+<p>ReentrantReadWriteLock分为读锁和写锁两个实例，读锁是共享锁，可被多个读线程同时使用，写锁是独占锁。持有写锁的线程可以继续获取读锁，反之不行。</p>
+<p>Doug Lea 将持有写锁的线程，去获取读锁，之后释放读锁，最后释放写锁，从写锁降级为读锁的过程称为<strong>锁降级（Lock downgrading）</strong>。</p>
+<p>但是，<strong>锁升级</strong>是不可以的。线程持有读锁的话，在没释放的情况下不能去获取写锁，因为会发生<strong>死锁</strong>。</p>
+<h1 id="类的继承关系">类的继承关系</h1>
+<p>ReentrantReadWriteLock实现了ReadWriteLock接口，该接口定义了两个方法，分别返回读锁和写锁。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ReentrantReadWriteLock</span> <span style="color:#66d9ef">implements</span> ReadWriteLock, java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">Serializable</span> {}
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">interface</span> <span style="color:#a6e22e">ReadWriteLock</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Returns the lock used for reading.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * @return the lock used for reading
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    Lock <span style="color:#a6e22e">readLock</span>();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Returns the lock used for writing.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * @return the lock used for writing
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    Lock <span style="color:#a6e22e">writeLock</span>();
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h1 id="类成员属性">类成员属性</h1>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//读锁</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> ReentrantReadWriteLock.<span style="color:#a6e22e">ReadLock</span> readerLock;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//写锁</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> ReentrantReadWriteLock.<span style="color:#a6e22e">WriteLock</span> writerLock;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//Sync是AQS的实现类</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">final</span> Sync sync;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//Unsafe实例</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> sun.<span style="color:#a6e22e">misc</span>.<span style="color:#a6e22e">Unsafe</span> UNSAFE;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//获取Thread.tid的内存偏移值</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> TID_OFFSET;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> {
+</span></span><span style="display:flex;"><span>            UNSAFE <span style="color:#f92672">=</span> sun.<span style="color:#a6e22e">misc</span>.<span style="color:#a6e22e">Unsafe</span>.<span style="color:#a6e22e">getUnsafe</span>();
+</span></span><span style="display:flex;"><span>            Class<span style="color:#f92672">&lt;?&gt;</span> tk <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">class</span>;
+</span></span><span style="display:flex;"><span>            TID_OFFSET <span style="color:#f92672">=</span> UNSAFE.<span style="color:#a6e22e">objectFieldOffset</span>
+</span></span><span style="display:flex;"><span>                (tk.<span style="color:#a6e22e">getDeclaredField</span>(<span style="color:#e6db74">&#34;tid&#34;</span>));
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">catch</span> (Exception e) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> Error(e);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h1 id="构造方法">构造方法</h1>
+<p>默认的构造方法创建非公平策略的<code>ReentrantReadWriteLock</code>，传入<code>true</code>则可以创建公平策略的<code>ReentrantReadWriteLock</code>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#a6e22e">ReentrantReadWriteLock</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>(<span style="color:#66d9ef">false</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Creates a new {@code ReentrantReadWriteLock} with
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * the given fairness policy.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * @param fair {@code true} if this lock should use a fair ordering policy
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">ReentrantReadWriteLock</span>(<span style="color:#66d9ef">boolean</span> fair) {
+</span></span><span style="display:flex;"><span>        sync <span style="color:#f92672">=</span> fair <span style="color:#f92672">?</span> <span style="color:#66d9ef">new</span> FairSync() : <span style="color:#66d9ef">new</span> NonfairSync();
+</span></span><span style="display:flex;"><span>        readerLock <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ReadLock(<span style="color:#66d9ef">this</span>);
+</span></span><span style="display:flex;"><span>        writerLock <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> WriteLock(<span style="color:#66d9ef">this</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h1 id="内部类">内部类</h1>
+<p><code>ReentrantReadWriteLock</code>共有五个内部类，其基本结构如下：</p>
+<ul>
+<li>Sync：AQS的实现类
+<ul>
+<li>FairSync：公平策略</li>
+<li>NofairSync：非公平策略</li>
+</ul>
+</li>
+<li>ReadLock：读锁</li>
+<li>WriteLock：写锁</li>
+</ul>
+<h2 id="sync">Sync</h2>
+<p>该类继承自<code>AQS</code>抽象类，<code>ReentrantReadWriteLock</code>的大部分操作都交给<code>Sync</code>对象进行处理。</p>
+<h3 id="holdcounter">HoldCounter</h3>
+<p>该类配合读锁使用，属性定义如下：</p>
+<ul>
+<li>count： 代表某个读线程重入的次数</li>
+<li>tid：获取当前线程的TID属性</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">HoldCounter</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> count <span style="color:#f92672">=</span> 0;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// Use id, not reference, to avoid garbage retention</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> tid <span style="color:#f92672">=</span> getThreadId(Thread.<span style="color:#a6e22e">currentThread</span>());
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="threadlocalholdcounter">ThreadLocalHoldCounter</h3>
+<p>该类继承自<code>ThreadLocal</code>，并重写了<code>initialValue()</code>，<code>ThreadLocal</code>可以将线程与对象相关联，<code>get</code>得到的值都是<code>initialValue()</code>生成的<code>HoldCounter</code>对象。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ThreadLocalHoldCounter</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">extends</span> ThreadLocal<span style="color:#f92672">&lt;</span>HoldCounter<span style="color:#f92672">&gt;</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">public</span> HoldCounter <span style="color:#a6e22e">initialValue</span>() {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> HoldCounter();
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="类的成员属性">类的成员属性</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">abstract</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Sync</span> <span style="color:#66d9ef">extends</span> AbstractQueuedSynchronizer {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 版本序列号</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> serialVersionUID <span style="color:#f92672">=</span> 6317671515068378041L;        
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 高16位为读锁，低16位为写锁</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> SHARED_SHIFT   <span style="color:#f92672">=</span> 16;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 读锁单位</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> SHARED_UNIT    <span style="color:#f92672">=</span> (1 <span style="color:#f92672">&lt;&lt;</span> SHARED_SHIFT);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 读锁最大数量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> MAX_COUNT      <span style="color:#f92672">=</span> (1 <span style="color:#f92672">&lt;&lt;</span> SHARED_SHIFT) <span style="color:#f92672">-</span> 1;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 写锁最大数量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> EXCLUSIVE_MASK <span style="color:#f92672">=</span> (1 <span style="color:#f92672">&lt;&lt;</span> SHARED_SHIFT) <span style="color:#f92672">-</span> 1;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 本地线程计数器</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">transient</span> ThreadLocalHoldCounter readHolds;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 缓存的计数器</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">transient</span> HoldCounter cachedHoldCounter;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 第一个读线程</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">transient</span> Thread firstReader <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 第一个读线程的计数</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">transient</span> <span style="color:#66d9ef">int</span> firstReaderHoldCount;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="构造方法-1">构造方法</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>Sync() {
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//本地线程计数器</span>
+</span></span><span style="display:flex;"><span>            readHolds <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ThreadLocalHoldCounter();
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//设置AQS的state</span>
+</span></span><span style="display:flex;"><span>            setState(getState()); <span style="color:#75715e">// ensures visibility of readHolds</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="sharedcount">sharedCount</h3>
+<p>该方法将<code>c</code>无符号右移16位，得到的值为读锁的线程数量，因为<code>c</code>的高16位代表读锁，低16位代表写锁数量。</p>
+<p>也可以通过方法命名看出来，读锁是共享模式，写锁是独占模式。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">sharedCount</span>(<span style="color:#66d9ef">int</span> c)    { <span style="color:#66d9ef">return</span> c <span style="color:#f92672">&gt;&gt;&gt;</span> SHARED_SHIFT; }
+</span></span></code></pre></div><h3 id="exclusivecount">exclusiveCount</h3>
+<p>该方法表示返回占有写锁的线程数量，通过<code>state</code>与<code>(1 &lt;&lt; 16) - 1</code>进行与运算，其等价于<code>state % 2 ^ 16</code>，因为写锁数量由<code>state</code>的低16位表示。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">exclusiveCount</span>(<span style="color:#66d9ef">int</span> c) { <span style="color:#66d9ef">return</span> c <span style="color:#f92672">&amp;</span> EXCLUSIVE_MASK; }
+</span></span></code></pre></div><h3 id="tryrelease">tryRelease</h3>
+<p>此方法用于释放写锁，通过这个调用链，可以清楚的看出<code>AQS</code>在并发类中的重要性，这也体现出了<code>AQS</code>的设计精髓，通过模板模式，将具体操作延迟到子类去实现。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//WriteLock</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unlock</span>() {
+</span></span><span style="display:flex;"><span>            sync.<span style="color:#a6e22e">release</span>(1);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//AQS中定义</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">release</span>(<span style="color:#66d9ef">int</span> arg) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (tryRelease(arg)) {
+</span></span><span style="display:flex;"><span>            Node h <span style="color:#f92672">=</span> head;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (h <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> h.<span style="color:#a6e22e">waitStatus</span> <span style="color:#f92672">!=</span> 0)
+</span></span><span style="display:flex;"><span>                unparkSuccessor(h);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryRelease</span>(<span style="color:#66d9ef">int</span> releases) {
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//判断当前线程是否是独占线程</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>isHeldExclusively())
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalMonitorStateException();
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//nextc为释放资源后的写锁资源数量</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> nextc <span style="color:#f92672">=</span> getState() <span style="color:#f92672">-</span> releases;
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//判断释放后的写锁数量是否为0</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">boolean</span> free <span style="color:#f92672">=</span> exclusiveCount(nextc) <span style="color:#f92672">==</span> 0;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (free)
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//为0说明当前没有线程独占</span>
+</span></span><span style="display:flex;"><span>                setExclusiveOwnerThread(<span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>            setState(nextc);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> free;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="tryreleaseshared">tryReleaseShared</h3>
+<p><code>ReadLock</code>释放锁的流程，与<code>WriteLock</code>释放类似。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//ReadLock</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unlock</span>() {
+</span></span><span style="display:flex;"><span>            sync.<span style="color:#a6e22e">releaseShared</span>(1);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryReleaseShared</span>(<span style="color:#66d9ef">int</span> unused) {
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//获取当前线程</span>
+</span></span><span style="display:flex;"><span>            Thread current <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//如果当前线程是第一个读线程</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (firstReader <span style="color:#f92672">==</span> current) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// assert firstReaderHoldCount &gt; 0;</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//判断读线程占用资源数是否为1</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (firstReaderHoldCount <span style="color:#f92672">==</span> 1)
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//为1则将第一个读线程置为空</span>
+</span></span><span style="display:flex;"><span>                    firstReader <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//不然就--</span>
+</span></span><span style="display:flex;"><span>                    firstReaderHoldCount<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//到这段说明：当前线程不是第一个读线程</span>
+</span></span><span style="display:flex;"><span>                HoldCounter rh <span style="color:#f92672">=</span> cachedHoldCounter;
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//如果计数器为空，或者计数器中tid存储的不是当前线程</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (rh <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> rh.<span style="color:#a6e22e">tid</span> <span style="color:#f92672">!=</span> getThreadId(current))
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//将计数器设置为当前线程计数器</span>
+</span></span><span style="display:flex;"><span>                    rh <span style="color:#f92672">=</span> readHolds.<span style="color:#a6e22e">get</span>();
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//获取count</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">int</span> count <span style="color:#f92672">=</span> rh.<span style="color:#a6e22e">count</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (count <span style="color:#f92672">&lt;=</span> 1) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//count &lt;= 1 则将ThreadLocal中的值删除</span>
+</span></span><span style="display:flex;"><span>                    readHolds.<span style="color:#a6e22e">remove</span>();
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> (count <span style="color:#f92672">&lt;=</span> 0)
+</span></span><span style="display:flex;"><span>                        <span style="color:#66d9ef">throw</span> unmatchedUnlockException();
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//更新计数器</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#f92672">--</span>rh.<span style="color:#a6e22e">count</span>;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//CAS自旋进行更新state</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (;;) {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> getState();
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">int</span> nextc <span style="color:#f92672">=</span> c <span style="color:#f92672">-</span> SHARED_UNIT;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (compareAndSetState(c, nextc))
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// Releasing the read lock has no effect on readers,</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// but it may allow waiting writers to proceed if</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// both read and write locks are now free.</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> nextc <span style="color:#f92672">==</span> 0;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span></code></pre></div><h3 id="tryacquire">tryAcquire</h3>
+<p>此方法用于写线程获取写锁，基本流程如下：</p>
+<ul>
+<li>首先会获取state，判断是否为0
+<ul>
+<li>若为0，表示此时没有读锁线程。再判断写线程是否应该被阻塞，而在非公平策略下总是不会被阻塞，在公平策略下会进行判断(判断同步队列中是否有等待时间更长的线程，若存在，则需要被阻塞，否则，无需阻塞)，之后在设置状态state，然后返回true。</li>
+<li>若不为0，则表示此时存在读锁或写锁线程，若写锁线程数量为0或者当前线程不是独占锁线程，则返回false，表示不成功，否则，判断写锁线程的申请资源数量 + 现有的写线程数量是否大于了<code>MAX_COUNT</code>，若是，则抛出<code>Error</code>，否则，设置状态<code>state</code>，返回true，表示成功。</li>
+</ul>
+</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//WriteLock</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>() {
+</span></span><span style="display:flex;"><span>            sync.<span style="color:#a6e22e">acquire</span>(1);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryAcquire</span>(<span style="color:#66d9ef">int</span> acquires) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * Walkthrough:
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * 1. If read count nonzero or write count nonzero
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    and owner is a different thread, fail.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * 2. If count would saturate, fail. (This can only
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    happen if count is already nonzero.)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * 3. Otherwise, this thread is eligible for lock if
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    it is either a reentrant acquire or
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    queue policy allows it. If so, update state
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    and set owner.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             */</span>
+</span></span><span style="display:flex;"><span>            Thread current <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//c为state</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> getState();
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//w为写锁的线程数量</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> w <span style="color:#f92672">=</span> exclusiveCount(c);
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//c == 0代表当前没有读锁线程或写锁线程</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (c <span style="color:#f92672">!=</span> 0) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// (Note: if c != 0 and w == 0 then shared count != 0)</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//写线程数量为0或者当前线程没有占有独占资源</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (w <span style="color:#f92672">==</span> 0 <span style="color:#f92672">||</span> current <span style="color:#f92672">!=</span> getExclusiveOwnerThread())
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//如果申请的数量 + 现有的写线程 &gt; MAX_COUNT</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (w <span style="color:#f92672">+</span> exclusiveCount(acquires) <span style="color:#f92672">&gt;</span> MAX_COUNT)
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> Error(<span style="color:#e6db74">&#34;Maximum lock count exceeded&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// Reentrant acquire</span>
+</span></span><span style="display:flex;"><span>                setState(c <span style="color:#f92672">+</span> acquires);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (writerShouldBlock() <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#f92672">!</span>compareAndSetState(c, c <span style="color:#f92672">+</span> acquires))
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//设置独占线程</span>
+</span></span><span style="display:flex;"><span>            setExclusiveOwnerThread(current);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span></code></pre></div><h3 id="tryacquireshared">tryAcquireShared</h3>
+<p>此方法被读线程用于获取读锁，基本流程如下：</p>
+<ul>
+<li>首先判断写锁是否为0并且当前线程不占有独占锁，直接返回。</li>
+<li>否则，判断读线程是否需要被阻塞并且读锁数量是否小于最大值并且比较设置状态成功
+<ul>
+<li>若当前没有读锁，则设置第一个读线程firstReader和firstReaderHoldCount</li>
+<li>若当前线程线程为第一个读线程，则增加firstReaderHoldCount</li>
+<li>否则，将设置当前线程对应的HoldCounter对象的值。</li>
+</ul>
+</li>
+<li>如果下列三个条件不满足(读线程是否应该被阻塞、小于最大值、比较设置成功)则会执行<code>fullTryAcquireShared</code>。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">tryAcquireShared</span>(<span style="color:#66d9ef">int</span> unused) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * Walkthrough:
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * 1. If write lock held by another thread, fail.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * 2. Otherwise, this thread is eligible for
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    lock wrt state, so ask if it should block
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    because of queue policy. If not, try
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    to grant by CASing state and updating count.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    Note that step does not check for reentrant
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    acquires, which is postponed to full version
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    to avoid having to check hold count in
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    the more typical non-reentrant case.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * 3. If step 2 fails either because thread
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    apparently not eligible or CAS fails or count
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             *    saturated, chain to version with full retry loop.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             */</span>
+</span></span><span style="display:flex;"><span>            Thread current <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> getState();
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//如果当前有写线程，并且独占线程不是当前线程</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (exclusiveCount(c) <span style="color:#f92672">!=</span> 0 <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                getExclusiveOwnerThread() <span style="color:#f92672">!=</span> current)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span>1;
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//读锁数量</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> r <span style="color:#f92672">=</span> sharedCount(c);
+</span></span><span style="display:flex;"><span>    		<span style="color:#75715e">//如果当前线程需要被阻塞，并且读锁数量小于MAX_COUNT,并且CAS设置state成功</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>readerShouldBlock() <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                r <span style="color:#f92672">&lt;</span> MAX_COUNT <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                compareAndSetState(c, c <span style="color:#f92672">+</span> SHARED_UNIT)) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//读锁为0</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (r <span style="color:#f92672">==</span> 0) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//设置第一个读线程和计数器</span>
+</span></span><span style="display:flex;"><span>                    firstReader <span style="color:#f92672">=</span> current;
+</span></span><span style="display:flex;"><span>                    firstReaderHoldCount <span style="color:#f92672">=</span> 1;
+</span></span><span style="display:flex;"><span>                } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (firstReader <span style="color:#f92672">==</span> current) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//当前线程为第一个读线程</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//计数器加1</span>
+</span></span><span style="display:flex;"><span>                    firstReaderHoldCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>                } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//设置当前线程对应的HoldCounter对象的值</span>
+</span></span><span style="display:flex;"><span>                    HoldCounter rh <span style="color:#f92672">=</span> cachedHoldCounter;
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> (rh <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> rh.<span style="color:#a6e22e">tid</span> <span style="color:#f92672">!=</span> getThreadId(current))
+</span></span><span style="display:flex;"><span>                        cachedHoldCounter <span style="color:#f92672">=</span> rh <span style="color:#f92672">=</span> readHolds.<span style="color:#a6e22e">get</span>();
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (rh.<span style="color:#a6e22e">count</span> <span style="color:#f92672">==</span> 0)
+</span></span><span style="display:flex;"><span>                        readHolds.<span style="color:#a6e22e">set</span>(rh);
+</span></span><span style="display:flex;"><span>                    rh.<span style="color:#a6e22e">count</span><span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> 1;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> fullTryAcquireShared(current);
+</span></span><span style="display:flex;"><span>        }
+</span></span></code></pre></div><h2 id="nofairsync">NofairSync</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">NonfairSync</span> <span style="color:#66d9ef">extends</span> Sync {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> serialVersionUID <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>8159625535654395037L;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">writerShouldBlock</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>; <span style="color:#75715e">// writers can always barge</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">readerShouldBlock</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">/* As a heuristic to avoid indefinite writer starvation,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * block if the thread that momentarily appears to be head
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * of queue, if one exists, is a waiting writer.  This is
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * only a probabilistic effect since a new reader will not
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * block if there is a waiting writer behind other enabled
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             * readers that have not yet drained from the queue.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">             */</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> apparentlyFirstQueuedIsExclusive();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="fairsync">FairSync</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">FairSync</span> <span style="color:#66d9ef">extends</span> Sync {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> serialVersionUID <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>2274990926593161451L;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">writerShouldBlock</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> hasQueuedPredecessors();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">readerShouldBlock</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> hasQueuedPredecessors();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="readlock">ReadLock</h2>
+<h3 id="基本信息">基本信息</h3>
+<p><code>ReadLock</code>拥有一个内部变量<code>sync</code>，构造方法用于初始化<code>sync</code>，可以联系<code>ReentrantReadWriteLock</code>的构造方法一起看。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ReadLock</span> <span style="color:#66d9ef">implements</span> Lock, java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">Serializable</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> serialVersionUID <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>5992448646407690164L;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Sync sync;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * Constructor for use by subclasses
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * @param lock the outer lock object
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * @throws NullPointerException if the lock is null
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">protected</span> <span style="color:#a6e22e">ReadLock</span>(ReentrantReadWriteLock lock) {
+</span></span><span style="display:flex;"><span>            sync <span style="color:#f92672">=</span> lock.<span style="color:#a6e22e">sync</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="核心方法">核心方法</h3>
+<p>从核心方法<code>lock()</code>和<code>unlock()</code>中可以看出其具体实现都是交给<code>sync</code>进行实现。读操作由于是共享的，所以它使用的是<code>AQS</code>的共享模式实现的。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>() {
+</span></span><span style="display:flex;"><span>            sync.<span style="color:#a6e22e">acquireShared</span>(1);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//相应中断的lock</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lockInterruptibly</span>() <span style="color:#66d9ef">throws</span> InterruptedException {
+</span></span><span style="display:flex;"><span>            sync.<span style="color:#a6e22e">acquireSharedInterruptibly</span>(1);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//尝试获取lock</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryLock</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> sync.<span style="color:#a6e22e">tryReadLock</span>();
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryLock</span>(<span style="color:#66d9ef">long</span> timeout, TimeUnit unit)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throws</span> InterruptedException {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> sync.<span style="color:#a6e22e">tryAcquireSharedNanos</span>(1, unit.<span style="color:#a6e22e">toNanos</span>(timeout));
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unlock</span>() {
+</span></span><span style="display:flex;"><span>            sync.<span style="color:#a6e22e">releaseShared</span>(1);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="writelock">WriteLock</h2>
+<p><code>WriteLock</code>和<code>ReadLock</code>类似，不同的是，写操作是独占的，因此它使用<code>AQS</code>的独占模式实现。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">WriteLock</span> <span style="color:#66d9ef">implements</span> Lock, java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">Serializable</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> serialVersionUID <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>4992448646407690164L;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Sync sync;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">protected</span> <span style="color:#a6e22e">WriteLock</span>(ReentrantReadWriteLock lock) {
+</span></span><span style="display:flex;"><span>            sync <span style="color:#f92672">=</span> lock.<span style="color:#a6e22e">sync</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>() {
+</span></span><span style="display:flex;"><span>            sync.<span style="color:#a6e22e">acquire</span>(1);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lockInterruptibly</span>() <span style="color:#66d9ef">throws</span> InterruptedException {
+</span></span><span style="display:flex;"><span>            sync.<span style="color:#a6e22e">acquireInterruptibly</span>(1);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryLock</span>( ) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> sync.<span style="color:#a6e22e">tryWriteLock</span>();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">tryLock</span>(<span style="color:#66d9ef">long</span> timeout, TimeUnit unit)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throws</span> InterruptedException {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> sync.<span style="color:#a6e22e">tryAcquireNanos</span>(1, unit.<span style="color:#a6e22e">toNanos</span>(timeout));
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unlock</span>() {
+</span></span><span style="display:flex;"><span>            sync.<span style="color:#a6e22e">release</span>(1);
+</span></span><span style="display:flex;"><span>        }
+</span></span></code></pre></div><h1 id="reference">Reference</h1>
+<ul>
+<li><a href="https://juejin.cn/post/6844903663488483336">https://juejin.cn/post/6844903663488483336</a></li>
+</ul>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E5%B9%B6%E5%8F%91/">
+                并发
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/reentrantlock%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">ReentrantLock源码分析</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/locksupport%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">LockSupport源码分析</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/java%E5%8E%9F%E5%AD%90%E7%B1%BB%E7%9A%84%E4%BD%BF%E7%94%A8%E4%B8%8E%E5%AE%9E%E7%8E%B0/">Java原子类的使用与实现</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

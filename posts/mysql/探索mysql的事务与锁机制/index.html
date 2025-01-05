@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/mysql/%E6%8E%A2%E7%B4%A2mysql%E7%9A%84%E4%BA%8B%E5%8A%A1%E4%B8%8E%E9%94%81%E6%9C%BA%E5%88%B6/" />
+  <link rel="canonical" href="http://localhost:59500/posts/mysql/%E6%8E%A2%E7%B4%A2mysql%E7%9A%84%E4%BA%8B%E5%8A%A1%E4%B8%8E%E9%94%81%E6%9C%BA%E5%88%B6/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "探索MySQL的事务与锁机制",
+      "headline" : "探索MySQL的事务与锁机制",
+      "description" : "事务概念 简单来说，事务就是要保证一组数据库操作，要么全部成功，要么全部失败。MySQL中事务支持是在存储引擎层实现的。事务拥有四个重要的特性：原子性、一致性、隔离性、持久性，简称为ACID特性，下文将逐一解释。\nACID特性 原子性（Atomicity） 事务开始后所有操作步骤，要么全部完成，要么全部不做，不存在只执行一部分的情况。 一致性（Consistency） 事务执行前后，数据从一个合法性状态变换到另一个合法性状态。 A、B转账业务，总金额不变。 分为数据一致性和约束一致性。 隔离性（Isolation） 在一个事务未执行完毕时，其它事务无法读取该事务的数据。 MySQL通过锁机制来保证事务的隔离性。 持久性（Durability） 事务一旦提交，数据将被保存下来，即使发生宕机等故障，数据库也能将数据恢复。 MySQL使用redo log来保证事务的持久性。当通过事务对数据进行修改时，首先会将操作记录到redo log中，然后对数据库对应行进行修改，这样即使数据库宕机，也能通过redo log进行恢复。 ACID关系如下图所示： 显式事务 开始事务：\nBEGIN; 或 START TRANSACTION; 两者区别：\nSTART TRANSACTION后面可以跟随几个修饰符： READ ONLY：标识为只读事务，该事务只能读取数据。 READ WRITE：标识为读写事务，该事务可以读写数据。 WITH CONSISTENT SNAPSHOT ：启动一致性读。 完成事务：\n# 提交事务 COMMIT; #回滚事务 ROLLBACK; #将事务回滚到某个保存点。 ROLLBACK TO [SAVEPOINT] 隐式事务 SHOW VARIABLES LIKE \u0026#39;autocommit\u0026#39;; 隐式提交数据的情况：\n数据定义语言：CREATE、ALTER、DROP 隐式修改mysql数据库中的表 事务控制（连续两次BEGIN，第一个BEGIN后面的语句会自动提交）或关于锁定的语句 加载数据的语句 MySQL复制的语句 completion_type set @@completion_type = 1; 该变量有三种取值：\n0：默认值，当我们执行COMMIT时会提交事务，再执行下一个事务时，还需要使用BEGIN来开启。 1：提交事务后，相当于执行了COMMIT AND CHAIN，开启链式事务，当我们提交事务后会开启一个相同隔离级别的事务。 2：相当于COMMIT AND RELEASE，提交事务后，与服务器断开连接。 事务分类 扁平事务：最简单的一种，使用BEGIN开启，由COMMIT或ROLLBACK结束。 带有保存点的扁平事务：支持回滚到指定保存点的事务。 链式事务：一个事务由多个子事务构成，提交前一个事务，触发下一个事务。 嵌套事务：由顶层事务控制下面各个层次的事务。 分布式事务：分布式系统中的扁平事务。 并发事务问题 脏写 事务A覆盖了事务B未提交的更新数据。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-04-29 09:47:16 \u002b0000 UTC",
+      "dateModified" : "2020-04-29 09:47:16 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/mysql\/%E6%8E%A2%E7%B4%A2mysql%E7%9A%84%E4%BA%8B%E5%8A%A1%E4%B8%8E%E9%94%81%E6%9C%BA%E5%88%B6\/",
+      "keywords" : [ "MySQL", ]
+  }
+</script>
+<title>探索MySQL的事务与锁机制</title>
+  <meta property="og:title" content="探索MySQL的事务与锁机制" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="事务概念 简单来说，事务就是要保证一组数据库操作，要么全部成功，要么全部失败。MySQL中事务支持是在存储引擎层实现的。事务拥有四个重要的特性：原子性、一致性、隔离性、持久性，简称为ACID特性，下文将逐一解释。
+ACID特性 原子性（Atomicity） 事务开始后所有操作步骤，要么全部完成，要么全部不做，不存在只执行一部分的情况。 一致性（Consistency） 事务执行前后，数据从一个合法性状态变换到另一个合法性状态。 A、B转账业务，总金额不变。 分为数据一致性和约束一致性。 隔离性（Isolation） 在一个事务未执行完毕时，其它事务无法读取该事务的数据。 MySQL通过锁机制来保证事务的隔离性。 持久性（Durability） 事务一旦提交，数据将被保存下来，即使发生宕机等故障，数据库也能将数据恢复。 MySQL使用redo log来保证事务的持久性。当通过事务对数据进行修改时，首先会将操作记录到redo log中，然后对数据库对应行进行修改，这样即使数据库宕机，也能通过redo log进行恢复。 ACID关系如下图所示： 显式事务 开始事务：
+BEGIN; 或 START TRANSACTION; 两者区别：
+START TRANSACTION后面可以跟随几个修饰符： READ ONLY：标识为只读事务，该事务只能读取数据。 READ WRITE：标识为读写事务，该事务可以读写数据。 WITH CONSISTENT SNAPSHOT ：启动一致性读。 完成事务：
+# 提交事务 COMMIT; #回滚事务 ROLLBACK; #将事务回滚到某个保存点。 ROLLBACK TO [SAVEPOINT] 隐式事务 SHOW VARIABLES LIKE &#39;autocommit&#39;; 隐式提交数据的情况：
+数据定义语言：CREATE、ALTER、DROP 隐式修改mysql数据库中的表 事务控制（连续两次BEGIN，第一个BEGIN后面的语句会自动提交）或关于锁定的语句 加载数据的语句 MySQL复制的语句 completion_type set @@completion_type = 1; 该变量有三种取值：
+0：默认值，当我们执行COMMIT时会提交事务，再执行下一个事务时，还需要使用BEGIN来开启。 1：提交事务后，相当于执行了COMMIT AND CHAIN，开启链式事务，当我们提交事务后会开启一个相同隔离级别的事务。 2：相当于COMMIT AND RELEASE，提交事务后，与服务器断开连接。 事务分类 扁平事务：最简单的一种，使用BEGIN开启，由COMMIT或ROLLBACK结束。 带有保存点的扁平事务：支持回滚到指定保存点的事务。 链式事务：一个事务由多个子事务构成，提交前一个事务，触发下一个事务。 嵌套事务：由顶层事务控制下面各个层次的事务。 分布式事务：分布式系统中的扁平事务。 并发事务问题 脏写 事务A覆盖了事务B未提交的更新数据。
+" />
+  <meta name="description" content="事务概念 简单来说，事务就是要保证一组数据库操作，要么全部成功，要么全部失败。MySQL中事务支持是在存储引擎层实现的。事务拥有四个重要的特性：原子性、一致性、隔离性、持久性，简称为ACID特性，下文将逐一解释。
+ACID特性 原子性（Atomicity） 事务开始后所有操作步骤，要么全部完成，要么全部不做，不存在只执行一部分的情况。 一致性（Consistency） 事务执行前后，数据从一个合法性状态变换到另一个合法性状态。 A、B转账业务，总金额不变。 分为数据一致性和约束一致性。 隔离性（Isolation） 在一个事务未执行完毕时，其它事务无法读取该事务的数据。 MySQL通过锁机制来保证事务的隔离性。 持久性（Durability） 事务一旦提交，数据将被保存下来，即使发生宕机等故障，数据库也能将数据恢复。 MySQL使用redo log来保证事务的持久性。当通过事务对数据进行修改时，首先会将操作记录到redo log中，然后对数据库对应行进行修改，这样即使数据库宕机，也能通过redo log进行恢复。 ACID关系如下图所示： 显式事务 开始事务：
+BEGIN; 或 START TRANSACTION; 两者区别：
+START TRANSACTION后面可以跟随几个修饰符： READ ONLY：标识为只读事务，该事务只能读取数据。 READ WRITE：标识为读写事务，该事务可以读写数据。 WITH CONSISTENT SNAPSHOT ：启动一致性读。 完成事务：
+# 提交事务 COMMIT; #回滚事务 ROLLBACK; #将事务回滚到某个保存点。 ROLLBACK TO [SAVEPOINT] 隐式事务 SHOW VARIABLES LIKE &#39;autocommit&#39;; 隐式提交数据的情况：
+数据定义语言：CREATE、ALTER、DROP 隐式修改mysql数据库中的表 事务控制（连续两次BEGIN，第一个BEGIN后面的语句会自动提交）或关于锁定的语句 加载数据的语句 MySQL复制的语句 completion_type set @@completion_type = 1; 该变量有三种取值：
+0：默认值，当我们执行COMMIT时会提交事务，再执行下一个事务时，还需要使用BEGIN来开启。 1：提交事务后，相当于执行了COMMIT AND CHAIN，开启链式事务，当我们提交事务后会开启一个相同隔离级别的事务。 2：相当于COMMIT AND RELEASE，提交事务后，与服务器断开连接。 事务分类 扁平事务：最简单的一种，使用BEGIN开启，由COMMIT或ROLLBACK结束。 带有保存点的扁平事务：支持回滚到指定保存点的事务。 链式事务：一个事务由多个子事务构成，提交前一个事务，触发下一个事务。 嵌套事务：由顶层事务控制下面各个层次的事务。 分布式事务：分布式系统中的扁平事务。 并发事务问题 脏写 事务A覆盖了事务B未提交的更新数据。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">探索MySQL的事务与锁机制</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-04-29 09:47:16 UTC">
+                29 Apr 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="事务概念">事务概念</h1>
+<p>简单来说，事务就是要保证一组数据库操作，要么全部成功，要么全部失败。MySQL中事务支持是在存储引擎层实现的。事务拥有四个重要的特性：原子性、一致性、隔离性、持久性，简称为ACID特性，下文将逐一解释。</p>
+<h2 id="acid特性">ACID特性</h2>
+<ul>
+<li>原子性（Atomicity）
+<ul>
+<li>事务开始后所有操作步骤，要么全部完成，要么全部不做，不存在只执行一部分的情况。</li>
+</ul>
+</li>
+<li>一致性（Consistency）
+<ul>
+<li>事务执行前后，数据从一个合法性状态变换到另一个合法性状态。
+<ul>
+<li>A、B转账业务，总金额不变。</li>
+</ul>
+</li>
+<li>分为数据一致性和约束一致性。</li>
+</ul>
+</li>
+<li>隔离性（Isolation）
+<ul>
+<li>在一个事务未执行完毕时，其它事务无法读取该事务的数据。</li>
+<li>MySQL通过锁机制来保证事务的隔离性。</li>
+</ul>
+</li>
+<li>持久性（Durability）
+<ul>
+<li>事务一旦提交，数据将被保存下来，即使发生宕机等故障，数据库也能将数据恢复。</li>
+<li>MySQL使用<code>redo log</code>来保证事务的持久性。当通过事务对数据进行修改时，首先会将操作记录到<code>redo log</code>中，然后对数据库对应行进行修改，这样即使数据库宕机，也能通过<code>redo log</code>进行恢复。</li>
+</ul>
+</li>
+</ul>
+<p>ACID关系如下图所示：
+<img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/structure/%E4%BA%8B%E5%8A%A1%E7%89%B9%E6%80%A7.png" alt="ACID关系"></p>
+<h2 id="显式事务">显式事务</h2>
+<p>开始事务：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">BEGIN</span>;  
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">或</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">START</span> <span style="color:#66d9ef">TRANSACTION</span>;
+</span></span></code></pre></div><p>两者区别：</p>
+<ul>
+<li><code>START TRANSACTION</code>后面可以跟随几个修饰符：
+<ul>
+<li>READ ONLY：标识为只读事务，该事务只能读取数据。</li>
+<li>READ WRITE：标识为读写事务，该事务可以读写数据。</li>
+<li>WITH CONSISTENT SNAPSHOT ：启动一致性读。</li>
+</ul>
+</li>
+</ul>
+<p>完成事务：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">提交事务</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">COMMIT</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span><span style="color:#960050;background-color:#1e0010">回滚事务</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">ROLLBACK</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span><span style="color:#960050;background-color:#1e0010">将事务回滚到某个保存点。</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">ROLLBACK</span> <span style="color:#66d9ef">TO</span> [SAVEPOINT]
+</span></span></code></pre></div><h2 id="隐式事务">隐式事务</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">SHOW</span> VARIABLES <span style="color:#66d9ef">LIKE</span> <span style="color:#e6db74">&#39;autocommit&#39;</span>;
+</span></span></code></pre></div><p>隐式提交数据的情况：</p>
+<ol>
+<li>数据定义语言：CREATE、ALTER、DROP</li>
+<li>隐式修改mysql数据库中的表</li>
+<li>事务控制（连续两次BEGIN，第一个BEGIN后面的语句会自动提交）或关于锁定的语句</li>
+<li>加载数据的语句</li>
+<li>MySQL复制的语句</li>
+</ol>
+<h2 id="completion_type">completion_type</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">set</span> <span style="color:#f92672">@@</span>completion_type <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
+</span></span></code></pre></div><p>该变量有三种取值：</p>
+<ul>
+<li>0：默认值，当我们执行COMMIT时会提交事务，再执行下一个事务时，还需要使用BEGIN来开启。</li>
+<li>1：提交事务后，相当于执行了<code>COMMIT AND CHAIN</code>，开启链式事务，当我们提交事务后会开启一个相同隔离级别的事务。</li>
+<li>2：相当于<code>COMMIT AND RELEASE</code>，提交事务后，与服务器断开连接。</li>
+</ul>
+<h2 id="事务分类">事务分类</h2>
+<ul>
+<li>扁平事务：最简单的一种，使用BEGIN开启，由COMMIT或ROLLBACK结束。</li>
+<li>带有保存点的扁平事务：支持回滚到指定保存点的事务。</li>
+<li>链式事务：一个事务由多个子事务构成，提交前一个事务，触发下一个事务。</li>
+<li>嵌套事务：由顶层事务控制下面各个层次的事务。</li>
+<li>分布式事务：分布式系统中的扁平事务。</li>
+</ul>
+<h1 id="并发事务问题">并发事务问题</h1>
+<h2 id="脏写">脏写</h2>
+<p>事务A覆盖了事务B未提交的更新数据。</p>
+<p>任何隔离级别都可以解决该问题。</p>
+<h2 id="丢失更新">丢失更新</h2>
+<p><strong>丢失更新</strong>就是两个事务在并发下同时进行更新，后一个事务的更新覆盖了前一个事务更新的情况。这是一种并发写入的问题。基本情景如下表：</p>
+<table>
+  <thead>
+      <tr>
+          <th style="text-align: center">时间</th>
+          <th style="text-align: center">事务A</th>
+          <th style="text-align: center">事务B</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td style="text-align: center">1</td>
+          <td style="text-align: center">开启事务</td>
+          <td style="text-align: center">开启事务</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">2</td>
+          <td style="text-align: center">a = 100</td>
+          <td style="text-align: center">a = 100</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">3</td>
+          <td style="text-align: center">/</td>
+          <td style="text-align: center">a -= 10</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">4</td>
+          <td style="text-align: center">/</td>
+          <td style="text-align: center">commit</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">5</td>
+          <td style="text-align: center">/</td>
+          <td style="text-align: center">/</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">6</td>
+          <td style="text-align: center">a += 20</td>
+          <td style="text-align: center">/</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">7</td>
+          <td style="text-align: center">commit</td>
+          <td style="text-align: center">/</td>
+      </tr>
+  </tbody>
+</table>
+<h2 id="脏读">脏读</h2>
+<p>一个事务读取了另一个未提交的事务写的数据，被称为脏读。基本情景如下：</p>
+<table>
+  <thead>
+      <tr>
+          <th style="text-align: center">时间</th>
+          <th style="text-align: center">事务A</th>
+          <th style="text-align: center">事务B</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td style="text-align: center">1</td>
+          <td style="text-align: center">开启事务</td>
+          <td style="text-align: center">开启事务</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">2</td>
+          <td style="text-align: center">a = 100</td>
+          <td style="text-align: center">a = 100</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">3</td>
+          <td style="text-align: center">/</td>
+          <td style="text-align: center">a = 110</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">4</td>
+          <td style="text-align: center">a = 110</td>
+          <td style="text-align: center">/</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">5</td>
+          <td style="text-align: center">/</td>
+          <td style="text-align: center">rollback</td>
+      </tr>
+  </tbody>
+</table>
+<h2 id="不可重复读">不可重复读</h2>
+<p>事务A读取一个字段，然后事务B<strong>更新</strong>了字段，事务A再次读取发现两次值不相等。</p>
+<table>
+  <thead>
+      <tr>
+          <th style="text-align: center">时间</th>
+          <th style="text-align: center">事务A</th>
+          <th style="text-align: center">事务B</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td style="text-align: center">1</td>
+          <td style="text-align: center">开启事务</td>
+          <td style="text-align: center">开启事务</td>
+      </tr>
+      <tr>
+          <td style="text-align: center"></td>
+          <td style="text-align: center">a = 100</td>
+          <td style="text-align: center">a = 100</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">3</td>
+          <td style="text-align: center">/</td>
+          <td style="text-align: center">a = 110</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">4</td>
+          <td style="text-align: center">a = 110</td>
+          <td style="text-align: center">commit</td>
+      </tr>
+  </tbody>
+</table>
+<h2 id="幻读">幻读</h2>
+<p>事务A读取一个字段，然后事务B<strong>插入</strong>了满足条件的数据，事务A再次读取发现两次值不一样。</p>
+<table>
+  <thead>
+      <tr>
+          <th style="text-align: center">时间</th>
+          <th style="text-align: center">事务A</th>
+          <th style="text-align: center">事务B</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td style="text-align: center">1</td>
+          <td style="text-align: center">开启事务</td>
+          <td style="text-align: center">开启事务</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">2</td>
+          <td style="text-align: center">select * from table where id = 1(记录为0条)</td>
+          <td style="text-align: center">/</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">3</td>
+          <td style="text-align: center">/</td>
+          <td style="text-align: center">insert into table (id) value(1)</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">4</td>
+          <td style="text-align: center">/</td>
+          <td style="text-align: center">commit</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">5</td>
+          <td style="text-align: center">insert into table (id) value(1)</td>
+          <td style="text-align: center">/</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">6</td>
+          <td style="text-align: center">commit(报错，主键冲突)</td>
+          <td style="text-align: center">/</td>
+      </tr>
+  </tbody>
+</table>
+<h2 id="事务隔离级别">事务隔离级别</h2>
+<p>由于数据库在并发事务中带来一些问题，数据库提供了事务隔离机制来解决相对应的问题。数据库的锁也是为了构建这些隔离级别而存在的。</p>
+<table>
+  <thead>
+      <tr>
+          <th>隔离级别</th>
+          <th>脏读（Dirty Read）</th>
+          <th>不可重复读（NonRepeatable Read）</th>
+          <th>幻读（Phantom Read）</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>未提交读(Read uncommited)</td>
+          <td>可能</td>
+          <td>可能</td>
+          <td>可能</td>
+      </tr>
+      <tr>
+          <td>已提交读(Read commited)</td>
+          <td>不可能</td>
+          <td>可能</td>
+          <td>可能</td>
+      </tr>
+      <tr>
+          <td>可重复读(Repeatable read)</td>
+          <td>不可能</td>
+          <td>不可能</td>
+          <td>可能</td>
+      </tr>
+      <tr>
+          <td>可串行化(Serializable)</td>
+          <td>不可能</td>
+          <td>不可能</td>
+          <td>不可能</td>
+      </tr>
+  </tbody>
+</table>
+<ul>
+<li>未提交读(Read Uncommitted)：在该隔离级别下，所有事务都能看到其他未提交事务的执行结果，会导致脏读、不可重复读、幻读。</li>
+<li>提交读(Read Committed)：一个事务只能看见已经提交事务所做的改变，不能避免不可重复读、幻读。</li>
+<li>可重复读(Repeated Read)：<strong>默认的隔离级别</strong>，事务A读取到一个数据后，事务B进行了修改并提交，事务A再次读取该数据，还是读取到原来的内容。不能避免幻读问题。</li>
+<li>可串行化(Serializable)：对于同一行记录，写会加写锁，读会加读锁，当出现读写冲突的时候，后面的事务必须等待前一个事务执行完成才能继续执行。</li>
+</ul>
+<p><strong>隔离级别越高，数据库的并发性能越差。</strong></p>
+<p>查询与修改隔离级别的SQL语句：</p>
+<pre tabindex="0"><code>-- 查看系统隔离级别：
+select @@global.tx_isolation;
+-- 查看当前会话隔离级别
+select @@tx_isolation;
+-- 设置当前会话隔离级别
+SET session TRANSACTION ISOLATION LEVEL serializable;
+-- 设置全局系统隔离级别
+SET GLOBAL TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+</code></pre><h1 id="事务日志">事务日志</h1>
+<p>事务日志有两种：</p>
+<ul>
+<li>REDO LOG：重做日志，提供再写入操作、恢复提交事务修改的页操作，用来保证事务的持久性。是存储引擎层生成的日志，记录<strong>物理页</strong>的修改操作（包括页号、偏移量等），主要保证数据的可靠性。</li>
+<li>UNDO LOG：回滚日志，回滚行记录到某个特定版本，用来保证事务的原子性、一致性。是存储引擎层生成的日志，记录<strong>逻辑操作</strong>日志，用于<strong>事务回滚</strong>和<strong>一致性非锁定读</strong>。</li>
+</ul>
+<h2 id="redo-log">redo log</h2>
+<p>InnoDB以页为单位管理存储空间，读取页首先要将<strong>磁盘</strong>中的页读取到内存中的Buffer Pool再访问，所有的更新都先更新缓冲池数据，缓冲池中的<strong>脏页</strong>会以一定的频率被刷入磁盘（<strong>checkpoint</strong>机制），以此来抵消CPU和磁盘的差距。</p>
+<h3 id="为什么需要redo-log">为什么需要redo log</h3>
+<p>由于checkpoint机制是定时触发，当出现事务提交后，刚写完缓冲池，数据库宕机，那么会发生数据丢失，不符合<strong>持久性</strong>的要求。</p>
+<p>解决思路：</p>
+<ul>
+<li>每次提交的数据都进行刷盘操作，存在以下问题：
+<ul>
+<li>修改量和刷盘工作量不成比例：修改1KB内容，刷盘16KB。</li>
+<li>随机IO刷新较慢：一个事务内修改的物理页不一定连续。</li>
+</ul>
+</li>
+<li>使用redo log进行记录，包括物理页、偏移量、修改值等数据。
+<ul>
+<li>降低了频繁刷盘的效率。</li>
+</ul>
+</li>
+</ul>
+<p>InnoDB采取的是WAL（<strong>Write-Ahead Logging</strong>），先写日志，后写磁盘，发生宕机后通过redo log进行恢复，<strong>保证持久性，这就是redo log的作用。</strong></p>
+<h3 id="特点">特点</h3>
+<ul>
+<li>redo日志<strong>顺序写入磁盘</strong>：磁盘顺序写的性能和写内存差不多。</li>
+<li>事务执行过程中，redo日志不断记录。
+<ul>
+<li>bin log直到事务提交，才会一次性写入到bin log中。</li>
+</ul>
+</li>
+<li>占用空间比较小。</li>
+</ul>
+<h3 id="组成">组成</h3>
+<p>主要分为两部分：</p>
+<ul>
+<li>redo log buffer：保存在内存中
+<ul>
+<li>innodb_log_buffer_size：默认16M</li>
+</ul>
+</li>
+<li>redo log file：保存在磁盘中</li>
+</ul>
+<h3 id="整体流程">整体流程</h3>
+<p>以更新事务为例，基本流程如下：</p>
+<ol>
+<li>先将原始数据从磁盘读取到内存中，并进行更新。</li>
+<li>生成一条redo log entry并写入redo log buffer。</li>
+<li>当事务commit后，将redo log buffer中的内容刷新到redo log file，采用append方式。</li>
+<li>定期将内存中修改的数据刷新到磁盘中。</li>
+</ol>
+<h3 id="redo-log-buffer的刷盘策略">redo log buffer的刷盘策略</h3>
+<p>该流程是保证数据持久化的核心环节，这里的刷盘并不直接刷到磁盘，而实刷入**Page Cache（内存）**中（write），真正的刷盘工作（fsync）交给OS去做。如果此时系统宕机，那么数据会丢失。因此InnoDB提供了<code>innodb_flush_log_at_trx_commit</code>参数来控制何时将redo log buffer中的日志刷入redo log file。默认值为1。</p>
+<ul>
+<li>0：redo log buffer每隔一秒将其数据刷入page cache，该模式下事务提交不会触发刷盘操作。
+<ul>
+<li>mysql进程崩溃会导致数据丢失。</li>
+</ul>
+</li>
+<li>1：每次事务提交都会将将redo log buffer中数据刷入page cache，并立刻刷入磁盘。效率较低也为安全。</li>
+<li>2：每次事务提交都会将redo log buffer中数据刷入page cache，由OS同步到磁盘。（每秒一次）
+<ul>
+<li>mysql进程崩溃不会有数据丢失，当时OS宕机会有数据丢失。</li>
+</ul>
+</li>
+</ul>
+<h3 id="redo-log-buffer的写入过程">redo log buffer的写入过程</h3>
+<p>Mini-Transaction：MySQL将对底层页面中的一次原子访问的过程称为Mini-Transaction（mtr）。例如：向默认索引对应的B+ Tree中插入一条记录就是一次mtr。每个mtr会包含一组redo log entry，在进行恢复数据时，一组redo日志作为不可分割的整体。</p>
+<p>写入是顺序写入，先往前面的block中写，当写满后，往后续的block写入，提供了<code>buf_free</code>的全局变量用来指明写到了哪个block。</p>
+<p>一个block共512字节（磁盘扇区为512，避免非原子性写入），block由以下几个部分组成：</p>
+<ul>
+<li>log block header：12字节，保存一些block元数据。</li>
+<li>log block body：492字节，存储redo log信息。</li>
+<li>log block trailer：8字节，保存校验值。</li>
+</ul>
+<h3 id="redo-log-file">redo log file</h3>
+<p>相关配置参数：</p>
+<ul>
+<li>innodb_log_group_home_dir：指定redo log文件存储路径，默认为<code>./</code>，表示在数据库的数据目录中（默认为<code>var/lib/mysql</code>）</li>
+<li>innodb_log_files_in_group：指定redo log file的个数，命名方式如：ib_logfile0，默认为2，最大100</li>
+<li>innodb_log_file_size：单个redo log file的大小，默认为48M</li>
+</ul>
+<p>采用循环使用的方式进行写入，整个日志组有两个重要的属性：</p>
+<ul>
+<li>write pos：当前记录的位置，一边写一边后移。</li>
+<li>checkpoint：当前要擦除的位置，也是往后推移。</li>
+</ul>
+<p>每次刷盘redo log，write pos就往后更新，每次MySQL加载日志文件恢复数据，会清空加载过的日志，并将checkpoint后移更新，两个变量之间的部分用做空闲空间来写入新数据，类似于一个<strong>环形队列</strong>。</p>
+<p>当两者相遇，表示文件组已满。</p>
+<h2 id="undo-log">undo log</h2>
+<p>undo log保证了事务的原子性，主要用来实现事务回滚操作。</p>
+<h3 id="为什么需要undo-log">为什么需要undo log</h3>
+<p>事务需要保证<strong>原子性</strong>，如果出现意外情况，例如mysql进程崩溃，OS宕机、断电，或者是事务本身<code>ROLLBACK</code>，都需要对数据进行<strong>回滚</strong>，因此使用undo log完成该项任务。</p>
+<p>undo log会产生redo log，因为undo log也需要持久性的保护。</p>
+<h3 id="undo-log作用">undo log作用</h3>
+<ul>
+<li><strong>回滚数据</strong>：undo并不是<strong>物理</strong>恢复（数据页操作），undo log是<strong>逻辑日志</strong>，只是将数据库逻辑上恢复到原来的样子。</li>
+<li><strong>MVCC</strong>：InnoDB中的MVCC通过undo来完成的，当用户读取一行记录时，若该纪录已被其他事务占用，当前事务可以通过undo读取之前的版本，以此实现<strong>非锁定读</strong>。</li>
+</ul>
+<h3 id="undo存储结构">undo存储结构</h3>
+<p>采用段的方式进行管理（回滚段），每个回滚段记录了1024个<code>undo log segment</code>，在每个<code>undo log segment</code>中进行undo页的写入。</p>
+<p>回滚段和事务的关系：</p>
+<ul>
+<li>每个事务只使用一个回滚段，一个回滚段在同一时刻服务于多个事务。</li>
+<li>事务开始时，会指定一个回滚段，在事务执行过程中，当数据被修改，原始数据会复制到回滚段。</li>
+<li>回滚段中事务不断填冲盘区，使用完会扩展下一个盘区，所有已分配的盘区都被用完，会覆盖最初的盘区。</li>
+<li>事务提交时，存储引擎处理两个事情：
+<ul>
+<li>将undo log放在列表中，以供后续的purge操作。</li>
+<li>判断undo log所在页是否可重用
+<ul>
+<li>该页会被放入链表，并判断可用空间是否小于四分之三，小于则可以被重用，不被回收。</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="回滚数据分类">回滚数据分类</h3>
+<ul>
+<li>未提交的回滚数据：此时事务暂未提交，用于实现读一致性，所以该数据不能被其他事务的数据覆盖。</li>
+<li>已提交但未过期的回滚数据：事务已提交，受<code>undo retention</code>参数的保持时间的影响。</li>
+<li>事务已经提交并过期的回滚数据：数据保存时间超过<code>undo retention</code>指定的时间，回滚段满了后，优先覆盖此部分数据。</li>
+</ul>
+<h3 id="undo-log参数">undo log参数</h3>
+<ul>
+<li>innodb_undo_directory：设置undo log存储路径，默认值为<code>./</code>。</li>
+<li>innodb_undo_logs：设置<code>rollback segment</code>的个数，默认为128</li>
+<li>innodb_undo_tablespaces：设置<code>rollback segment</code>文件的数量。默认为2。</li>
+</ul>
+<h3 id="undo类型">undo类型</h3>
+<p>InnoDB中undo log分为以下两种：</p>
+<ul>
+<li>insert undo log：在insert操作下产生的log，只对事务本身可见，对其他事务不可见（隔离性的要求），事务提交后直接删除，不需要purge。</li>
+<li>update undo log：delete和update操作产生的log，需要提供MVCC机制，因此不能直接删除，<strong>等待purge线程进行删除。</strong></li>
+</ul>
+<h2 id="acid的实现">ACID的实现</h2>
+<h3 id="原子性的实现">原子性的实现</h3>
+<p>每一个写事务，都会修改Buffer Pool，并产生对应的Redo日志，Redo日志以Write Ahead Log方式写，如果不写日志，数据库宕机恢复后，事务无法回滚，无法保证原子性。</p>
+<h3 id="持久性的实现">持久性的实现</h3>
+<p>通过WAL可以保证逻辑上的持久性，物理上的持久性通过存储引擎的数据刷盘实现。</p>
+<h3 id="隔离性的实现">隔离性的实现</h3>
+<p>通常用Read View表示一个事务的可见性，读提交状态每一条读操作语句都会获得一次Read View，每次更新都会获取最新事务的提交状态，即每条语句执行都会更新其可见性视图。可重复读的隔离级别下，可见性视图只有在自己当前事务提交之后，才会更新，所以与其他事务没有关系。</p>
+<p><strong>在MySQL中，实际上每条记录在更新的时候都会同时记录一条回滚操作。记录上的最新值，通过回滚操作，可以得到之前一个状态的值</strong>。假设一个值从1被按照顺序改成了2，3，4，在回滚日志中会有类似下面的记录。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/transaction/1.jpg" alt="记录"></p>
+<p>当前值是4，但是在查询这条记录的时候，不同时刻启动的事务会有不同的<code>read-view</code>，在视图A、B、C中，记录的值分别为1、2、4。同一条记录在系统中可以存在多个版本，就是数据库的多版本并发控制（MVCC ）。对于<code>read-view A</code>要得到1，就必须将当前值依次执行图中所有的回滚操作得到。</p>
+<p>即使现在有另外一个事务正在将 4 改成 5，这个事务跟 <code>read-view A、B、C </code>对应的事务是不会冲突的。</p>
+<h3 id="一致性的实现">一致性的实现</h3>
+<p>一致性是通过其它三个特性来保证的。而其它三个特性由Redo、Undo来保证的。</p>
+<h1 id="锁">锁</h1>
+<h2 id="锁的分类">锁的分类</h2>
+<ul>
+<li>对数据的操作类型划分
+<ul>
+<li>读锁/共享锁</li>
+<li>写锁/排他锁</li>
+</ul>
+</li>
+<li>粒度划分
+<ul>
+<li>表级锁</li>
+<li>行级锁</li>
+<li>页级锁</li>
+</ul>
+</li>
+<li>对锁的态度划分
+<ul>
+<li>悲观锁</li>
+<li>乐观锁</li>
+</ul>
+</li>
+<li>加锁方式
+<ul>
+<li>显式锁</li>
+<li>隐式锁</li>
+</ul>
+</li>
+</ul>
+<h2 id="innodb的锁">InnoDB的锁</h2>
+<p>InnoDB中，锁分为行锁和表锁，行锁包括两种锁。</p>
+<ul>
+<li>共享锁（S）：共享锁锁定的资源可以被其它用户读取，但不能修改，在进行SELECT的时候，会将对象进行共享锁锁定，数据读取完毕，释放共享锁，保证在读取的过程中不被修改。</li>
+<li>排他锁（X）：锁定的数据只允许进行锁定操作的事务使用，其它事务无法对已锁定的数据进行查询和修改</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-SQL" data-lang="SQL"><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">给</span>product_comment加上共享锁
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">LOCK</span> <span style="color:#66d9ef">TABLE</span> product_comment <span style="color:#66d9ef">READ</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">解锁</span>
+</span></span><span style="display:flex;"><span>UNLOCK <span style="color:#66d9ef">TABLE</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">对</span> user_id<span style="color:#f92672">=</span><span style="color:#ae81ff">912178</span> <span style="color:#960050;background-color:#1e0010">的数据行加上共享锁</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">SELECT</span> comment_id, product_id, comment_text, user_id <span style="color:#66d9ef">FROM</span> product_comment <span style="color:#66d9ef">WHERE</span> user_id <span style="color:#f92672">=</span> <span style="color:#ae81ff">912178</span> <span style="color:#66d9ef">LOCK</span> <span style="color:#66d9ef">IN</span> <span style="color:#66d9ef">SHARE</span> <span style="color:#66d9ef">MODE</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">给</span> product_comment <span style="color:#960050;background-color:#1e0010">数据表添加排它锁</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">LOCK</span> <span style="color:#66d9ef">TABLE</span> product_comment <span style="color:#66d9ef">WRITE</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">解锁</span>
+</span></span><span style="display:flex;"><span>UNLOCK <span style="color:#66d9ef">TABLE</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">对</span> user_id<span style="color:#f92672">=</span><span style="color:#ae81ff">912178</span> <span style="color:#960050;background-color:#1e0010">的数据行加上排他锁</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">SELECT</span> comment_id, product_id, comment_text, user_id <span style="color:#66d9ef">FROM</span> product_comment <span style="color:#66d9ef">WHERE</span> user_id <span style="color:#f92672">=</span> <span style="color:#ae81ff">912178</span> <span style="color:#66d9ef">FOR</span> <span style="color:#66d9ef">UPDATE</span>;
+</span></span></code></pre></div><h3 id="意向锁">意向锁</h3>
+<p>InnoDB为了允许行锁和表锁共存，实现多粒度锁机制，意向锁就是其中的一种表锁。</p>
+<ul>
+<li>意向锁的存在是为了协调行锁和表锁的关系</li>
+<li>意向锁是一种不与行级锁冲突的表级锁</li>
+<li>表明某个事物正在某些行持有了锁或该事务准备去持有锁。</li>
+</ul>
+<p>InnoDB还有两种内部使用的意向锁，也都是表锁，表锁分为三种：</p>
+<ul>
+<li>
+<p>意向共享锁（IS）：事务计划给数据行加行共享锁，事务在给一个数据行加共享锁前必须先取得该表的IS锁。</p>
+</li>
+<li>
+<p>意向排他锁（IX）：事务打算给数据行加行排他锁，事务在给一个数据行加排他锁前必须先取得该表的IX锁。</p>
+</li>
+<li>
+<p>自增锁（AUTO-INC Locks）：特殊表锁，自增长计数器通过该“锁”来获得子增长计数器最大的计数值。自增主键会涉及自增锁，在INSERT结束后立即释放。</p>
+</li>
+<li>
+<p>如果事务想要获取数据表中某些数据的共享锁，就会在表上添加<strong>意向共享锁</strong>。</p>
+</li>
+<li>
+<p>如果事务想要获取数据表中某些数据的排他锁，就会在表上添加<strong>意向排他锁</strong>。</p>
+</li>
+</ul>
+<p>意向锁主要为了<strong>提高效率</strong>，避免线程去逐个检查行锁。</p>
+<p>在加行锁之前必须先获得表级意向锁，否则等<code>innodb_lock_wait_timeout</code> 超时后根据<code>innodb_rollback_on_timeout</code> 决定是否回滚事务。</p>
+<p>插入数据的方式分为三类：</p>
+<ul>
+<li>Simple inserts：预先确定插入的行数，
+<ul>
+<li><code>INSERT VALUES()</code>、<code>REPLACE</code></li>
+</ul>
+</li>
+<li>bulk inserts：事先不知道插入的行数，每处理一行，为AUTO_INCREMENT分配一个新值。
+<ul>
+<li><code>INSERT ... SELECT</code>、<code>LOAD DATA</code></li>
+<li>mixed-mode inserts：是simple inserts语句，但是指定部分新行的自动递增值</li>
+</ul>
+</li>
+</ul>
+<p>AUTO-INC锁是当插入数据中含有<code>AUTO_INCREMENT</code>字段时进行lock的表级锁。并发性能较差。</p>
+<p>InnoDB通过<code>innodb_autoinc_lock_mode</code>来提供不同的锁定机制。</p>
+<ul>
+<li>0：所有insert语句都会获得同一个AUTO-INC锁</li>
+<li>1：bulk inserts仍使用AUTO-INC锁，Simple inserts由于确定插入条数，在获取自增锁后会释放</li>
+<li>2：所有insert语句都不会使用表级AUTO-INC锁，自增值保证所有insert语句获得的值是唯一的，由于多个语句同时生成，生成值可能不是连续的。</li>
+</ul>
+<p>锁关系矩阵如下图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/mysql/transaction/%E9%94%81%E5%85%BC%E5%AE%B9%E7%9F%A9%E9%98%B5.png" alt="InnoDB锁关系矩阵"></p>
+<h3 id="元数据锁">元数据锁</h3>
+<p>MySQL5.5引入了meta data lock，简称MDL锁（表锁），其作用是保证读写的正确性。当对一个表做增删改查操作时，加MDL读锁，当对表结构做变更操作时，加MDL写锁。</p>
+<h3 id="行锁">行锁</h3>
+<p>InnoDB行锁是通过对索引数据页上的记录加锁实现的，在存储引擎层实现。</p>
+<p>主要有三种锁：</p>
+<ul>
+<li>
+<p>Record锁（LOCK_REC_NOT_GAP）：单个行记录的锁（锁数据，不锁Gap）</p>
+</li>
+<li>
+<p>Gap锁：间隙锁，锁定一个范围，不包括记录本身（不锁数据，锁数据前面的Gap）</p>
+<ul>
+<li>为了防止插入幻影记录而提出的</li>
+</ul>
+</li>
+<li>
+<p>Next-key锁：锁数据并且锁Gap，可以解决幻读问题。</p>
+<ul>
+<li><strong>既想锁住某条记录，又想阻止其他事务在该记录前面的间隙插入新纪录。</strong></li>
+</ul>
+</li>
+<li>
+<p>插入意向锁（Insert Intention Locks）：插入一条记录需要判断是否存在gap锁，有的话需要等待。InnoDB规定事务在等待的时候也需要在内存中生成一个<strong>锁结构</strong>，<strong>表明有事务想在某个间隙中插入新记录</strong>，这个锁结构被称为<code>Insert Intention Locks</code>。</p>
+<ul>
+<li>插入意向锁并不会阻止别的事务继续获取该记录上任何类型的锁。</li>
+</ul>
+</li>
+</ul>
+<h3 id="全局锁">全局锁</h3>
+<p>对<strong>整个数据库实例</strong>加锁，整个数据库处于<strong>只读状态</strong>，，使用场景为：<strong>全库逻辑备份</strong>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span>Flush tables <span style="color:#66d9ef">with</span> <span style="color:#66d9ef">read</span> <span style="color:#66d9ef">lock</span>
+</span></span></code></pre></div><h3 id="innodb死锁">InnoDB死锁</h3>
+<p>由于InnoDB是逐行加锁的，极容易产生死锁，产生死锁的四个条件：</p>
+<ul>
+<li>互斥条件：一个资源每次只能被一个进程使用。</li>
+<li>请求与保持条件：一个进程因请求资源而阻塞时，对已获得的资源保持不放。</li>
+<li>不剥夺条件：进程以获得的资源，在没有使用完之前，不能强行剥夺。</li>
+<li>循环等待条件：多个进程之前形成的一种互相循环等待资源的关系。</li>
+</ul>
+<h3 id="innodb中如何处理死锁">InnoDB中如何处理死锁</h3>
+<ul>
+<li>等待，直到超时：<code>innodb_lock_wait_timeout</code>参数进行控制，默认为50s，超时回对事务进行<strong>回滚</strong>。</li>
+<li>使用死锁检测进行处理：InnoDB使用<code>wait-for graph</code>算法来主动进行死锁检测，每次加锁请求无法立即满足时，都会触发此算法。
+<ul>
+<li>这是一种主动的检测机制，要求数据库保存<strong>锁的信息链表</strong>和<strong>事务等待链表</strong>两部分信息。</li>
+<li>基于这两部分信息，绘制<code>wait-for graph</code></li>
+<li>一旦检测到回路，引擎会选择回滚<strong>undo量最小的事务</strong>，让其他食物继续执行。（此部分通过<code>innodb_deadlock_detect</code>参数控制）</li>
+</ul>
+</li>
+<li></li>
+</ul>
+<h3 id="避免死锁">避免死锁</h3>
+<ul>
+<li>更新SQL的where条件尽量用索引</li>
+<li>合理设置索引，加锁索引准确，缩小锁定范围，减少锁竞争。</li>
+<li>减少范围更新，尤其非主键/非唯一索引的范围更新。</li>
+<li>控制事务大小，减少锁定数据量和锁定时间长度</li>
+<li>加锁顺序一致，尽可能一次性锁定所有所需的数据行。</li>
+<li>并发要求高的系统，不要显式加锁。</li>
+</ul>
+<h3 id="锁的结构">锁的结构</h3>
+<p>如果出现以下情况，多个逻辑上的锁会放在一个锁结构中：</p>
+<ul>
+<li>同一个事务中进行加锁</li>
+<li>被加锁的记录在同一个页面</li>
+<li>加锁的类型是一样的</li>
+<li>等待状态一样</li>
+</ul>
+<p>锁结构包含以下字段：</p>
+<ul>
+<li>锁所在事务信息：记录哪个事务生成了这个锁结构，指针。</li>
+<li>索引信息：对于行锁，需要记录加锁的记录属于哪个索引，指针。</li>
+<li>表锁/行锁信息：用于区分此类型。
+<ul>
+<li>表锁记录：表信息、其他信息</li>
+<li>行锁记录：
+<ul>
+<li>Space ID：所在的表空间</li>
+<li>Page Number：记录所在页号</li>
+<li>n_bits：一条记录对应一个bit位，用不同的bit位区分哪一条记录加了锁。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>type_mode：32bit，分为以下几个部分
+<ul>
+<li>lock_mode：低4位。
+<ul>
+<li>LOCK_IS （十进制的 0 ）：表示共享意向锁，也就是IS锁 。</li>
+<li>LOCK_IX （十进制的 1 ）：表示独占意向锁，也就是IX锁 。</li>
+<li>LOCK_S （十进制的 2 ）：表示共享锁，也就是S锁 。</li>
+<li>LOCK_X （十进制的 3 ）：表示独占锁，也就是X锁</li>
+<li>LOCK_AUTO_INC （十进制的 4 ）：表示 AUTO-INC锁 。</li>
+</ul>
+</li>
+<li>lock_type：低5-8位，目前只有第5、6位被使用
+<ul>
+<li>LOCK_TABLE （十进制的 16 ），也就是当第5个比特位置为1时，表示表级锁。</li>
+<li>LOCK_REC （十进制的 32 ），也就是当第6个比特位置为1时，表示行级锁。</li>
+</ul>
+</li>
+<li>rec_lock_type：其余位。
+<ul>
+<li>LOCK_ORDINARY （十进制的 0 ）：表示 next-key锁 。</li>
+<li>LOCK_GAP （十进制的 512 ）：也就是当第10个比特位置为1时，表示 gap锁 。</li>
+<li>LOCK_REC_NOT_GAP （十进制的 1024 ）：也就是当第11个比特位置为1时，表示记录锁 。</li>
+<li>LOCK_INSERT_INTENTION （十进制的 2048 ）：也就是当第12个比特位置为1时，表示插入意向锁。</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="锁监控">锁监控</h3>
+<p>可以检查<code>InnoDB_row_lock</code>变量来分析锁状态。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">show</span> status <span style="color:#66d9ef">like</span> <span style="color:#e6db74">&#39;innodb_row_lock%&#39;</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Variable_name 	 				Value
+</span></span><span style="display:flex;"><span>Innodb_row_lock_current_waits	<span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>Innodb_row_lock_time			<span style="color:#ae81ff">297</span>
+</span></span><span style="display:flex;"><span>Innodb_row_lock_time_avg		<span style="color:#ae81ff">42</span>
+</span></span><span style="display:flex;"><span>Innodb_row_lock_time_max		<span style="color:#ae81ff">83</span>
+</span></span><span style="display:flex;"><span>Innodb_row_lock_waits			<span style="color:#ae81ff">7</span>
+</span></span></code></pre></div><p>各字段含义分别如下：</p>
+<ul>
+<li>Innodb_row_lock_current_waits：当前正在等待锁定的数量；</li>
+<li>Innodb_row_lock_time ：从系统启动到现在锁定总时间长度；（等待总时长）</li>
+<li>Innodb_row_lock_time_avg ：每次等待所花平均时间；（等待平均时长）</li>
+<li>Innodb_row_lock_time_max：从系统启动到现在等待最常的一次所花的时间；</li>
+<li>Innodb_row_lock_waits ：系统启动后到现在总共等待的次数；（等待总次数）</li>
+</ul>
+<p>MySQL把事务和锁的信息记录在了 information_schema 库中，涉及到的三张表分别是 <code>INNODB_TRX</code> 、 <code>data_locks</code>（8.0更新） 和 <code>data_lock_waits</code>（8.0更新） 。</p>
+<h1 id="并发控制">并发控制</h1>
+<h2 id="单版本控制-锁">单版本控制-锁</h2>
+<p>锁用独占的方式保证只有一个版本的情况下事务相互隔离。</p>
+<h2 id="多版本控制-mvcc">多版本控制-MVCC</h2>
+<p>MVCC（Multi-Version Concurrency Control）即多版本并发控制。</p>
+<p>MVCC 是通过保存数据在<strong>某个时间点的快照</strong>来实现并发控制的。简单来说它的思想就是<strong>保存数据的历史版本</strong>。这样我们就可以通过比较版本号决定数据是否显示出来。读取数据的时候不需要加锁也可以保证事务的隔离效果。</p>
+<p>每次对数据库的修改，都会在Undo日志中记录当前修改记录的<strong>事务版本号</strong>以及<strong>修改前数据状态的存储地址</strong>，以便在必要的时候可以回滚到老的数据版本。</p>
+<p>MVCC的实现依赖于：Undo Log、Read View、隐藏字段。</p>
+<p>MVCC没有正式的标准，在不同DBMS中实现方式也不同。</p>
+<h3 id="解决的问题">解决的问题</h3>
+<p>MVCC主要解决以下几个问题：</p>
+<ul>
+<li>读写之间阻塞的问题，通过MVCC可以让读写互相不阻塞，提高并发处理能力。</li>
+<li>降低了死锁的概率，MVCC采用了乐观锁的方式，读取数据时不需要加锁，对于写操作，只锁定必要的行。</li>
+<li>解决一致性读的问题。一致性读也被称为快照读，当我们查询数据库在某个时间点的快照时，只能看到这个时间点之前事务提交更新的结果，而不能看到这个时间点之后事务提交的更新结果。</li>
+</ul>
+<p>MVCC最大的<strong>好处</strong>是<strong>读不加锁，读写不冲突</strong>，在MVCC中，读操作可分为快照读（Snapshot Read）和当前读（Current Read）。</p>
+<ul>
+<li>快照读：读取的是记录的可见版本，不用加锁</li>
+<li>当前读：读取的是记录的最新版本，并且当前读返回的记录，都会加锁，保证其它事务不会并发修改这条记录。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-SQL" data-lang="SQL"><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">不加锁的</span>SELECT都是快照读
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">SELECT</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">FROM</span> player <span style="color:#66d9ef">WHERE</span> ...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">#</span> <span style="color:#960050;background-color:#1e0010">加锁的</span>SELECT和增删改都是用当前读
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">SELECT</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">FROM</span> player <span style="color:#66d9ef">LOCK</span> <span style="color:#66d9ef">IN</span> <span style="color:#66d9ef">SHARE</span> <span style="color:#66d9ef">MODE</span>;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">SELECT</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">FROM</span> player <span style="color:#66d9ef">FOR</span> <span style="color:#66d9ef">UPDATE</span>;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">INSERT</span> <span style="color:#66d9ef">INTO</span> player <span style="color:#66d9ef">values</span> ...
+</span></span></code></pre></div><p><strong>MVCC只在<code>Read Commited</code>和<code>Repeatable Read</code>两种级别下工作。核心是Undo Log + Read View。</strong></p>
+<h3 id="read-view">Read VIew</h3>
+<p>在 MVCC 机制中，多个事务对同一个行记录进行更新会产生多个历史快照，这些历史快照保存在 Undo Log 里。而Read View保存了不应该让这个事务看到的其他的事务ID列表。</p>
+<p>Read View就是事务使用MVCC机制进行快照读操作时产生的读视图，事务启动时，会产生数据库系统当前的一个快照。</p>
+<p><strong>主要问题</strong>：判断版本链中哪个版本是当前事务可见的。</p>
+<p>ReadView主要包含以下内容：</p>
+<ul>
+<li>creator_trx_id：创建这个Read View的事务ID。</li>
+<li>trx_ids：生成Read View时系统中活跃的读写事务的<strong>事务id列表</strong>。</li>
+<li>up_limit_id：活跃的事务中最小的事务ID。</li>
+<li>low_limit_id：生成Read View时系统中应该分配给下一个事务的id</li>
+</ul>
+<h3 id="readview规则">ReadView规则</h3>
+<p>根据以下步骤判断记录中某个版本是否可见：</p>
+<ul>
+<li>如果被访问版本的<code>trx_id = ReadView 中的 creator_trx_id </code> ，表示当前事务在访问它修改过的记录，所以该版本可以被当前事务访问。</li>
+<li>如果被访问版本的<code>trx_id &lt; ReadView 中的 creator_trx_id </code>，表明生成该版本的事务已经提交，所以该版本可以被当前事务访问。</li>
+<li>如果被访问版本的trx_id属性值 &gt;= ReadView中的 low_limit_id 值，表明生成该版本的事 务在当前事务生成ReadView后才开启，所以该版本不可以被当前事务访问。</li>
+<li>如果被访问版本的trx_id属性值在ReadView的 up_limit_id 和 low_limit_id 之间，那就需要判断一下trx_id属性值是不是在 trx_ids 列表中。
+<ul>
+<li>在其中，说明创建ReadView时生成该版本的事务还是活跃的，该版本不可以被访问。</li>
+<li>不在其中，说明创建ReadView时生成该版本的事务已经被提交，该版本可以被访问。</li>
+</ul>
+</li>
+</ul>
+<h3 id="mvcc流程">MVCC流程</h3>
+<p>查询一条记录时，MVCC工作流程如下：</p>
+<ol>
+<li>首先获取事务的<code>trx_id</code></li>
+<li>获取对应的ReadView</li>
+<li>查询读到的数据，与ReadView中的<code>trx_id</code>进行比较</li>
+<li>如果不符合上述规则，从<code>Undo Log</code>中获取历史快照。</li>
+<li>返回最终符合规则的数据。</li>
+</ol>
+<p><strong>MySQL怎么解决脏读、不可重复读、幻读等问题呢？</strong></p>
+<ul>
+<li>读操作使用MVCC，写操作进行加锁</li>
+</ul>
+<p>MVCC会生成一个<strong>ReadView</strong>，通过<code>ReadView</code>找到符合条件的记录版本，查询语句只能读到在生成ReadView之前<strong>已提交事务做的更改</strong>。</p>
+<p>在不同隔离级别下使用MVCC会有不同结果：</p>
+<ul>
+<li><code>READ COMMITED</code>：每次执行SELECT操作都会生成一个ReadView，ReadView本身就保证了只能读到已提交事务的数据，避免了脏读的现象，但是会有不可重复读和幻读问题。</li>
+<li><code>REPEATABLE READ</code>：一个事务在执行过程中，只有<strong>第一次执行SELECT操作</strong>才会生成一个ReadView，之后的读操作<strong>复用</strong>这个ReadView，避免了不可重复读和幻读的问题。
+<ul>
+<li>此隔离级别下，<strong>快照读直接通过MVCC即可解决。</strong></li>
+<li><strong>当前读通过<code>Next-key Lock</code>来锁定本记录和索引区间防止插入情况，从而避免幻读。</strong></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/mysql/">
+                MySQL
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/mysql/mysql%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8%E7%BB%93%E6%9E%84/">MySQL数据存储结构</a></li>
+    
+    <li><a href="/posts/mysql/mysql-file/">MySQL文件种类分析</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

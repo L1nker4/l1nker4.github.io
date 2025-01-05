@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/linux/linux%E8%BF%9B%E7%A8%8B%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90/" />
+  <link rel="canonical" href="http://localhost:59500/posts/linux/linux%E8%BF%9B%E7%A8%8B%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Linux进程管理模块分析",
+      "headline" : "Linux进程管理模块分析",
+      "description" : "二进制程序执行 编译过程 源代码文件会经过以下的步骤生成可执行文件（CSAPP）：\n预处理：预处理过程会将头文件嵌入代码中，定义宏展开，生成.i文件 编译：编译生成汇编语言程序,生成.s文件 汇编：汇编器as将汇编语言翻译成机器指令，打包成.o文件，这被称为Relocatable File 链接：链接器ld将链接库和重定位文件合并，生成可执行文件 编译 process.c内容如下：\n#include \u0026lt;stdio.h\u0026gt; #include \u0026lt;stdlib.h\u0026gt; #include \u0026lt;sys\/types.h\u0026gt; #include \u0026lt;unistd.h\u0026gt; extern int create_process (char* program, char** arg_list); int create_process (char* program, char** arg_list) { pid_t child_pid; child_pid = fork (); if (child_pid != 0) return child_pid; else { execvp (program, arg_list); abort (); } createprocess.c内容如下：\n#include \u0026lt;stdio.h\u0026gt; #include \u0026lt;stdlib.h\u0026gt; #include \u0026lt;sys\/types.h\u0026gt; #include \u0026lt;unistd.h\u0026gt; extern int create_process (char* program, char** arg_list); int main () { char* arg_list[] = { \u0026#34;ls\u0026#34;, \u0026#34;-l\u0026#34;, \u0026#34;\/opt\/\u0026#34;, NULL }; create_process (\u0026#34;ls\u0026#34;, arg_list); return 0; } 编译上面两个文件，生成.o文件\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2022",
+      "datePublished": "2022-07-14 23:31:46 \u002b0000 UTC",
+      "dateModified" : "2022-07-14 23:31:46 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/linux\/linux%E8%BF%9B%E7%A8%8B%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Linux进程管理模块分析</title>
+  <meta property="og:title" content="Linux进程管理模块分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="二进制程序执行 编译过程 源代码文件会经过以下的步骤生成可执行文件（CSAPP）：
+预处理：预处理过程会将头文件嵌入代码中，定义宏展开，生成.i文件 编译：编译生成汇编语言程序,生成.s文件 汇编：汇编器as将汇编语言翻译成机器指令，打包成.o文件，这被称为Relocatable File 链接：链接器ld将链接库和重定位文件合并，生成可执行文件 编译 process.c内容如下：
+#include &lt;stdio.h&gt; #include &lt;stdlib.h&gt; #include &lt;sys/types.h&gt; #include &lt;unistd.h&gt; extern int create_process (char* program, char** arg_list); int create_process (char* program, char** arg_list) { pid_t child_pid; child_pid = fork (); if (child_pid != 0) return child_pid; else { execvp (program, arg_list); abort (); } createprocess.c内容如下：
+#include &lt;stdio.h&gt; #include &lt;stdlib.h&gt; #include &lt;sys/types.h&gt; #include &lt;unistd.h&gt; extern int create_process (char* program, char** arg_list); int main () { char* arg_list[] = { &#34;ls&#34;, &#34;-l&#34;, &#34;/opt/&#34;, NULL }; create_process (&#34;ls&#34;, arg_list); return 0; } 编译上面两个文件，生成.o文件
+" />
+  <meta name="description" content="二进制程序执行 编译过程 源代码文件会经过以下的步骤生成可执行文件（CSAPP）：
+预处理：预处理过程会将头文件嵌入代码中，定义宏展开，生成.i文件 编译：编译生成汇编语言程序,生成.s文件 汇编：汇编器as将汇编语言翻译成机器指令，打包成.o文件，这被称为Relocatable File 链接：链接器ld将链接库和重定位文件合并，生成可执行文件 编译 process.c内容如下：
+#include &lt;stdio.h&gt; #include &lt;stdlib.h&gt; #include &lt;sys/types.h&gt; #include &lt;unistd.h&gt; extern int create_process (char* program, char** arg_list); int create_process (char* program, char** arg_list) { pid_t child_pid; child_pid = fork (); if (child_pid != 0) return child_pid; else { execvp (program, arg_list); abort (); } createprocess.c内容如下：
+#include &lt;stdio.h&gt; #include &lt;stdlib.h&gt; #include &lt;sys/types.h&gt; #include &lt;unistd.h&gt; extern int create_process (char* program, char** arg_list); int main () { char* arg_list[] = { &#34;ls&#34;, &#34;-l&#34;, &#34;/opt/&#34;, NULL }; create_process (&#34;ls&#34;, arg_list); return 0; } 编译上面两个文件，生成.o文件
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Linux进程管理模块分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2022-07-14 23:31:46 UTC">
+                14 Jul 2022
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="二进制程序执行">二进制程序执行</h2>
+<h3 id="编译过程">编译过程</h3>
+<p>源代码文件会经过以下的步骤生成可执行文件（CSAPP）：</p>
+<ul>
+<li>预处理：预处理过程会将头文件嵌入代码中，定义宏展开，生成<code>.i</code>文件</li>
+<li>编译：编译生成汇编语言程序,生成<code>.s</code>文件</li>
+<li>汇编：汇编器as将汇编语言翻译成机器指令，打包成<code>.o</code>文件，这被称为<code>Relocatable File</code></li>
+<li>链接：链接器ld将链接库和重定位文件合并，生成可执行文件</li>
+</ul>
+<h3 id="编译">编译</h3>
+<p><code>process.c</code>内容如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdlib.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;sys/types.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;unistd.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">extern</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">create_process</span> (<span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> program, <span style="color:#66d9ef">char</span><span style="color:#f92672">**</span> arg_list);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">create_process</span> (<span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> program, <span style="color:#66d9ef">char</span><span style="color:#f92672">**</span> arg_list)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">pid_t</span> child_pid;
+</span></span><span style="display:flex;"><span>    child_pid <span style="color:#f92672">=</span> <span style="color:#a6e22e">fork</span> ();
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (child_pid <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> child_pid;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">execvp</span> (program, arg_list);
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">abort</span> ();
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p><code>createprocess.c</code>内容如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdlib.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;sys/types.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;unistd.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">extern</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">create_process</span> (<span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> program, <span style="color:#66d9ef">char</span><span style="color:#f92672">**</span> arg_list);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span> ()
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> arg_list[] <span style="color:#f92672">=</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;ls&#34;</span>,
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;-l&#34;</span>,
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;/opt/&#34;</span>,
+</span></span><span style="display:flex;"><span>        NULL
+</span></span><span style="display:flex;"><span>    };
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">create_process</span> (<span style="color:#e6db74">&#34;ls&#34;</span>, arg_list);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>编译上面两个文件，生成<code>.o</code>文件</p>
+<pre tabindex="0"><code>gcc -c -fPIC process.c
+gcc -c -fPIC createprocess.c
+
+drwxr-xr-x 2 root root 4096 Jul 12 18:29 ./
+drwxr-xr-x 3 root root 4096 Jul 12 18:25 ../
+-rw-r--r-- 1 root root  289 Jul 12 18:27 createprocess.c
+-rw-r--r-- 1 root root 1888 Jul 12 18:29 createprocess.o
+-rw-r--r-- 1 root root  373 Jul 12 18:28 process.c
+-rw-r--r-- 1 root root 1712 Jul 12 18:28 process.o
+</code></pre><p>Linux中的二进制文件格式为<strong>ELF</strong>（Executeable and Linkable Format），上面的<code>.o</code>文件是ELF文件中的<code>Relocatable File</code>，其各部分与其功能如下所示：</p>
+<ul>
+<li>ELF Header：描述整个文件，文件格式在kernel中定义，64位由<code>struct elf64_hdr</code>定义</li>
+<li>.text：编译好的二进制可执行代码</li>
+<li>.data：初始化好的全局变量</li>
+<li>.rodata：只读数据，const声明的变量、字符串常量</li>
+<li>.bss：未初始化的全局变量，运行时置为0</li>
+<li>.symtab：符号表，记录的是函数和变量名</li>
+<li>.strtab：字符串表，字符串常量和变量名</li>
+<li>Section Header Table：存储section的元数据</li>
+<li>.rel.*：重定位表，记录重定位项</li>
+</ul>
+<h3 id="链接">链接</h3>
+<p>需要让<code>create_process </code>能被重用，需要形成链接库文件，使用下面的命令完成静态链接生成：</p>
+<pre tabindex="0"><code>ar cr libstaticprocess.a process.o
+</code></pre><p>将两者连接起来生成二进制执行文件<code>staticcreateprocess</code>：</p>
+<pre tabindex="0"><code>gcc -o staticcreateprocess createprocess.o -L. -lstaticprocess
+</code></pre><p>上面生成的二进制执行文件可以直接在Linux运行，这也是ELF文件，格式和对象文件十分类似，是由多个<code>.o</code>文件合并而成，各部分如下：</p>
+<ul>
+<li>代码段
+<ul>
+<li>.text</li>
+<li>.rodata</li>
+</ul>
+</li>
+<li>数据段
+<ul>
+<li>.data</li>
+<li>.bss</li>
+</ul>
+</li>
+<li>不加载到内存的部分：ELF header、.symtab、.strtab、Section Header Table
+<ul>
+<li>Segment Header Table：代码中定义为<code>struct elf64_phdr</code>，主要是对段的描述，</li>
+<li>ELF Header中的<code>e_entry</code>字段存储程序入口的虚拟地址</li>
+</ul>
+</li>
+</ul>
+<h3 id="动态链接">动态链接</h3>
+<p>动态链接库是多个对象文件的组合，可以被多个程序共享。</p>
+<pre tabindex="0"><code>gcc -shared -fPIC -o libdynamicprocess.so process.o
+gcc -o dynamiccreateprocess createprocess.o -L. -ldynamicprocess
+//默认去/lib、/usr/lib 寻找动态链接库，修改为当前路径
+export LD_LIBRARY_PATH=.
+</code></pre><p>动态链接也是ELF格式文件，多了<code>.interp</code>的segment，里面是<code>ld-linux.so</code>，这是做动态链接的工具。</p>
+<p>新增的section如下：</p>
+<ul>
+<li>.plt（Procedure Linkage Table）：过程链接表，entry存储地址，跳转到GOT的entry</li>
+<li>.got.plt（Global Offset Table GOT）：全局偏移量表，这里的entry存储函数的实际内存虚拟地址
+<ul>
+<li>初始化时GOT如何找到函数的内存地址：回调到PLT，PLT触发<code>ld-linux.so</code>去找地址，并将地址存储在GOT</li>
+</ul>
+</li>
+</ul>
+<h3 id="elf注册机制">ELF注册机制</h3>
+<p>Linux kernel对支持的可执行文件类型都有<code>linux_binfmt</code>的结构，定义在<code>include/linux/binfmts.h</code>中</p>
+<p>下面的struct定义了加载二进制文件的方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> linux_binfmt {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">struct</span> list_head lh;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">struct</span> module <span style="color:#f92672">*</span>module;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> (<span style="color:#f92672">*</span>load_binary)(<span style="color:#66d9ef">struct</span> linux_binprm <span style="color:#f92672">*</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> (<span style="color:#f92672">*</span>load_shlib)(<span style="color:#66d9ef">struct</span> file <span style="color:#f92672">*</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> (<span style="color:#f92672">*</span>core_dump)(<span style="color:#66d9ef">struct</span> coredump_params <span style="color:#f92672">*</span>cprm);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> min_coredump;     <span style="color:#75715e">/* minimal dump size */</span>
+</span></span><span style="display:flex;"><span>} __randomize_layout;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//ELF文件的实现 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">struct</span> linux_binfmt elf_format <span style="color:#f92672">=</span> {
+</span></span><span style="display:flex;"><span>        .module         <span style="color:#f92672">=</span> THIS_MODULE,
+</span></span><span style="display:flex;"><span>        .load_binary    <span style="color:#f92672">=</span> load_elf_binary,
+</span></span><span style="display:flex;"><span>        .load_shlib     <span style="color:#f92672">=</span> load_elf_library,
+</span></span><span style="display:flex;"><span>        .core_dump      <span style="color:#f92672">=</span> elf_core_dump,
+</span></span><span style="display:flex;"><span>        .min_coredump   <span style="color:#f92672">=</span> ELF_EXEC_PAGESIZE,
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>其中的函数与含义如下：</p>
+<ul>
+<li>load_binary：读取可执行文件并为当前进程创建一个新的执行环境。</li>
+<li>load_shlib：动态的把一个共享库捆绑到在运行的进程。</li>
+<li>core_dump：在名称为core的文件中，存放当前进程的上下文，这个文件是进程收到<code>dump</code>信号时被创建的</li>
+</ul>
+<p>Linux中的<code>linux_binfmt</code>都存储在链表中，执行可执行文件时，kernel会遍历list找到指定的<code>linux_binfmt</code>，并调用<code>load_binary</code>来加载程序。</p>
+<blockquote>
+<p>Q：ELF文件在什么时间段完成<code>linux_binfmt</code>的注册？</p>
+</blockquote>
+<h2 id="linux中使用线程">Linux中使用线程</h2>
+<p>普通线程的创建和运行过程：</p>
+<ul>
+<li>声明线程函数：定义一个工作函数</li>
+<li>声明线程对象：<code>pthread_t thread;</code></li>
+<li>设置线程属性：<code>pthread_attr_t、pthread_attr_init、pthread_attr_setdetachstate</code></li>
+<li>创建线程：<code>pthread_create</code></li>
+<li>销毁线程属性：<code>pthread_attr_destroy</code></li>
+<li>等待线程结束：<code>pthread_join</code></li>
+<li>主线程结束：<code>pthread_exit</code></li>
+</ul>
+<p>线程能访问的数据分为以下几种：</p>
+<ul>
+<li>线程stack上的本地数据：函数执行过程中的局部变量
+<ul>
+<li>stack大小可以通过<code>ulimit -a</code>查看</li>
+<li>stack大小可以通过<code>ulimit -s</code>修改，或者<code>pthread_attr_setstacksize</code>函数修改。</li>
+</ul>
+</li>
+<li>进程共享的全局数据：全局变量，需要使用<code>mutex</code>等方案保证线程安全。</li>
+<li>线程私有数据：线程内部各个函数传递信息，线程外的函数无法访问到这些数据
+<ul>
+<li>通过<code>pthread_key_create</code>创建key</li>
+<li><code>pthread_setspecific</code>设置key对应的value</li>
+<li><code>pthread_getspecific</code>获取key对应的value</li>
+</ul>
+</li>
+</ul>
+<h2 id="task_struct结构">task_struct结构</h2>
+<p>在OS理论课程中的PCB，在Linux中实现就是<code>task_struct</code>，该结构体通过<strong>链表</strong>进行连接，无论是进程还是线程，在内核中都被称为<code>task</code>，并使用上述结构体存储<code>metadata</code>。</p>
+<h3 id="进程id">进程Id</h3>
+<p>线程组id用于区分线程和进程（线程拥有tgid），同一进程中的所有线程具有同一个<code>tgid</code>，<code>tgid</code>等于第一个主线程的pid。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">pid_t</span> pid;<span style="color:#75715e">//进程ID
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">pid_t</span> tgid;<span style="color:#75715e">//线程组ID
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>group_leader; c
+</span></span></code></pre></div><h3 id="运行状态">运行状态</h3>
+<ul>
+<li>state：进程运行状态</li>
+<li>exit_state：任务终止状态</li>
+<li>flags：进程状态的信息，用于kernel识别进程当前状态</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">volatile</span> <span style="color:#66d9ef">long</span> state;    <span style="color:#75715e">/* -1 unrunnable, 0 runnable, &gt;0 stopped */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> exit_state;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> flags;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Task state bitmask. NOTE! These bits are also
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * encoded in fs/proc/array.c: get_task_state().
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * We have two separate sets of flags: task-&gt;state
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * is about runnability, while task-&gt;exit_state are
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * about the task exiting. Confusing, but this way
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * modifying one set can&#39;t modify the other one by
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * mistake.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_RUNNING		0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_INTERRUPTIBLE	1
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_UNINTERRUPTIBLE	2
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define __TASK_STOPPED		4
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define __TASK_TRACED		8
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">/* in tsk-&gt;exit_state */</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define EXIT_DEAD		16
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define EXIT_ZOMBIE		32
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define EXIT_TRACE		(EXIT_ZOMBIE | EXIT_DEAD)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">/* in tsk-&gt;state again */</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_DEAD		64
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_WAKEKILL		128
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_WAKING		256
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_PARKED		512
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_STATE_MAX		1024
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#960050;background-color:#1e0010">················</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_KILLABLE		(TASK_WAKEKILL | TASK_UNINTERRUPTIBLE)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_STOPPED		(TASK_WAKEKILL | __TASK_STOPPED)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define TASK_TRACED		(TASK_WAKEKILL | __TASK_TRACED)
+</span></span></span></code></pre></div><p>Linux中的睡眠状态：</p>
+<ul>
+<li><strong>TASK_INTERRUPTIBLE</strong>：可中断睡眠</li>
+<li><strong>TASK_UNINTERRUPTIBLE</strong>：不可中断睡眠，不可被信号唤醒</li>
+<li><strong>TASK_KILLABLE</strong>：可终止的新睡眠状态，只能接受致命信号</li>
+</ul>
+<p>其他状态：</p>
+<ul>
+<li>
+<p><strong>TASK_RUNNING</strong>：要么正在执行，要么准备被调度</p>
+</li>
+<li>
+<p><strong>TASK_STOPPED</strong> ：进程接收到了SIGSTOP、SIGTTIN、SIGTSTP、SIGTTOU信号后进入该状态。</p>
+</li>
+<li>
+<p><strong>TASK_TRACED</strong> ：进程正在被debug进程监视</p>
+</li>
+<li>
+<p><strong>EXIT_ZOMBIE</strong> ：进程结束进入的状态，若父进程没有用<code>wait()</code>等syscall获取它的终止信息，该进程变成僵尸进程。</p>
+</li>
+<li>
+<p><strong>EXIT_DEAD</strong>：进程执行完的最终状态</p>
+</li>
+</ul>
+<p><code>flags</code>取值如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Per process flags
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_EXITING	0x00000004	</span><span style="color:#75715e">/* getting shut down */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_EXITPIDONE	0x00000008	</span><span style="color:#75715e">/* pi exit done on shut down */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_VCPU		0x00000010	</span><span style="color:#75715e">/* I&#39;m a virtual CPU */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_WQ_WORKER	0x00000020	</span><span style="color:#75715e">/* I&#39;m a workqueue worker */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_FORKNOEXEC	0x00000040	</span><span style="color:#75715e">/* forked but didn&#39;t exec */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_MCE_PROCESS  0x00000080      </span><span style="color:#75715e">/* process policy on mce errors */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_SUPERPRIV	0x00000100	</span><span style="color:#75715e">/* used super-user privileges */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_DUMPCORE	0x00000200	</span><span style="color:#75715e">/* dumped core */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_SIGNALED	0x00000400	</span><span style="color:#75715e">/* killed by a signal */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_MEMALLOC	0x00000800	</span><span style="color:#75715e">/* Allocating memory */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_NPROC_EXCEEDED 0x00001000	</span><span style="color:#75715e">/* set_user noticed that RLIMIT_NPROC was exceeded */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_USED_MATH	0x00002000	</span><span style="color:#75715e">/* if unset the fpu must be initialized before use */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_USED_ASYNC	0x00004000	</span><span style="color:#75715e">/* used async_schedule*(), used by module init */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_NOFREEZE	0x00008000	</span><span style="color:#75715e">/* this thread should not be frozen */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_FROZEN	0x00010000	</span><span style="color:#75715e">/* frozen for system suspend */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_FSTRANS	0x00020000	</span><span style="color:#75715e">/* inside a filesystem transaction */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_KSWAPD	0x00040000	</span><span style="color:#75715e">/* I am kswapd */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_MEMALLOC_NOIO 0x00080000	</span><span style="color:#75715e">/* Allocating memory without IO involved */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_LESS_THROTTLE 0x00100000	</span><span style="color:#75715e">/* Throttle me less: I clean memory */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_KTHREAD	0x00200000	</span><span style="color:#75715e">/* I am a kernel thread */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_RANDOMIZE	0x00400000	</span><span style="color:#75715e">/* randomize virtual address space */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_SWAPWRITE	0x00800000	</span><span style="color:#75715e">/* Allowed to write to swap */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_NO_SETAFFINITY 0x04000000	</span><span style="color:#75715e">/* Userland is not allowed to meddle with cpus_allowed */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_MCE_EARLY    0x08000000      </span><span style="color:#75715e">/* Early kill for mce process policy */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_MUTEX_TESTER	0x20000000	</span><span style="color:#75715e">/* Thread belongs to the rt mutex tester */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_FREEZER_SKIP	0x40000000	</span><span style="color:#75715e">/* Freezer should not count it as freezable */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define PF_SUSPEND_TASK 0x80000000      </span><span style="color:#75715e">/* this thread called freeze_processes and should not be frozen */</span><span style="color:#75715e">
+</span></span></span></code></pre></div><h3 id="信号处理">信号处理</h3>
+<p>信号处理函数默认使用用户态的函数栈，也可以开辟新的栈用于信号处理。这里定义了那些信号被阻塞暂不处理（blocked）、哪些信号尚待处理（pending）、哪些正在通过信号处理函数处理（sighand）</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/* Signal handlers: */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> signal_struct		<span style="color:#f92672">*</span>signal;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> sighand_struct		<span style="color:#f92672">*</span>sighand;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">sigset_t</span>			blocked;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">sigset_t</span>			real_blocked;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">sigset_t</span>			saved_sigmask;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> sigpending		pending;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>			sas_ss_sp;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">size_t</span>				sas_ss_size;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span>			sas_ss_flags;
+</span></span></code></pre></div><h3 id="运行情况">运行情况</h3>
+<p>各字段含义如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>u64				utime;<span style="color:#75715e">// 用户态消耗的 CPU 时间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>u64				stime;<span style="color:#75715e">// 内核态消耗的 CPU 时间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>			nvcsw;<span style="color:#75715e">// 自愿 (voluntary) 上下文切换计数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>			nivcsw;<span style="color:#75715e">// 非自愿 (involuntary) 上下文切换计数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>u64				start_time;<span style="color:#75715e">// 进程启动时间，不包含睡眠时间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>u64				real_start_time;<span style="color:#75715e">// 进程启动时间，包含睡眠时间
+</span></span></span></code></pre></div><h3 id="父子进程关系">父子进程关系</h3>
+<p>若在bash使用某进程创建进程，此时<code>real_parent</code>为bash，parent为某进程id，其他情况两者相同。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> task_struct __rcu <span style="color:#f92672">*</span>real_parent; <span style="color:#75715e">//指向父进程
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">struct</span> task_struct __rcu <span style="color:#f92672">*</span>parent; <span style="color:#75715e">//指向父进程
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">struct</span> list_head children;      <span style="color:#75715e">//指向子进程的链表头部
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">struct</span> list_head sibling;       <span style="color:#75715e">//指向兄弟进程
+</span></span></span></code></pre></div><h3 id="进程拥有权限">进程拥有权限</h3>
+<ul>
+<li>Objective：当前进程能操作的对象</li>
+<li>Subjective：能操作当前进程的对象</li>
+</ul>
+<p>定义的取值是用户和用户所属的用户组信息。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/* Objective and real subjective task credentials (COW): */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#66d9ef">struct</span> cred __rcu         <span style="color:#f92672">*</span>real_cred;	<span style="color:#75715e">//谁能操作当前进程
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">/* Effective (overridable) subjective task credentials (COW): */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#66d9ef">struct</span> cred __rcu         <span style="color:#f92672">*</span>cred; <span style="color:#75715e">//当前进程能操作的
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> cred {
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">kuid_t</span>          uid;            <span style="color:#75715e">//启动当前进程的进程id
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">kgid_t</span>          gid;            <span style="color:#75715e">//同上
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">kuid_t</span>          suid;           <span style="color:#75715e">/* saved UID of the task */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">kgid_t</span>          sgid;           <span style="color:#75715e">/* saved GID of the task */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">kuid_t</span>          euid;           <span style="color:#75715e">//操作消息队列 共享内存 信号量比较的权限
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">kgid_t</span>          egid;           <span style="color:#75715e">/* effective GID of the task */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">kuid_t</span>          fsuid;          <span style="color:#75715e">//文件系统操作比较的权限
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">kgid_t</span>          fsgid;          <span style="color:#75715e">/* GID for VFS ops */</span>
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">kernel_cap_t</span>    cap_inheritable; <span style="color:#75715e">//继承的权限集合
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">kernel_cap_t</span>    cap_permitted;  <span style="color:#75715e">//当前进程能够使用的权限
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">kernel_cap_t</span>    cap_effective;  <span style="color:#75715e">//实际能使用的权限
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">kernel_cap_t</span>    cap_bset;       <span style="color:#75715e">//系统中所有进程允许保留的权限
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">kernel_cap_t</span>    cap_ambient;    <span style="color:#75715e">/* Ambient capability set */</span>
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>} __randomize_layout;
+</span></span></code></pre></div><p>除了以用户和用户组控制权限，Linux还用<strong>capabilities</strong>机制控制。用bitmap来表示权限，<code>capability.h</code>可以找到定义的权限。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#define CAP_CHOWN            0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define CAP_KILL             5
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define CAP_NET_BIND_SERVICE 10
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define CAP_NET_RAW          13
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define CAP_SYS_MODULE       16
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define CAP_SYS_RAWIO        17
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define CAP_SYS_BOOT         22
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define CAP_SYS_TIME         25
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define CAP_AUDIT_READ          37
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define CAP_LAST_CAP         CAP_AUDIT_READ
+</span></span></span></code></pre></div><h3 id="函数栈">函数栈</h3>
+<p>进程中的函数调用都是通过函数栈来实现的，每个函数都是一个栈帧，函数开始运行入栈，结束运行出栈。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> thread_info		thread_info;	<span style="color:#75715e">//存放对task_struct的补充信息（针对其他体系结构）
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">void</span>  <span style="color:#f92672">*</span>stack;							<span style="color:#75715e">//内核栈
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define THREAD_SIZE_ORDER	1
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define THREAD_SIZE		(PAGE_SIZE &lt;&lt; THREAD_SIZE_ORDER)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> thread_info {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>        flags;        <span style="color:#75715e">/* low level flags */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">mm_segment_t</span>        addr_limit;    <span style="color:#75715e">/* address limit */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> task_struct    <span style="color:#f92672">*</span>task;        <span style="color:#75715e">/* main task structure */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span>            preempt_count;    <span style="color:#75715e">/* 0 =&gt; preemptable, &lt;0 =&gt; bug */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span>            cpu;        <span style="color:#75715e">/* cpu */</span>
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>普通函数存储在用户态函数栈，当发生系统调用，从进程空间转换到内核空间时，使用内核态函数栈存储栈帧。</p>
+<p>内核栈在x86架构64bit中，定义在<code>arch/x86/include/asm/page_64_types.h</code>文件中，内核栈大小为<code>PAGE_SIZE</code>右移两位（16K），起始地址必须是8192的整数倍。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#ifdef CONFIG_KASAN
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define KASAN_STACK_ORDER 1
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#else
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define KASAN_STACK_ORDER 0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define THREAD_SIZE_ORDER	(2 + KASAN_STACK_ORDER)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define THREAD_SIZE  (PAGE_SIZE &lt;&lt; THREAD_SIZE_ORDER)
+</span></span></span></code></pre></div><p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220716124604381.png" alt="stack结构图"></p>
+<p><code>stack</code>指向的地址空间最顶端是<code>pt_regs</code>（存储用户态上下文），当发生用户态转内核态时，存储用户态的CPU上下文信息，定义如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> pt_regs {
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> r15;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> r14;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> r13;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> r12;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> bp;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> bx;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> r11;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> r10;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> r9;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> r8;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> ax;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> cx;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> dx;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> si;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> di;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> orig_ax;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> ip;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> cs;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> flags;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> sp;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> ss;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* top of stack page */</span>
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><h3 id="内存管理">内存管理</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> mm_struct                <span style="color:#f92672">*</span>mm;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> mm_struct                <span style="color:#f92672">*</span>active_mm;
+</span></span></code></pre></div><h3 id="文件系统">文件系统</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/* Filesystem information: */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> fs_struct                <span style="color:#f92672">*</span>fs;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* Open file information: */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> files_struct             <span style="color:#f92672">*</span>files;
+</span></span></code></pre></div><h2 id="进程调度">进程调度</h2>
+<p>有关进程调度的字段如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// 是否在运行队列上
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span>				on_rq;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 优先级
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span>				prio;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span>				static_prio;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span>				normal_prio;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span>			rt_priority;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 调度器类，调度策略执行的逻辑
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">const</span> <span style="color:#66d9ef">struct</span> sched_class	<span style="color:#f92672">*</span>sched_class;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 调度实体
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">struct</span> sched_entity		se;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> sched_rt_entity		rt;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> sched_dl_entity		dl;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 调度策略
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span>			policy;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 可以使用哪些 CPU
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span>				nr_cpus_allowed;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">cpumask_t</span>			cpus_allowed;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> sched_info		sched_info;
+</span></span></code></pre></div><p><code>policy</code>是<strong>调度策略</strong>，其取值如下：</p>
+<ul>
+<li>实时调度策略：调度实施进程，需要尽快返回结果的。
+<ul>
+<li>SCHED_FIFO：按照FIFO调度</li>
+<li>SCHED_RR：时间片轮转调度策略，高优先级任务可以抢占低优先级的任务。</li>
+<li>SCHED_DEADLINE：按照任务deadline进行调度，DL调度器选择deadline距离当前时间点最近的任务</li>
+</ul>
+</li>
+<li>普通调度策略：调度普通进程
+<ul>
+<li>SCHED_NORMAL：调度普通进程</li>
+<li>SCHED_BATCH：调度后台进程，不需要和前端交互</li>
+<li>SCHED_IDLE：空闲时跑的进程</li>
+</ul>
+</li>
+</ul>
+<p><code>sched_class</code>的具体实现：</p>
+<ul>
+<li><code>stop_sched_class</code> ：优先级最高的任务会使用这种策略，会中断所有其他线程，且不会被其他任务打断；</li>
+<li><code>dl_sched_class</code> ：就对应上面的 deadline 调度策略；</li>
+<li><code>rt_sched_class</code>： 就对应 RR 算法或者 FIFO 算法的调度策略，具体调度策略由进程的 task_struct-&gt;policy 指定；</li>
+<li><code>fair_sched_class</code>： 就是普通进程的调度策略；</li>
+<li><code>idle_sched_class</code>： 就是空闲进程的调度策略。</li>
+</ul>
+<h3 id="完全公平调度算法">完全公平调度算法</h3>
+<p>Linux中实现了基于CFS（Completely Fair Scheduling）调度算法，其原理如下：</p>
+<ul>
+<li>
+<p>根据各个进程的<strong>权重</strong>分配运行时间，<strong>分配给进程的运行时间 = 调度周期 * 进程权重 / 所有进程权重之和</strong></p>
+</li>
+<li>
+<p>公平体现在：给每个进程安排一个虚拟运行时间<code>vruntime</code>，<strong>vruntime = 实际运行时间 * 1024 / 进程权重</strong>，<code>vruntime</code>小的进程运行时间不公平，CFS会优先调度这类进程。</p>
+</li>
+<li>
+<p>CFS使用红黑树将调度实体<code>sched_entity</code>组织起来，<code>vruntime</code>是红黑树的key，树中key最小的节点就是CFS下一个调度的进程</p>
+</li>
+</ul>
+<h3 id="主动调度">主动调度</h3>
+<p>主动调度是指进程主动触发以下情况，转入内核态，最后调用<code>schedule()</code>：</p>
+<ul>
+<li>进程发起需要等待的IO，read/write</li>
+<li>进程主动调用schedule</li>
+<li>进程等待信号量或mutex，spin lock不会触发调度</li>
+</ul>
+<p>进程调度的具体实现如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>asmlinkage __visible <span style="color:#66d9ef">void</span> __sched <span style="color:#a6e22e">schedule</span>(<span style="color:#66d9ef">void</span>)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>tsk <span style="color:#f92672">=</span> current;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">sched_submit_work</span>(tsk);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">preempt_disable</span>();
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">__schedule</span>(false);
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">sched_preempt_enable_no_resched</span>();
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">while</span> (<span style="color:#a6e22e">need_resched</span>());
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> __sched notrace <span style="color:#a6e22e">__schedule</span>(<span style="color:#66d9ef">bool</span> preempt)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>prev, <span style="color:#f92672">*</span>next;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> <span style="color:#f92672">*</span>switch_count;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> rq_flags rf;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> rq <span style="color:#f92672">*</span>rq;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> cpu;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	cpu <span style="color:#f92672">=</span> <span style="color:#a6e22e">smp_processor_id</span>();
+</span></span><span style="display:flex;"><span>	rq <span style="color:#f92672">=</span> <span style="color:#a6e22e">cpu_rq</span>(cpu);
+</span></span><span style="display:flex;"><span>	prev <span style="color:#f92672">=</span> rq<span style="color:#f92672">-&gt;</span>curr;
+</span></span><span style="display:flex;"><span>    next <span style="color:#f92672">=</span> <span style="color:#a6e22e">pick_next_task</span>(rq, prev, <span style="color:#f92672">&amp;</span>rf);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">clear_tsk_need_resched</span>(prev);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">clear_preempt_need_resched</span>();
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">inline</span> <span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">pick_next_task</span>(<span style="color:#66d9ef">struct</span> rq <span style="color:#f92672">*</span>rq, <span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>prev, <span style="color:#66d9ef">struct</span> rq_flags <span style="color:#f92672">*</span>rf)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">struct</span> sched_class <span style="color:#f92672">*</span>class;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>p;
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * Optimization: we know that if all tasks are in the fair class we can call that function directly, but only if the @prev task wasn&#39;t of a higher scheduling class, because otherwise those loose the opportunity to pull in more work from other CPUs.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">likely</span>((prev<span style="color:#f92672">-&gt;</span>sched_class <span style="color:#f92672">==</span> <span style="color:#f92672">&amp;</span>idle_sched_class <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>		    prev<span style="color:#f92672">-&gt;</span>sched_class <span style="color:#f92672">==</span> <span style="color:#f92672">&amp;</span>fair_sched_class) <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>		   rq<span style="color:#f92672">-&gt;</span>nr_running <span style="color:#f92672">==</span> rq<span style="color:#f92672">-&gt;</span>cfs.h_nr_running)) {
+</span></span><span style="display:flex;"><span>		p <span style="color:#f92672">=</span> fair_sched_class.<span style="color:#a6e22e">pick_next_task</span>(rq, prev, rf);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">unlikely</span>(p <span style="color:#f92672">==</span> RETRY_TASK))
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">goto</span> again;
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">/* Assumes fair_sched_class-&gt;next == idle_sched_class */</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">unlikely</span>(<span style="color:#f92672">!</span>p))
+</span></span><span style="display:flex;"><span>			p <span style="color:#f92672">=</span> idle_sched_class.<span style="color:#a6e22e">pick_next_task</span>(rq, prev, rf);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> p;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//这里是依次调用调度类
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>again:
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">for_each_class</span>(class) {
+</span></span><span style="display:flex;"><span>		p <span style="color:#f92672">=</span> class<span style="color:#f92672">-&gt;</span><span style="color:#a6e22e">pick_next_task</span>(rq, prev, rf);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (p) {
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">unlikely</span>(p <span style="color:#f92672">==</span> RETRY_TASK))
+</span></span><span style="display:flex;"><span>				<span style="color:#66d9ef">goto</span> again;
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span> p;
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>逻辑如下：</p>
+<ol>
+<li>在当前CPU取出任务队列rq</li>
+<li>prev指向rq上面正在运行的进程curr，因为curr要被切换下来</li>
+<li>调用<code>pick_next_task</code>选择下一个任务，该函数遍历所有的<code>sched_class</code>，如果<code>rq -&gt; nr_running == rq -&gt; cfs.h_nr_running</code>即队列进程数量== CFS调度器进程数量，CFS调度器则调用<code>fair_sched_class.pick_next_task</code></li>
+<li>CFS调度器会调用以下三个函数实现调度：
+<ol>
+<li>update_curr：更新当前进程的vruntime，然后更新红黑树节点和<code>cfs_rq -&gt; min_vruntime</code></li>
+<li>pick_next_entity：选择红黑树的最左侧节点，比较和当前进程是否相同，不同则执行context_switch</li>
+<li>context_switch：上下文切换主要做两件事：
+<ul>
+<li>切换进程空间（虚拟内存）</li>
+<li>切换寄存器和CPU上下文（内核栈切换）</li>
+</ul>
+</li>
+</ol>
+</li>
+</ol>
+<h4 id="上下文切换">上下文切换</h4>
+<p>上下文切换的核心代码如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * context_switch - switch to the new MM and the new thread&#39;s register state.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> __always_inline <span style="color:#66d9ef">struct</span> rq <span style="color:#f92672">*</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">context_switch</span>(<span style="color:#66d9ef">struct</span> rq <span style="color:#f92672">*</span>rq, <span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>prev,
+</span></span><span style="display:flex;"><span>	       <span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>next, <span style="color:#66d9ef">struct</span> rq_flags <span style="color:#f92672">*</span>rf)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> mm_struct <span style="color:#f92672">*</span>mm, <span style="color:#f92672">*</span>oldmm;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	mm <span style="color:#f92672">=</span> next<span style="color:#f92672">-&gt;</span>mm;
+</span></span><span style="display:flex;"><span>	oldmm <span style="color:#f92672">=</span> prev<span style="color:#f92672">-&gt;</span>active_mm;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//切换内存地址空间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">switch_mm_irqs_off</span>(oldmm, mm, next);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* Here we just switch the register state and the stack. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//切换寄存器堆栈
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">switch_to</span>(prev, next, prev);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">barrier</span>();
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">finish_task_switch</span>(prev);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//switch_to实现了栈和寄存器的切换
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">ENTRY</span>(__switch_to_asm)
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* switch stack   切换rsp指针（栈顶指针） */</span>
+</span></span><span style="display:flex;"><span>	movq	<span style="color:#f92672">%</span>rsp, <span style="color:#a6e22e">TASK_threadsp</span>(<span style="color:#f92672">%</span>rdi)
+</span></span><span style="display:flex;"><span>	movq	<span style="color:#a6e22e">TASK_threadsp</span>(<span style="color:#f92672">%</span>rsi), <span style="color:#f92672">%</span>rsp
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	jmp	__switch_to		<span style="color:#75715e">//__switch_to
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">END</span>(__switch_to_asm)
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>__visible __notrace_funcgraph <span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">__switch_to</span>(<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>prev_p, <span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>next_p)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> thread_struct <span style="color:#f92672">*</span>prev <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>prev_p<span style="color:#f92672">-&gt;</span><span style="color:#66d9ef">thread</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> thread_struct <span style="color:#f92672">*</span>next <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>next_p<span style="color:#f92672">-&gt;</span><span style="color:#66d9ef">thread</span>;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> cpu <span style="color:#f92672">=</span> <span style="color:#a6e22e">smp_processor_id</span>();
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> tss_struct <span style="color:#f92672">*</span>tss <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">per_cpu</span>(cpu_tss, cpu);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">load_TLS</span>(next, cpu);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">this_cpu_write</span>(current_task, next_p);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* Reload esp0 and ss1.  This changes current_thread_info(). */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">load_sp0</span>(tss, next);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> prev_p;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>X86结构提供了TSS（Task State Segment），这是以硬件的方式进行进程切换的结构，其中有X86所有的寄存器，但是这种切换的<strong>开销较大</strong>，需要保存所有寄存器数据。</p>
+<p>Linux使用软切换方案，初始化时将每个CPU绑定一个TSS，tr指针永远指向这个<code>tss_struct</code>。使用<code>thread_struct</code>来保存上下文。当需要切换进程时，将<code>thread_struct</code>里面寄存器的值写入tr指向的<code>tss_struct</code>。两个结构如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> tss_struct {
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * The hardware state:
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> x86_hw_tss	x86_tss;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>		io_bitmap[IO_BITMAP_LONGS <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>];
+</span></span><span style="display:flex;"><span>} 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> thread_struct {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>    rsp0;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>    rsp;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>     userrsp;    <span style="color:#75715e">/* Copy from PDA */</span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>    fs;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>    gs;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">short</span>    es, ds, fsindex, gsindex;    
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* Hardware debugging registers */</span>
+</span></span><span style="display:flex;"><span>....
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* fault info */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>    cr2, trap_no, error_code;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* floating point info */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">union</span> i387_union    i387  <span style="color:#a6e22e">__attribute__</span>((<span style="color:#a6e22e">aligned</span>(<span style="color:#ae81ff">16</span>)));
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* IO permissions. the bitmap could be moved into the GDT, that would make
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">   switch faster for a limited number of ioperm using tasks. -AK */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span>        ioperm;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>    <span style="color:#f92672">*</span>io_bitmap_ptr;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> io_bitmap_max;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* cached TLS descriptors. */</span>
+</span></span><span style="display:flex;"><span>    u64 tls_array[GDT_ENTRY_TLS_ENTRIES];
+</span></span><span style="display:flex;"><span>} <span style="color:#a6e22e">__attribute__</span>((<span style="color:#a6e22e">aligned</span>(<span style="color:#ae81ff">16</span>)));
+</span></span></code></pre></div><p>在Linux中可以通过以下操作查看进程的上下文切换：</p>
+<pre tabindex="0"><code>vmstat
+pidstat
+cat /proc/interrupts
+</code></pre><h3 id="被动调度抢占式调度">被动调度（抢占式调度）</h3>
+<p>一般也被称为抢占式调度，发生时机：</p>
+<ul>
+<li>CPU时钟中断</li>
+<li>fork出新进程，CFS算法检查到CPU当前进程vruntime不是最小</li>
+<li>进程等待IO完成后，进程被唤醒，如果优先级高于CPU当前进程，则会触发抢占。</li>
+</ul>
+<p>时钟中断会调用<code>scheduler_tick</code>：</p>
+<ul>
+<li>首先取出当前cpu运行队列rq</li>
+<li>取到当前正在运行线程的task_struct</li>
+<li>调用这个task的task_tick函数来处理时钟事件</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">scheduler_tick</span>(<span style="color:#66d9ef">void</span>)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> cpu <span style="color:#f92672">=</span> <span style="color:#a6e22e">smp_processor_id</span>();
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> rq <span style="color:#f92672">*</span>rq <span style="color:#f92672">=</span> <span style="color:#a6e22e">cpu_rq</span>(cpu);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>curr <span style="color:#f92672">=</span> rq<span style="color:#f92672">-&gt;</span>curr;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	curr<span style="color:#f92672">-&gt;</span>sched_class<span style="color:#f92672">-&gt;</span><span style="color:#a6e22e">task_tick</span>(rq, curr, <span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">cpu_load_update_active</span>(rq);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">calc_global_load_tick</span>(rq);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>普通进程使用的公平调度器，对应函数为<code>task_tick_fair</code></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">task_tick_fair</span>(<span style="color:#66d9ef">struct</span> rq <span style="color:#f92672">*</span>rq, <span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>curr, <span style="color:#66d9ef">int</span> queued)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> cfs_rq <span style="color:#f92672">*</span>cfs_rq;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> sched_entity <span style="color:#f92672">*</span>se <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>curr<span style="color:#f92672">-&gt;</span>se;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 	<span style="color:#75715e">//找到对应的调度实体和cfs队列，调用entity_tick
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">for_each_sched_entity</span>(se) {
+</span></span><span style="display:flex;"><span>		cfs_rq <span style="color:#f92672">=</span> <span style="color:#a6e22e">cfs_rq_of</span>(se);
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">entity_tick</span>(cfs_rq, se, queued);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">entity_tick</span>(<span style="color:#66d9ef">struct</span> cfs_rq <span style="color:#f92672">*</span>cfs_rq, <span style="color:#66d9ef">struct</span> sched_entity <span style="color:#f92672">*</span>curr, <span style="color:#66d9ef">int</span> queued)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//更新当前进程的vruntime
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">update_curr</span>(cfs_rq);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">update_load_avg</span>(curr, UPDATE_TG);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">update_cfs_shares</span>(curr);
+</span></span><span style="display:flex;"><span>.....
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (cfs_rq<span style="color:#f92672">-&gt;</span>nr_running <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//检查是否需要被抢占，内部检查进程运行时间等信息
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">check_preempt_tick</span>(cfs_rq, curr);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">check_preempt_tick</span>(<span style="color:#66d9ef">struct</span> cfs_rq <span style="color:#f92672">*</span>cfs_rq, <span style="color:#66d9ef">struct</span> sched_entity <span style="color:#f92672">*</span>curr)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> ideal_runtime, delta_exec;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> sched_entity <span style="color:#f92672">*</span>se;
+</span></span><span style="display:flex;"><span>	s64 delta;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 	<span style="color:#75715e">//计算runtime
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	ideal_runtime <span style="color:#f92672">=</span> <span style="color:#a6e22e">sched_slice</span>(cfs_rq, curr);
+</span></span><span style="display:flex;"><span>	delta_exec <span style="color:#f92672">=</span> curr<span style="color:#f92672">-&gt;</span>sum_exec_runtime <span style="color:#f92672">-</span> curr<span style="color:#f92672">-&gt;</span>prev_sum_exec_runtime;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (delta_exec <span style="color:#f92672">&gt;</span> ideal_runtime) {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">resched_curr</span>(<span style="color:#a6e22e">rq_of</span>(cfs_rq));
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//取出红黑树最左侧，比较vruntime
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	se <span style="color:#f92672">=</span> <span style="color:#a6e22e">__pick_first_entity</span>(cfs_rq);
+</span></span><span style="display:flex;"><span>	delta <span style="color:#f92672">=</span> curr<span style="color:#f92672">-&gt;</span>vruntime <span style="color:#f92672">-</span> se<span style="color:#f92672">-&gt;</span>vruntime;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (delta <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (delta <span style="color:#f92672">&gt;</span> ideal_runtime)
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//调用该方法标记该进程可被抢占
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">resched_curr</span>(<span style="color:#a6e22e">rq_of</span>(cfs_rq));
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h4 id="抢占时机">抢占时机</h4>
+<p>上面的流程仅仅将当前进程标记为可抢占，但是真正的调度流程还未执行。需要正在运行的进程调用<code>__schedule()</code>，这个调用可以在用户态和内核态发生。</p>
+<p>用户态时，从系统调用中返回的时刻可以执行。<code>exit_to_usermode_loop</code>执行</p>
+<p>内核态时，<code>preempt_enable</code>进行调度判断。</p>
+<h2 id="fork创建进程">fork创建进程</h2>
+<p><code>fork</code>是Linux中创建进程的一种方法，主要通过复制当前进程的方式来创建子进程</p>
+<h3 id="拷贝task_struct">拷贝task_struct</h3>
+<p>fork是一个系统调用，它的调用流程最终会执行<code>sys_fork</code>，其定义如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#a6e22e">SYSCALL_DEFINE0</span>(fork)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">_do_fork</span>(SIGCHLD, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0</span>, NULL, NULL, <span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">long</span> <span style="color:#a6e22e">_do_fork</span>(<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> clone_flags,
+</span></span><span style="display:flex;"><span>	      <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> stack_start,
+</span></span><span style="display:flex;"><span>	      <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> stack_size,
+</span></span><span style="display:flex;"><span>	      <span style="color:#66d9ef">int</span> __user <span style="color:#f92672">*</span>parent_tidptr,
+</span></span><span style="display:flex;"><span>	      <span style="color:#66d9ef">int</span> __user <span style="color:#f92672">*</span>child_tidptr,
+</span></span><span style="display:flex;"><span>	      <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> tls)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>p;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> trace <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">long</span> nr;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//复制父进程task_struct
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	p <span style="color:#f92672">=</span> <span style="color:#a6e22e">copy_process</span>(clone_flags, stack_start, stack_size,
+</span></span><span style="display:flex;"><span>			 child_tidptr, NULL, trace, tls, NUMA_NO_NODE);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span><span style="color:#a6e22e">IS_ERR</span>(p)) {
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">struct</span> pid <span style="color:#f92672">*</span>pid;
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		pid <span style="color:#f92672">=</span> <span style="color:#a6e22e">get_task_pid</span>(p, PIDTYPE_PID);
+</span></span><span style="display:flex;"><span>		nr <span style="color:#f92672">=</span> <span style="color:#a6e22e">pid_vnr</span>(pid);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (clone_flags <span style="color:#f92672">&amp;</span> CLONE_PARENT_SETTID)
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">put_user</span>(nr, parent_tidptr);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">wake_up_new_task</span>(p);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">put_pid</span>(pid);
+</span></span><span style="display:flex;"><span>	} 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//copy_process实现
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">static</span> __latent_entropy <span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span><span style="color:#a6e22e">copy_process</span>(
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> clone_flags,
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> stack_start,
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> stack_size,
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">int</span> __user <span style="color:#f92672">*</span>child_tidptr,
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">struct</span> pid <span style="color:#f92672">*</span>pid,
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">int</span> trace,
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> tls,
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">int</span> node)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> retval;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>p;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	p <span style="color:#f92672">=</span> <span style="color:#a6e22e">dup_task_struct</span>(current, node);
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//执行调度器相关设置，将该task分配给一某个CPU
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">sched_fork</span>(clone_flags, p); 
+</span></span><span style="display:flex;"><span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">perf_event_init_task</span>(p);
+</span></span><span style="display:flex;"><span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">audit_alloc</span>(p);
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//拷贝进程的所有信息
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#a6e22e">shm_init_task</span>(p); 
+</span></span><span style="display:flex;"><span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">copy_semundo</span>(clone_flags, p);
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//拷贝进程打开的文件信息
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">copy_files</span>(clone_flags, p);
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//拷贝进程的目录信息
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">copy_fs</span>(clone_flags, p);
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//拷贝信号处理函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">copy_sighand</span>(clone_flags, p);
+</span></span><span style="display:flex;"><span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">copy_signal</span>(clone_flags, p);
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//复制内存空间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">copy_mm</span>(clone_flags, p);
+</span></span><span style="display:flex;"><span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">copy_namespaces</span>(clone_flags, p);
+</span></span><span style="display:flex;"><span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">copy_io</span>(clone_flags, p);
+</span></span><span style="display:flex;"><span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">copy_thread_tls</span>(clone_flags, stack_start, stack_size, p, tls);
+</span></span><span style="display:flex;"><span>    
+</span></span></code></pre></div><ul>
+<li>
+<p><code>dup_task_struct</code>完成了对进程结构的初始化，具体实现了：</p>
+<ul>
+<li>
+<p>调用<code>alloc_task_struct_node </code>分配<code>task_struct</code>的内存结构</p>
+</li>
+<li>
+<p>调用<code>alloc_thread_stack_node </code>创建<code>task_struct-&gt;stack</code></p>
+</li>
+<li>
+<p>调用<code>arch_dup_task_struct</code>完成<code>task_struct</code>的复制</p>
+</li>
+<li>
+<p>调用<code>setup_thread_stack </code>设置<code>thread_info</code></p>
+</li>
+</ul>
+</li>
+<li>
+<p><code>sched_fork</code>主要对调度所需的变量进行初始化：</p>
+<ul>
+<li>
+<p>调用<code>__sched_fork</code>，对调度变量初始化，比如vruntime等</p>
+</li>
+<li>
+<p>设置进程优先级</p>
+</li>
+<li>
+<p>设置调度类，并调用调度函数<code>task_fork </code>（CFS调度是<code>task_fork_fair</code>）</p>
+</li>
+</ul>
+</li>
+</ul>
+<p>fork主要做了以下的操作：</p>
+<ol>
+<li>完成<code>task_struct</code>的拷贝，通过<code>copy_process</code>实现</li>
+<li>完成权限的拷贝，通过<code>copy_creds </code>实现</li>
+<li>调用<code>sched_fork</code>进行调度</li>
+</ol>
+<h3 id="唤醒子进程">唤醒子进程</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">wake_up_new_task</span>(<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>p)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> rq_flags rf;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> rq <span style="color:#f92672">*</span>rq;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//设置进程状态
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	p<span style="color:#f92672">-&gt;</span>state <span style="color:#f92672">=</span> TASK_RUNNING;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//调用enqueue_task，CFS调度会执行对应的enqueue_task_fair
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">activate_task</span>(rq, p, ENQUEUE_NOCLOCK);
+</span></span><span style="display:flex;"><span>	p<span style="color:#f92672">-&gt;</span>on_rq <span style="color:#f92672">=</span> TASK_ON_RQ_QUEUED;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">trace_sched_wakeup_new</span>(p);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//检查是否能抢占当前进程
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">check_preempt_curr</span>(rq, p, WF_FORK);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>上述的<code>enqueue_task_fair</code>实现以下功能：</p>
+<ul>
+<li>取出rq，调用<code>enqueue_entity</code>将进程节点加入红黑树</li>
+<li>更新队列上运行的进程数量</li>
+</ul>
+<h2 id="创建线程">创建线程</h2>
+<p>Linux中创建线程调用的是<code>pthread_create</code>，其调用的也是<code>_do_fork</code>实现线程数据复制功能，与进程创建流程的流程图差异如下所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220716142100955.png" alt="两者区别"></p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

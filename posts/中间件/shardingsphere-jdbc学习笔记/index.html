@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/shardingsphere-jdbc%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/shardingsphere-jdbc%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "ShardingSphere-JDBC学习笔记",
+      "headline" : "ShardingSphere-JDBC学习笔记",
+      "description" : "基础概念 ShardingSphere-JDBC是Apache ShardingSphere项目中的一个子项目，Apache ShardingSphere是一款分布式的数据库生态系统，可以通过分片、弹性伸缩、加密等能力对原有数据库进行增强。\nShardingSphere-JDBC定位是轻量级Java框架，在JDBC层提供额外服务。它能尽量透明化水平分库分表所带来的影响，让业务方逻辑上感知到一个数据库节点和逻辑表，当收到SQL查询，主要做了以下工作：\nSQL解析：词法解析和语法解析，提炼出解析上下文 SQL路由：根据解析上下文匹配用户配置的库表的分片策略，并生成路由后的SQL（一条或多条）。 SQL改写：将SQL改写为物理数据库能正常执行的语句（逻辑SQL -\u0026gt; 物理SQL）。 SQL执行：通过多线程异步执行改写后的SQL语句。 结果归并：将多个执行结果归并为统一的JDBC接口输出。 几个概念：\n逻辑表：ORM框架的业务层面，表现为一张表，例如：t_order\n物理表：数据库层面实际存在的表，例如：t_order_0、t_order_1\n绑定表：分片规则一致的一组分片表，进行关联查询时，建议使用分片键进行关联，否则影响查询效率。\nSELECT i.* FROM t_order o JOIN t_order_item i ON o.order_id=i.order_id WHERE o.order_id in (10, 11); 广播表：数据源中都存在的表，且结构和数据都完全一致。适用于数据量不大且需要与其他大数据量表进行关联查询。\n分片键：根据某个字段的计算结果（取模等）进行水平分片\n路由：通过SQL语句中的信息，找到对应分片的过程\n分片算法 标准分片算法：单一键作为分片键。\n取模算法：根据一些字段，或多个字段hash求值再取模。\n范围限定算法，按照年份、实践等策略路由到目标数据库。\n复合分片算法：多键作为分片键，自行设计\nHint分片算法：用于处理使用Hint行分片的场景（非数据库字段的分片方式）\n分片策略 包含分片键和分片算法，ShardingSphere-JDBC提供了以下几种分片策略：\n标准分片策略（StandardSharingStrategy）：使用精确分片算法或范围分片算法，支持单分片键。 复合分片策略（ComplexShardingStrategy）：使用复合分片算法，支持多分片键。 Hint分片策略（HintShardingStrategy）：使用Hint分片算法 Inline分片策略（InlineShardingStrategy）：使用groovy表达式作为分片算法 不分片策略（NoneShardingStrategy）：不使用分片算法 Demo pom.xml\n\u0026lt;dependency\u0026gt; \u0026lt;groupId\u0026gt;org.mybatis.spring.boot\u0026lt;\/groupId\u0026gt; \u0026lt;artifactId\u0026gt;mybatis-spring-boot-starter\u0026lt;\/artifactId\u0026gt; \u0026lt;version\u0026gt;2.1.4\u0026lt;\/version\u0026gt; \u0026lt;\/dependency\u0026gt; \u0026lt;dependency\u0026gt; \u0026lt;groupId\u0026gt;com.mysql\u0026lt;\/groupId\u0026gt; \u0026lt;artifactId\u0026gt;mysql-connector-j\u0026lt;\/artifactId\u0026gt; \u0026lt;scope\u0026gt;runtime\u0026lt;\/scope\u0026gt; \u0026lt;version\u0026gt;8.0.32\u0026lt;\/version\u0026gt; \u0026lt;\/dependency\u0026gt; \u0026lt;dependency\u0026gt; \u0026lt;groupId\u0026gt;org.projectlombok\u0026lt;\/groupId\u0026gt; \u0026lt;artifactId\u0026gt;lombok\u0026lt;\/artifactId\u0026gt; \u0026lt;optional\u0026gt;true\u0026lt;\/optional\u0026gt; \u0026lt;\/dependency\u0026gt; \u0026lt;dependency\u0026gt; \u0026lt;groupId\u0026gt;com.baomidou\u0026lt;\/groupId\u0026gt; \u0026lt;artifactId\u0026gt;mybatis-plus-boot-starter\u0026lt;\/artifactId\u0026gt; \u0026lt;version\u0026gt;3.2.0\u0026lt;\/version\u0026gt; \u0026lt;\/dependency\u0026gt; \u0026lt;dependency\u0026gt; \u0026lt;groupId\u0026gt;com.alibaba\u0026lt;\/groupId\u0026gt; \u0026lt;artifactId\u0026gt;druid\u0026lt;\/artifactId\u0026gt; \u0026lt;version\u0026gt;1.2.15\u0026lt;\/version\u0026gt; \u0026lt;\/dependency\u0026gt; \u0026lt;dependency\u0026gt; \u0026lt;groupId\u0026gt;org.springframework.boot\u0026lt;\/groupId\u0026gt; \u0026lt;artifactId\u0026gt;spring-boot-starter-test\u0026lt;\/artifactId\u0026gt; \u0026lt;scope\u0026gt;test\u0026lt;\/scope\u0026gt; \u0026lt;\/dependency\u0026gt; \u0026lt;dependency\u0026gt; \u0026lt;groupId\u0026gt;org.apache.shardingsphere\u0026lt;\/groupId\u0026gt; \u0026lt;artifactId\u0026gt;sharding-jdbc-spring-boot-starter\u0026lt;\/artifactId\u0026gt; \u0026lt;version\u0026gt;4.0.0-RC1\u0026lt;\/version\u0026gt; \u0026lt;\/dependency\u0026gt; \u0026lt;dependency\u0026gt; \u0026lt;groupId\u0026gt;org.apache.shardingsphere\u0026lt;\/groupId\u0026gt; \u0026lt;artifactId\u0026gt;sharding-core-common\u0026lt;\/artifactId\u0026gt; \u0026lt;version\u0026gt;4.0.0-RC1\u0026lt;\/version\u0026gt; \u0026lt;\/dependency\u0026gt; ShardingSphere提供了多种配置方式：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2023",
+      "datePublished": "2023-01-11 18:41:32 \u002b0000 UTC",
+      "dateModified" : "2023-01-11 18:41:32 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/shardingsphere-jdbc%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>ShardingSphere-JDBC学习笔记</title>
+  <meta property="og:title" content="ShardingSphere-JDBC学习笔记" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="基础概念 ShardingSphere-JDBC是Apache ShardingSphere项目中的一个子项目，Apache ShardingSphere是一款分布式的数据库生态系统，可以通过分片、弹性伸缩、加密等能力对原有数据库进行增强。
+ShardingSphere-JDBC定位是轻量级Java框架，在JDBC层提供额外服务。它能尽量透明化水平分库分表所带来的影响，让业务方逻辑上感知到一个数据库节点和逻辑表，当收到SQL查询，主要做了以下工作：
+SQL解析：词法解析和语法解析，提炼出解析上下文 SQL路由：根据解析上下文匹配用户配置的库表的分片策略，并生成路由后的SQL（一条或多条）。 SQL改写：将SQL改写为物理数据库能正常执行的语句（逻辑SQL -&gt; 物理SQL）。 SQL执行：通过多线程异步执行改写后的SQL语句。 结果归并：将多个执行结果归并为统一的JDBC接口输出。 几个概念：
+逻辑表：ORM框架的业务层面，表现为一张表，例如：t_order
+物理表：数据库层面实际存在的表，例如：t_order_0、t_order_1
+绑定表：分片规则一致的一组分片表，进行关联查询时，建议使用分片键进行关联，否则影响查询效率。
+SELECT i.* FROM t_order o JOIN t_order_item i ON o.order_id=i.order_id WHERE o.order_id in (10, 11); 广播表：数据源中都存在的表，且结构和数据都完全一致。适用于数据量不大且需要与其他大数据量表进行关联查询。
+分片键：根据某个字段的计算结果（取模等）进行水平分片
+路由：通过SQL语句中的信息，找到对应分片的过程
+分片算法 标准分片算法：单一键作为分片键。
+取模算法：根据一些字段，或多个字段hash求值再取模。
+范围限定算法，按照年份、实践等策略路由到目标数据库。
+复合分片算法：多键作为分片键，自行设计
+Hint分片算法：用于处理使用Hint行分片的场景（非数据库字段的分片方式）
+分片策略 包含分片键和分片算法，ShardingSphere-JDBC提供了以下几种分片策略：
+标准分片策略（StandardSharingStrategy）：使用精确分片算法或范围分片算法，支持单分片键。 复合分片策略（ComplexShardingStrategy）：使用复合分片算法，支持多分片键。 Hint分片策略（HintShardingStrategy）：使用Hint分片算法 Inline分片策略（InlineShardingStrategy）：使用groovy表达式作为分片算法 不分片策略（NoneShardingStrategy）：不使用分片算法 Demo pom.xml
+&lt;dependency&gt; &lt;groupId&gt;org.mybatis.spring.boot&lt;/groupId&gt; &lt;artifactId&gt;mybatis-spring-boot-starter&lt;/artifactId&gt; &lt;version&gt;2.1.4&lt;/version&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;com.mysql&lt;/groupId&gt; &lt;artifactId&gt;mysql-connector-j&lt;/artifactId&gt; &lt;scope&gt;runtime&lt;/scope&gt; &lt;version&gt;8.0.32&lt;/version&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;org.projectlombok&lt;/groupId&gt; &lt;artifactId&gt;lombok&lt;/artifactId&gt; &lt;optional&gt;true&lt;/optional&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;com.baomidou&lt;/groupId&gt; &lt;artifactId&gt;mybatis-plus-boot-starter&lt;/artifactId&gt; &lt;version&gt;3.2.0&lt;/version&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;com.alibaba&lt;/groupId&gt; &lt;artifactId&gt;druid&lt;/artifactId&gt; &lt;version&gt;1.2.15&lt;/version&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt; &lt;artifactId&gt;spring-boot-starter-test&lt;/artifactId&gt; &lt;scope&gt;test&lt;/scope&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;org.apache.shardingsphere&lt;/groupId&gt; &lt;artifactId&gt;sharding-jdbc-spring-boot-starter&lt;/artifactId&gt; &lt;version&gt;4.0.0-RC1&lt;/version&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;org.apache.shardingsphere&lt;/groupId&gt; &lt;artifactId&gt;sharding-core-common&lt;/artifactId&gt; &lt;version&gt;4.0.0-RC1&lt;/version&gt; &lt;/dependency&gt; ShardingSphere提供了多种配置方式：
+" />
+  <meta name="description" content="基础概念 ShardingSphere-JDBC是Apache ShardingSphere项目中的一个子项目，Apache ShardingSphere是一款分布式的数据库生态系统，可以通过分片、弹性伸缩、加密等能力对原有数据库进行增强。
+ShardingSphere-JDBC定位是轻量级Java框架，在JDBC层提供额外服务。它能尽量透明化水平分库分表所带来的影响，让业务方逻辑上感知到一个数据库节点和逻辑表，当收到SQL查询，主要做了以下工作：
+SQL解析：词法解析和语法解析，提炼出解析上下文 SQL路由：根据解析上下文匹配用户配置的库表的分片策略，并生成路由后的SQL（一条或多条）。 SQL改写：将SQL改写为物理数据库能正常执行的语句（逻辑SQL -&gt; 物理SQL）。 SQL执行：通过多线程异步执行改写后的SQL语句。 结果归并：将多个执行结果归并为统一的JDBC接口输出。 几个概念：
+逻辑表：ORM框架的业务层面，表现为一张表，例如：t_order
+物理表：数据库层面实际存在的表，例如：t_order_0、t_order_1
+绑定表：分片规则一致的一组分片表，进行关联查询时，建议使用分片键进行关联，否则影响查询效率。
+SELECT i.* FROM t_order o JOIN t_order_item i ON o.order_id=i.order_id WHERE o.order_id in (10, 11); 广播表：数据源中都存在的表，且结构和数据都完全一致。适用于数据量不大且需要与其他大数据量表进行关联查询。
+分片键：根据某个字段的计算结果（取模等）进行水平分片
+路由：通过SQL语句中的信息，找到对应分片的过程
+分片算法 标准分片算法：单一键作为分片键。
+取模算法：根据一些字段，或多个字段hash求值再取模。
+范围限定算法，按照年份、实践等策略路由到目标数据库。
+复合分片算法：多键作为分片键，自行设计
+Hint分片算法：用于处理使用Hint行分片的场景（非数据库字段的分片方式）
+分片策略 包含分片键和分片算法，ShardingSphere-JDBC提供了以下几种分片策略：
+标准分片策略（StandardSharingStrategy）：使用精确分片算法或范围分片算法，支持单分片键。 复合分片策略（ComplexShardingStrategy）：使用复合分片算法，支持多分片键。 Hint分片策略（HintShardingStrategy）：使用Hint分片算法 Inline分片策略（InlineShardingStrategy）：使用groovy表达式作为分片算法 不分片策略（NoneShardingStrategy）：不使用分片算法 Demo pom.xml
+&lt;dependency&gt; &lt;groupId&gt;org.mybatis.spring.boot&lt;/groupId&gt; &lt;artifactId&gt;mybatis-spring-boot-starter&lt;/artifactId&gt; &lt;version&gt;2.1.4&lt;/version&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;com.mysql&lt;/groupId&gt; &lt;artifactId&gt;mysql-connector-j&lt;/artifactId&gt; &lt;scope&gt;runtime&lt;/scope&gt; &lt;version&gt;8.0.32&lt;/version&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;org.projectlombok&lt;/groupId&gt; &lt;artifactId&gt;lombok&lt;/artifactId&gt; &lt;optional&gt;true&lt;/optional&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;com.baomidou&lt;/groupId&gt; &lt;artifactId&gt;mybatis-plus-boot-starter&lt;/artifactId&gt; &lt;version&gt;3.2.0&lt;/version&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;com.alibaba&lt;/groupId&gt; &lt;artifactId&gt;druid&lt;/artifactId&gt; &lt;version&gt;1.2.15&lt;/version&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt; &lt;artifactId&gt;spring-boot-starter-test&lt;/artifactId&gt; &lt;scope&gt;test&lt;/scope&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;org.apache.shardingsphere&lt;/groupId&gt; &lt;artifactId&gt;sharding-jdbc-spring-boot-starter&lt;/artifactId&gt; &lt;version&gt;4.0.0-RC1&lt;/version&gt; &lt;/dependency&gt; &lt;dependency&gt; &lt;groupId&gt;org.apache.shardingsphere&lt;/groupId&gt; &lt;artifactId&gt;sharding-core-common&lt;/artifactId&gt; &lt;version&gt;4.0.0-RC1&lt;/version&gt; &lt;/dependency&gt; ShardingSphere提供了多种配置方式：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">ShardingSphere-JDBC学习笔记</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2023-01-11 18:41:32 UTC">
+                11 Jan 2023
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="基础概念">基础概念</h2>
+<p>ShardingSphere-JDBC是Apache ShardingSphere项目中的一个子项目，Apache ShardingSphere是一款分布式的数据库生态系统，可以通过分片、弹性伸缩、加密等能力对原有数据库进行增强。</p>
+<p>ShardingSphere-JDBC定位是<strong>轻量级Java框架</strong>，在JDBC层提供额外服务。它能尽量透明化水平分库分表所带来的影响，让业务方逻辑上感知到一个数据库节点和逻辑表，当收到SQL查询，主要做了以下工作：</p>
+<ul>
+<li>SQL解析：词法解析和语法解析，提炼出解析上下文</li>
+<li>SQL路由：根据解析上下文匹配用户配置的库表的分片策略，并生成路由后的SQL（一条或多条）。</li>
+<li>SQL改写：将SQL改写为物理数据库能正常执行的语句（逻辑SQL -&gt; 物理SQL）。</li>
+<li>SQL执行：通过多线程异步执行改写后的SQL语句。</li>
+<li>结果归并：将多个执行结果归并为统一的JDBC接口输出。</li>
+</ul>
+<p>几个概念：</p>
+<ul>
+<li>
+<p>逻辑表：ORM框架的业务层面，表现为一张表，例如：t_order</p>
+</li>
+<li>
+<p>物理表：数据库层面实际存在的表，例如：t_order_0、t_order_1</p>
+</li>
+<li>
+<p>绑定表：分片规则一致的一组分片表，进行关联查询时，建议使用分片键进行关联，否则影响查询效率。</p>
+<ul>
+<li><code>SELECT i.* FROM t_order o JOIN t_order_item i ON o.order_id=i.order_id WHERE o.order_id in (10, 11);</code></li>
+</ul>
+</li>
+<li>
+<p>广播表：数据源中都存在的表，且结构和数据都完全一致。适用于数据量不大且需要与其他大数据量表进行关联查询。</p>
+</li>
+<li>
+<p>分片键：根据某个字段的计算结果（取模等）进行水平分片</p>
+</li>
+<li>
+<p>路由：通过SQL语句中的信息，找到对应分片的过程</p>
+</li>
+</ul>
+<h3 id="分片算法">分片算法</h3>
+<ul>
+<li>
+<p>标准分片算法：单一键作为分片键。</p>
+<ul>
+<li>
+<p>取模算法：根据一些字段，或多个字段hash求值再取模。</p>
+</li>
+<li>
+<p>范围限定算法，按照年份、实践等策略路由到目标数据库。</p>
+</li>
+</ul>
+</li>
+<li>
+<p>复合分片算法：多键作为分片键，自行设计</p>
+</li>
+<li>
+<p>Hint分片算法：用于处理使用Hint行分片的场景（非数据库字段的分片方式）</p>
+</li>
+</ul>
+<h3 id="分片策略">分片策略</h3>
+<p>包含分片键和分片算法，ShardingSphere-JDBC提供了以下几种分片策略：</p>
+<ul>
+<li>标准分片策略（StandardSharingStrategy）：使用精确分片算法或范围分片算法，支持单分片键。</li>
+<li>复合分片策略（ComplexShardingStrategy）：使用复合分片算法，支持多分片键。</li>
+<li>Hint分片策略（HintShardingStrategy）：使用Hint分片算法</li>
+<li>Inline分片策略（InlineShardingStrategy）：使用groovy表达式作为分片算法</li>
+<li>不分片策略（NoneShardingStrategy）：不使用分片算法</li>
+</ul>
+<h2 id="demo">Demo</h2>
+<p>pom.xml</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-xml" data-lang="xml"><span style="display:flex;"><span><span style="color:#f92672">&lt;dependency&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;groupId&gt;</span>org.mybatis.spring.boot<span style="color:#f92672">&lt;/groupId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;artifactId&gt;</span>mybatis-spring-boot-starter<span style="color:#f92672">&lt;/artifactId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;version&gt;</span>2.1.4<span style="color:#f92672">&lt;/version&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;/dependency&gt;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;dependency&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;groupId&gt;</span>com.mysql<span style="color:#f92672">&lt;/groupId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;artifactId&gt;</span>mysql-connector-j<span style="color:#f92672">&lt;/artifactId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;scope&gt;</span>runtime<span style="color:#f92672">&lt;/scope&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;version&gt;</span>8.0.32<span style="color:#f92672">&lt;/version&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;/dependency&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;dependency&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;groupId&gt;</span>org.projectlombok<span style="color:#f92672">&lt;/groupId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;artifactId&gt;</span>lombok<span style="color:#f92672">&lt;/artifactId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;optional&gt;</span>true<span style="color:#f92672">&lt;/optional&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;/dependency&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;dependency&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;groupId&gt;</span>com.baomidou<span style="color:#f92672">&lt;/groupId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;artifactId&gt;</span>mybatis-plus-boot-starter<span style="color:#f92672">&lt;/artifactId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;version&gt;</span>3.2.0<span style="color:#f92672">&lt;/version&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;/dependency&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;dependency&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;groupId&gt;</span>com.alibaba<span style="color:#f92672">&lt;/groupId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;artifactId&gt;</span>druid<span style="color:#f92672">&lt;/artifactId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;version&gt;</span>1.2.15<span style="color:#f92672">&lt;/version&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;/dependency&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;dependency&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;groupId&gt;</span>org.springframework.boot<span style="color:#f92672">&lt;/groupId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;artifactId&gt;</span>spring-boot-starter-test<span style="color:#f92672">&lt;/artifactId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;scope&gt;</span>test<span style="color:#f92672">&lt;/scope&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;/dependency&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;dependency&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;groupId&gt;</span>org.apache.shardingsphere<span style="color:#f92672">&lt;/groupId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;artifactId&gt;</span>sharding-jdbc-spring-boot-starter<span style="color:#f92672">&lt;/artifactId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;version&gt;</span>4.0.0-RC1<span style="color:#f92672">&lt;/version&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;/dependency&gt;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;dependency&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;groupId&gt;</span>org.apache.shardingsphere<span style="color:#f92672">&lt;/groupId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;artifactId&gt;</span>sharding-core-common<span style="color:#f92672">&lt;/artifactId&gt;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">&lt;version&gt;</span>4.0.0-RC1<span style="color:#f92672">&lt;/version&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">&lt;/dependency&gt;</span>
+</span></span></code></pre></div><p>ShardingSphere提供了多种配置方式：</p>
+<ul>
+<li>Java代码配置</li>
+<li>yaml、properties配置</li>
+<li>Spring Boot配置</li>
+</ul>
+<p>该案例使用配置文件方式：application.properties</p>
+<pre tabindex="0"><code>spring.shardingsphere.datasource.names=test-0,test-1
+
+spring.main.allow-bean-definition-overriding=true
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+
+spring.shardingsphere.datasource.test-0.type=com.alibaba.druid.pool.DruidDataSource
+spring.shardingsphere.datasource.test-0.driver-class-name=com.mysql.jdbc.Driver
+spring.shardingsphere.datasource.test-0.url=jdbc:mysql://172.27.184.50:3306/test-0?useUnicode=true&amp;characterEncoding=utf8&amp;tinyInt1isBit=false&amp;useSSL=false
+spring.shardingsphere.datasource.test-0.username=root
+spring.shardingsphere.datasource.test-0.password=123456
+
+spring.shardingsphere.datasource.test-1.type=com.alibaba.druid.pool.DruidDataSource
+spring.shardingsphere.datasource.test-1.driver-class-name=com.mysql.jdbc.Driver
+spring.shardingsphere.datasource.test-1.url=jdbc:mysql://172.27.184.50:3306/test-1?useUnicode=true&amp;characterEncoding=utf8&amp;tinyInt1isBit=false&amp;useSSL=false
+spring.shardingsphere.datasource.test-1.username=root
+spring.shardingsphere.datasource.test-1.password=123456
+
+spring.shardingsphere.sharding.default-database-strategy.inline.sharding-column=order_id
+spring.shardingsphere.sharding.default-database-strategy.inline.algorithm-expression=test-$-&gt;{order_id % 2}
+
+spring.shardingsphere.sharding.tables.t_order.actual-data-nodes=test-$-&gt;{0..1}.t_order_$-&gt;{0..2}
+spring.shardingsphere.sharding.tables.t_order.table-strategy.inline.sharding-column=order_id
+spring.shardingsphere.sharding.tables.t_order.table-strategy.inline.algorithm-expression=t_order_$-&gt;{order_id % 3}
+
+
+spring.shardingsphere.sharding.broadcast-tables=t_config
+spring.shardingsphere.props.sql.show=true
+</code></pre><p>分别创建<code>test-0</code>和<code>test-1</code>数据库，并创建以下表：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">CREATE</span> <span style="color:#66d9ef">TABLE</span> <span style="color:#f92672">`</span>t_order_0<span style="color:#f92672">`</span> (
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>order_id<span style="color:#f92672">`</span> bigint(<span style="color:#ae81ff">200</span>) <span style="color:#66d9ef">NOT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>order_no<span style="color:#f92672">`</span> varchar(<span style="color:#ae81ff">100</span>) <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>create_name<span style="color:#f92672">`</span> varchar(<span style="color:#ae81ff">50</span>) <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>price<span style="color:#f92672">`</span> decimal(<span style="color:#ae81ff">10</span>,<span style="color:#ae81ff">2</span>) <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">PRIMARY</span> <span style="color:#66d9ef">KEY</span> (<span style="color:#f92672">`</span>order_id<span style="color:#f92672">`</span>)
+</span></span><span style="display:flex;"><span>) ENGINE<span style="color:#f92672">=</span>InnoDB <span style="color:#66d9ef">DEFAULT</span> CHARSET<span style="color:#f92672">=</span>utf8 ROW_FORMAT<span style="color:#f92672">=</span><span style="color:#66d9ef">DYNAMIC</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">CREATE</span> <span style="color:#66d9ef">TABLE</span> <span style="color:#f92672">`</span>t_order_1<span style="color:#f92672">`</span> (
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>order_id<span style="color:#f92672">`</span> bigint(<span style="color:#ae81ff">200</span>) <span style="color:#66d9ef">NOT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>order_no<span style="color:#f92672">`</span> varchar(<span style="color:#ae81ff">100</span>) <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>create_name<span style="color:#f92672">`</span> varchar(<span style="color:#ae81ff">50</span>) <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>price<span style="color:#f92672">`</span> decimal(<span style="color:#ae81ff">10</span>,<span style="color:#ae81ff">2</span>) <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">PRIMARY</span> <span style="color:#66d9ef">KEY</span> (<span style="color:#f92672">`</span>order_id<span style="color:#f92672">`</span>)
+</span></span><span style="display:flex;"><span>) ENGINE<span style="color:#f92672">=</span>InnoDB <span style="color:#66d9ef">DEFAULT</span> CHARSET<span style="color:#f92672">=</span>utf8 ROW_FORMAT<span style="color:#f92672">=</span><span style="color:#66d9ef">DYNAMIC</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">CREATE</span> <span style="color:#66d9ef">TABLE</span> <span style="color:#f92672">`</span>t_order_2<span style="color:#f92672">`</span> (
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>order_id<span style="color:#f92672">`</span> bigint(<span style="color:#ae81ff">200</span>) <span style="color:#66d9ef">NOT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>order_no<span style="color:#f92672">`</span> varchar(<span style="color:#ae81ff">100</span>) <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>create_name<span style="color:#f92672">`</span> varchar(<span style="color:#ae81ff">50</span>) <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>price<span style="color:#f92672">`</span> decimal(<span style="color:#ae81ff">10</span>,<span style="color:#ae81ff">2</span>) <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">PRIMARY</span> <span style="color:#66d9ef">KEY</span> (<span style="color:#f92672">`</span>order_id<span style="color:#f92672">`</span>)
+</span></span><span style="display:flex;"><span>) ENGINE<span style="color:#f92672">=</span>InnoDB <span style="color:#66d9ef">DEFAULT</span> CHARSET<span style="color:#f92672">=</span>utf8 ROW_FORMAT<span style="color:#f92672">=</span><span style="color:#66d9ef">DYNAMIC</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">CREATE</span> <span style="color:#66d9ef">TABLE</span> <span style="color:#f92672">`</span>t_config<span style="color:#f92672">`</span> (
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>id<span style="color:#f92672">`</span> bigint(<span style="color:#ae81ff">30</span>) <span style="color:#66d9ef">NOT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>remark<span style="color:#f92672">`</span> varchar(<span style="color:#ae81ff">50</span>) CHARACTER <span style="color:#66d9ef">SET</span> utf8 <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">NULL</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>create_time<span style="color:#f92672">`</span> <span style="color:#66d9ef">timestamp</span> <span style="color:#66d9ef">NOT</span> <span style="color:#66d9ef">NULL</span> <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">CURRENT_TIMESTAMP</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">`</span>last_modify_time<span style="color:#f92672">`</span> <span style="color:#66d9ef">timestamp</span> <span style="color:#66d9ef">NOT</span> <span style="color:#66d9ef">NULL</span> <span style="color:#66d9ef">DEFAULT</span> <span style="color:#66d9ef">CURRENT_TIMESTAMP</span> <span style="color:#66d9ef">ON</span> <span style="color:#66d9ef">UPDATE</span> <span style="color:#66d9ef">CURRENT_TIMESTAMP</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">PRIMARY</span> <span style="color:#66d9ef">KEY</span> (<span style="color:#f92672">`</span>id<span style="color:#f92672">`</span>)
+</span></span><span style="display:flex;"><span>) ENGINE<span style="color:#f92672">=</span>InnoDB <span style="color:#66d9ef">DEFAULT</span> CHARSET<span style="color:#f92672">=</span>latin1;
+</span></span></code></pre></div><p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20230212192526669.png" alt="数据库结构"></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#a6e22e">@Data</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">@TableName</span>(<span style="color:#e6db74">&#34;t_order&#34;</span>)
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">@ToString</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">TOrder</span> {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> Long orderId;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> String orderNo;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> String createName;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> BigDecimal price;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">@Service</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">OrderService</span> {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@Resource</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> OrderMapper orderMapper;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> AtomicLong ID <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> AtomicLong(1);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">insertOrder</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> 1000; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>            TOrder order <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> TOrder();
+</span></span><span style="display:flex;"><span>            order.<span style="color:#a6e22e">setOrderId</span>(ID.<span style="color:#a6e22e">getAndIncrement</span>());
+</span></span><span style="display:flex;"><span>            order.<span style="color:#a6e22e">setOrderNo</span>(<span style="color:#e6db74">&#34;A000&#34;</span> <span style="color:#f92672">+</span> i);
+</span></span><span style="display:flex;"><span>            order.<span style="color:#a6e22e">setCreateName</span>(<span style="color:#e6db74">&#34;订单 &#34;</span> <span style="color:#f92672">+</span> i);
+</span></span><span style="display:flex;"><span>            order.<span style="color:#a6e22e">setPrice</span>(<span style="color:#66d9ef">new</span> BigDecimal(<span style="color:#e6db74">&#34;&#34;</span> <span style="color:#f92672">+</span> i));
+</span></span><span style="display:flex;"><span>            orderMapper.<span style="color:#a6e22e">insert</span>(order);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> List<span style="color:#f92672">&lt;</span>TOrder<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">selectList</span>(){
+</span></span><span style="display:flex;"><span>        QueryWrapper<span style="color:#f92672">&lt;</span>TOrder<span style="color:#f92672">&gt;</span> queryWrapper <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> QueryWrapper<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>        queryWrapper.<span style="color:#a6e22e">like</span>(<span style="color:#e6db74">&#34;create_name&#34;</span>, <span style="color:#e6db74">&#34;订单&#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> orderMapper.<span style="color:#a6e22e">selectList</span>(queryWrapper);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">@Mapper</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">interface</span> <span style="color:#a6e22e">OrderMapper</span> <span style="color:#66d9ef">extends</span> BaseMapper<span style="color:#f92672">&lt;</span>TOrder<span style="color:#f92672">&gt;</span> {
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">@Component</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">@Slf4j</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Runner</span> <span style="color:#66d9ef">implements</span> ApplicationRunner {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@Resource</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> OrderService orderService;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">run</span>(ApplicationArguments args) <span style="color:#66d9ef">throws</span> Exception {
+</span></span><span style="display:flex;"><span>        orderService.<span style="color:#a6e22e">insertOrder</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//        List&lt;TOrder&gt; orderList = orderService.selectList();</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//        log.info(&#34;orderList : {}&#34;, orderList);</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>查询数据库，数据按照指定规则存储：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20230212210352405.png" alt="数据库结果"></p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

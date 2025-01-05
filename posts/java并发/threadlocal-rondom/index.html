@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/threadlocal-rondom/" />
+  <link rel="canonical" href="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/threadlocal-rondom/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "ThreadLocalRondom原理剖析",
+      "headline" : "ThreadLocalRondom原理剖析",
+      "description" : "ThreadLocalRondom是JDK 7在并发包中新增的随机数生成器，该类弥补了Random类在并发环境下的缺陷。\nRandom的局限性 Random生成随机数的方法如下：\npublic int nextInt(int bound) { \/\/参数校验 if (bound \u0026lt;= 0) throw new IllegalArgumentException(BadBound); \/\/根据老的种子生成新的种子 int r = next(31); int m = bound - 1; \/\/根据新种子计算随机数 if ((bound \u0026amp; m) == 0) r = (int)((bound * (long)r) \u0026gt;\u0026gt; 31); else { for (int u = r; u - (r = u % bound) \u002b m \u0026lt; 0; u = next(31)) ; } return r; } next方法通过计算生成新的种子。用原子变量来存放种子，多线程的情况下，CAS操作会保证只有一个线程可以更新老的种子为新种子，更新失败的线程进行自旋，这降低了并发性能，所以产生了ThreadLocalRandom。\nprotected int next(int bits) { long oldseed, nextseed; AtomicLong seed = this.seed; do { oldseed = seed.get(); \/\/seed计算公式，通过CAS操作进行更新 nextseed = (oldseed * multiplier \u002b addend) \u0026amp; mask; } while (!seed.compareAndSet(oldseed, nextseed)); \/\/将得到的值进行逻辑右移 return (int)(nextseed \u0026gt;\u0026gt;\u0026gt; (48 - bits)); } ThreadLocalRandom简介 ThreadLocalRandom和ThreadLocal的原理相似，ThreadLocalRandom使得每个线程都维护自己独有的种子变量，这样就不存在竞争问题，大大提高并发性能。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-04-28 17:31:07 \u002b0000 UTC",
+      "dateModified" : "2020-04-28 17:31:07 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/java%E5%B9%B6%E5%8F%91\/threadlocal-rondom\/",
+      "keywords" : [ "Java","并发", ]
+  }
+</script>
+<title>ThreadLocalRondom原理剖析</title>
+  <meta property="og:title" content="ThreadLocalRondom原理剖析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="ThreadLocalRondom是JDK 7在并发包中新增的随机数生成器，该类弥补了Random类在并发环境下的缺陷。
+Random的局限性 Random生成随机数的方法如下：
+public int nextInt(int bound) { //参数校验 if (bound &lt;= 0) throw new IllegalArgumentException(BadBound); //根据老的种子生成新的种子 int r = next(31); int m = bound - 1; //根据新种子计算随机数 if ((bound &amp; m) == 0) r = (int)((bound * (long)r) &gt;&gt; 31); else { for (int u = r; u - (r = u % bound) &#43; m &lt; 0; u = next(31)) ; } return r; } next方法通过计算生成新的种子。用原子变量来存放种子，多线程的情况下，CAS操作会保证只有一个线程可以更新老的种子为新种子，更新失败的线程进行自旋，这降低了并发性能，所以产生了ThreadLocalRandom。
+protected int next(int bits) { long oldseed, nextseed; AtomicLong seed = this.seed; do { oldseed = seed.get(); //seed计算公式，通过CAS操作进行更新 nextseed = (oldseed * multiplier &#43; addend) &amp; mask; } while (!seed.compareAndSet(oldseed, nextseed)); //将得到的值进行逻辑右移 return (int)(nextseed &gt;&gt;&gt; (48 - bits)); } ThreadLocalRandom简介 ThreadLocalRandom和ThreadLocal的原理相似，ThreadLocalRandom使得每个线程都维护自己独有的种子变量，这样就不存在竞争问题，大大提高并发性能。
+" />
+  <meta name="description" content="ThreadLocalRondom是JDK 7在并发包中新增的随机数生成器，该类弥补了Random类在并发环境下的缺陷。
+Random的局限性 Random生成随机数的方法如下：
+public int nextInt(int bound) { //参数校验 if (bound &lt;= 0) throw new IllegalArgumentException(BadBound); //根据老的种子生成新的种子 int r = next(31); int m = bound - 1; //根据新种子计算随机数 if ((bound &amp; m) == 0) r = (int)((bound * (long)r) &gt;&gt; 31); else { for (int u = r; u - (r = u % bound) &#43; m &lt; 0; u = next(31)) ; } return r; } next方法通过计算生成新的种子。用原子变量来存放种子，多线程的情况下，CAS操作会保证只有一个线程可以更新老的种子为新种子，更新失败的线程进行自旋，这降低了并发性能，所以产生了ThreadLocalRandom。
+protected int next(int bits) { long oldseed, nextseed; AtomicLong seed = this.seed; do { oldseed = seed.get(); //seed计算公式，通过CAS操作进行更新 nextseed = (oldseed * multiplier &#43; addend) &amp; mask; } while (!seed.compareAndSet(oldseed, nextseed)); //将得到的值进行逻辑右移 return (int)(nextseed &gt;&gt;&gt; (48 - bits)); } ThreadLocalRandom简介 ThreadLocalRandom和ThreadLocal的原理相似，ThreadLocalRandom使得每个线程都维护自己独有的种子变量，这样就不存在竞争问题，大大提高并发性能。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">ThreadLocalRondom原理剖析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-04-28 17:31:07 UTC">
+                28 Apr 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <p>ThreadLocalRondom是JDK 7在并发包中新增的随机数生成器，该类弥补了Random类在并发环境下的缺陷。</p>
+<h2 id="random的局限性">Random的局限性</h2>
+<p>Random生成随机数的方法如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">nextInt</span>(<span style="color:#66d9ef">int</span> bound) {
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//参数校验</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (bound <span style="color:#f92672">&lt;=</span> 0)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(BadBound);
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">//根据老的种子生成新的种子</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> r <span style="color:#f92672">=</span> next(31);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> m <span style="color:#f92672">=</span> bound <span style="color:#f92672">-</span> 1;
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//根据新种子计算随机数</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> ((bound <span style="color:#f92672">&amp;</span> m) <span style="color:#f92672">==</span> 0)
+</span></span><span style="display:flex;"><span>            r <span style="color:#f92672">=</span> (<span style="color:#66d9ef">int</span>)((bound <span style="color:#f92672">*</span> (<span style="color:#66d9ef">long</span>)r) <span style="color:#f92672">&gt;&gt;</span> 31);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> u <span style="color:#f92672">=</span> r;
+</span></span><span style="display:flex;"><span>                 u <span style="color:#f92672">-</span> (r <span style="color:#f92672">=</span> u <span style="color:#f92672">%</span> bound) <span style="color:#f92672">+</span> m <span style="color:#f92672">&lt;</span> 0;
+</span></span><span style="display:flex;"><span>                 u <span style="color:#f92672">=</span> next(31))
+</span></span><span style="display:flex;"><span>                ;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> r;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p>next方法通过计算生成新的种子。用原子变量来存放种子，多线程的情况下，CAS操作会保证只有一个线程可以更新老的种子为新种子，更新失败的线程进行自旋，这降低了并发性能，所以产生了ThreadLocalRandom。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">next</span>(<span style="color:#66d9ef">int</span> bits) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> oldseed, nextseed;
+</span></span><span style="display:flex;"><span>        AtomicLong seed <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">seed</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>            oldseed <span style="color:#f92672">=</span> seed.<span style="color:#a6e22e">get</span>();
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//seed计算公式，通过CAS操作进行更新</span>
+</span></span><span style="display:flex;"><span>            nextseed <span style="color:#f92672">=</span> (oldseed <span style="color:#f92672">*</span> multiplier <span style="color:#f92672">+</span> addend) <span style="color:#f92672">&amp;</span> mask;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">while</span> (<span style="color:#f92672">!</span>seed.<span style="color:#a6e22e">compareAndSet</span>(oldseed, nextseed));
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//将得到的值进行逻辑右移</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> (<span style="color:#66d9ef">int</span>)(nextseed <span style="color:#f92672">&gt;&gt;&gt;</span> (48 <span style="color:#f92672">-</span> bits));
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="threadlocalrandom简介">ThreadLocalRandom简介</h2>
+<p>ThreadLocalRandom和ThreadLocal的原理相似，ThreadLocalRandom使得每个线程都维护自己独有的种子变量，这样就不存在竞争问题，大大提高并发性能。</p>
+<h2 id="current方法">current方法</h2>
+<p>在current方法中，获得ThreadLocalRandom实例并初始化。seed不再是一个AtomicLong变量，在Thread类中有三个变量。</p>
+<ul>
+<li>threadLocalRandomSeed：使用它来控制随机数种子。</li>
+<li>threadLocalRandomProbe：使用它来控制初始化。</li>
+<li>threadLocalRandomSecondarySeed：二级种子。</li>
+</ul>
+<p>这三个变量都加了<code>sun.misc.Contended</code>注解，用来避免伪共享问题。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> ThreadLocalRandom <span style="color:#a6e22e">current</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//判断是否初始化</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (UNSAFE.<span style="color:#a6e22e">getInt</span>(Thread.<span style="color:#a6e22e">currentThread</span>(), PROBE) <span style="color:#f92672">==</span> 0)
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//进行初始化</span>
+</span></span><span style="display:flex;"><span>            localInit();
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> instance;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">localInit</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> p <span style="color:#f92672">=</span> probeGenerator.<span style="color:#a6e22e">addAndGet</span>(PROBE_INCREMENT);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> probe <span style="color:#f92672">=</span> (p <span style="color:#f92672">==</span> 0) <span style="color:#f92672">?</span> 1 : p; <span style="color:#75715e">// skip 0</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> seed <span style="color:#f92672">=</span> mix64(seeder.<span style="color:#a6e22e">getAndAdd</span>(SEEDER_INCREMENT));
+</span></span><span style="display:flex;"><span>        Thread t <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>();
+</span></span><span style="display:flex;"><span>        UNSAFE.<span style="color:#a6e22e">putLong</span>(t, SEED, seed);
+</span></span><span style="display:flex;"><span>        UNSAFE.<span style="color:#a6e22e">putInt</span>(t, PROBE, probe);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/** The current seed for a ThreadLocalRandom */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@sun.misc.Contended</span>(<span style="color:#e6db74">&#34;tlr&#34;</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> threadLocalRandomSeed;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/** Probe hash value; nonzero if threadLocalRandomSeed initialized */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@sun.misc.Contended</span>(<span style="color:#e6db74">&#34;tlr&#34;</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> threadLocalRandomProbe;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/** Secondary seed isolated from public ThreadLocalRandom sequence */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@sun.misc.Contended</span>(<span style="color:#e6db74">&#34;tlr&#34;</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> threadLocalRandomSecondarySeed;
+</span></span></code></pre></div><h2 id="unsafe机制">Unsafe机制</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> sun.<span style="color:#a6e22e">misc</span>.<span style="color:#a6e22e">Unsafe</span> UNSAFE;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> SEED;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> PROBE;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> SECONDARY;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//获取Unsafe实例</span>
+</span></span><span style="display:flex;"><span>        UNSAFE <span style="color:#f92672">=</span> sun.<span style="color:#a6e22e">misc</span>.<span style="color:#a6e22e">Unsafe</span>.<span style="color:#a6e22e">getUnsafe</span>();
+</span></span><span style="display:flex;"><span>        Class<span style="color:#f92672">&lt;?&gt;</span> tk <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">class</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//获取Thread类里面threadLocalRandomSeed变量在Thread实例的偏移量</span>
+</span></span><span style="display:flex;"><span>        SEED <span style="color:#f92672">=</span> UNSAFE.<span style="color:#a6e22e">objectFieldOffset</span>
+</span></span><span style="display:flex;"><span>            (tk.<span style="color:#a6e22e">getDeclaredField</span>(<span style="color:#e6db74">&#34;threadLocalRandomSeed&#34;</span>));
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//获取Thread类里面threadLocalRandomProbe变量在Thread实例的偏移量</span>
+</span></span><span style="display:flex;"><span>        PROBE <span style="color:#f92672">=</span> UNSAFE.<span style="color:#a6e22e">objectFieldOffset</span>
+</span></span><span style="display:flex;"><span>            (tk.<span style="color:#a6e22e">getDeclaredField</span>(<span style="color:#e6db74">&#34;threadLocalRandomProbe&#34;</span>));
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//获取Thread类里面threadLocalRandomSecondarySeed变量在Thread实例的偏移量</span>
+</span></span><span style="display:flex;"><span>        SECONDARY <span style="color:#f92672">=</span> UNSAFE.<span style="color:#a6e22e">objectFieldOffset</span>
+</span></span><span style="display:flex;"><span>            (tk.<span style="color:#a6e22e">getDeclaredField</span>(<span style="color:#e6db74">&#34;threadLocalRandomSecondarySeed&#34;</span>));
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">catch</span> (Exception e) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> Error(e);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="nextint方法">nextInt方法</h2>
+<p>nextInt方法用于获取下一个随机数。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>	<span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">nextInt</span>(<span style="color:#66d9ef">int</span> bound) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//参数校验</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (bound <span style="color:#f92672">&lt;=</span> 0)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(BadBound);
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//根据当前线程中的种子计算新种子</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> r <span style="color:#f92672">=</span> mix32(nextSeed());
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//根据新种子计算随机数</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> m <span style="color:#f92672">=</span> bound <span style="color:#f92672">-</span> 1;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> ((bound <span style="color:#f92672">&amp;</span> m) <span style="color:#f92672">==</span> 0) <span style="color:#75715e">// power of two</span>
+</span></span><span style="display:flex;"><span>            r <span style="color:#f92672">&amp;=</span> m;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> u <span style="color:#f92672">=</span> r <span style="color:#f92672">&gt;&gt;&gt;</span> 1;
+</span></span><span style="display:flex;"><span>                 u <span style="color:#f92672">+</span> m <span style="color:#f92672">-</span> (r <span style="color:#f92672">=</span> u <span style="color:#f92672">%</span> bound) <span style="color:#f92672">&lt;</span> 0;
+</span></span><span style="display:flex;"><span>                 u <span style="color:#f92672">=</span> mix32(nextSeed()) <span style="color:#f92672">&gt;&gt;&gt;</span> 1)
+</span></span><span style="display:flex;"><span>                ;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> r;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="nextseed方法">nextSeed方法</h2>
+<p>获取当前线程的threadLocalRandomSeed变量值，然后加上GAMMA值作为新种子。可参照上文Unsafe机制。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">nextSeed</span>() {
+</span></span><span style="display:flex;"><span>    Thread t; <span style="color:#66d9ef">long</span> r;
+</span></span><span style="display:flex;"><span>    UNSAFE.<span style="color:#a6e22e">putLong</span>(t <span style="color:#f92672">=</span> Thread.<span style="color:#a6e22e">currentThread</span>(), SEED,
+</span></span><span style="display:flex;"><span>                   r <span style="color:#f92672">=</span> UNSAFE.<span style="color:#a6e22e">getLong</span>(t, SEED) <span style="color:#f92672">+</span> GAMMA);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> r;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="参考">参考</h2>
+<p>《Java并发编程之美》</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E5%B9%B6%E5%8F%91/">
+                并发
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/aqs/">AQS原理与源码分析</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/java-lock/">解析Java中的锁</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/java%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%E8%A7%A3%E6%9E%90/">Java内存模型解析</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

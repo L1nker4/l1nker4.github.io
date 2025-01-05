@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-stream/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-stream/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Redis底层数据结构-Stream源码分析",
+      "headline" : "Redis底层数据结构-Stream源码分析",
+      "description" : "简介 Redis在5.0.0版本中引进了消息队列的功能，该功能由Stream实现，本文主要介绍Stream的相关实现。\n数据结构 stream Stream的实现依赖于Rax树与listpack结构，每个消息流都包含一个Rax树，以消息ID为key，listpack为value存储在Rax树中。其基本结构如下：\nrax：rax存储生产者生产的具体消息，每个消息有唯一ID为键 length：代表当前stream中消息个数。 last_id：为当前stream中最后插入的消息ID，stream为空时，该值为0。 cgroups：存储了当前stream相关的消费组，以消费组组名为键，streamCG为值存储在rax中。 typedef struct stream { rax *rax; \/* The radix tree holding the stream. *\/ uint64_t length; \/* Number of elements inside this stream. *\/ streamID last_id; \/* Zero if there are yet no items. *\/ rax *cgroups; \/* Consumer groups dictionary: name -\u0026gt; streamCG *\/ } stream; 一个Stream的基本结构如图所示： 每一个listpack都有一个master entry，该结构存储了该listpack待插入消息的所有field。\nstreamID 消息ID的基本结构如下：\nms：消息创建时的时间 seq：序号 typedef struct streamID { uint64_t ms; \/* Unix time in milliseconds. *\/ uint64_t seq; \/* Sequence number. *\/ } streamID; streamCG 每个stream会有多个消费组，每个消费组通过组名称进行唯一标识，同时关联一个streamCG结构。该结构如下：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-06-27 14:21:30 \u002b0000 UTC",
+      "dateModified" : "2020-06-27 14:21:30 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/redis\/redis-stream\/",
+      "keywords" : [ "数据结构","源码分析","Redis", ]
+  }
+</script>
+<title>Redis底层数据结构-Stream源码分析</title>
+  <meta property="og:title" content="Redis底层数据结构-Stream源码分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 Redis在5.0.0版本中引进了消息队列的功能，该功能由Stream实现，本文主要介绍Stream的相关实现。
+数据结构 stream Stream的实现依赖于Rax树与listpack结构，每个消息流都包含一个Rax树，以消息ID为key，listpack为value存储在Rax树中。其基本结构如下：
+rax：rax存储生产者生产的具体消息，每个消息有唯一ID为键 length：代表当前stream中消息个数。 last_id：为当前stream中最后插入的消息ID，stream为空时，该值为0。 cgroups：存储了当前stream相关的消费组，以消费组组名为键，streamCG为值存储在rax中。 typedef struct stream { rax *rax; /* The radix tree holding the stream. */ uint64_t length; /* Number of elements inside this stream. */ streamID last_id; /* Zero if there are yet no items. */ rax *cgroups; /* Consumer groups dictionary: name -&gt; streamCG */ } stream; 一个Stream的基本结构如图所示： 每一个listpack都有一个master entry，该结构存储了该listpack待插入消息的所有field。
+streamID 消息ID的基本结构如下：
+ms：消息创建时的时间 seq：序号 typedef struct streamID { uint64_t ms; /* Unix time in milliseconds. */ uint64_t seq; /* Sequence number. */ } streamID; streamCG 每个stream会有多个消费组，每个消费组通过组名称进行唯一标识，同时关联一个streamCG结构。该结构如下：
+" />
+  <meta name="description" content="简介 Redis在5.0.0版本中引进了消息队列的功能，该功能由Stream实现，本文主要介绍Stream的相关实现。
+数据结构 stream Stream的实现依赖于Rax树与listpack结构，每个消息流都包含一个Rax树，以消息ID为key，listpack为value存储在Rax树中。其基本结构如下：
+rax：rax存储生产者生产的具体消息，每个消息有唯一ID为键 length：代表当前stream中消息个数。 last_id：为当前stream中最后插入的消息ID，stream为空时，该值为0。 cgroups：存储了当前stream相关的消费组，以消费组组名为键，streamCG为值存储在rax中。 typedef struct stream { rax *rax; /* The radix tree holding the stream. */ uint64_t length; /* Number of elements inside this stream. */ streamID last_id; /* Zero if there are yet no items. */ rax *cgroups; /* Consumer groups dictionary: name -&gt; streamCG */ } stream; 一个Stream的基本结构如图所示： 每一个listpack都有一个master entry，该结构存储了该listpack待插入消息的所有field。
+streamID 消息ID的基本结构如下：
+ms：消息创建时的时间 seq：序号 typedef struct streamID { uint64_t ms; /* Unix time in milliseconds. */ uint64_t seq; /* Sequence number. */ } streamID; streamCG 每个stream会有多个消费组，每个消费组通过组名称进行唯一标识，同时关联一个streamCG结构。该结构如下：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Redis底层数据结构-Stream源码分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-06-27 14:21:30 UTC">
+                27 Jun 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="简介">简介</h1>
+<p>Redis在5.0.0版本中引进了消息队列的功能，该功能由Stream实现，本文主要介绍Stream的相关实现。</p>
+<h1 id="数据结构">数据结构</h1>
+<h2 id="stream">stream</h2>
+<p>Stream的实现依赖于Rax树与<code>listpack</code>结构，每个消息流都包含一个Rax树，以消息ID为key，listpack为value存储在Rax树中。其基本结构如下：</p>
+<ul>
+<li>rax：rax存储生产者生产的具体消息，每个消息有唯一ID为键</li>
+<li>length：代表当前stream中消息个数。</li>
+<li>last_id：为当前stream中最后插入的消息ID，stream为空时，该值为0。</li>
+<li>cgroups：存储了当前stream相关的消费组，以消费组组名为键，streamCG为值存储在rax中。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> stream {
+</span></span><span style="display:flex;"><span>    rax <span style="color:#f92672">*</span>rax;               <span style="color:#75715e">/* The radix tree holding the stream. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> length;        <span style="color:#75715e">/* Number of elements inside this stream. */</span>
+</span></span><span style="display:flex;"><span>    streamID last_id;       <span style="color:#75715e">/* Zero if there are yet no items. */</span>
+</span></span><span style="display:flex;"><span>    rax <span style="color:#f92672">*</span>cgroups;           <span style="color:#75715e">/* Consumer groups dictionary: name -&gt; streamCG */</span>
+</span></span><span style="display:flex;"><span>} stream;
+</span></span></code></pre></div><p>一个Stream的基本结构如图所示：
+<img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/structure.PNG" alt="Stream结构"></p>
+<p>每一个listpack都有一个master entry，该结构存储了该listpack待插入消息的所有field。</p>
+<h3 id="streamid">streamID</h3>
+<p>消息ID的基本结构如下：</p>
+<ul>
+<li>ms：消息创建时的时间</li>
+<li>seq：序号</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> streamID {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> ms;        <span style="color:#75715e">/* Unix time in milliseconds. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> seq;       <span style="color:#75715e">/* Sequence number. */</span>
+</span></span><span style="display:flex;"><span>} streamID;
+</span></span></code></pre></div><h3 id="streamcg">streamCG</h3>
+<p>每个stream会有多个消费组，每个消费组通过组名称进行唯一标识，同时关联一个streamCG结构。该结构如下：</p>
+<ul>
+<li>last_id：该消费组已经确认的最后一个消息ID</li>
+<li>pel：为该消费组尚未确认的消息，消息ID为键，streamNACK为值，存储在rax树中</li>
+<li>consumers：消费组中的所有消费者，消费者名称为键，streamConsumer为值。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> streamCG {
+</span></span><span style="display:flex;"><span>    streamID last_id;
+</span></span><span style="display:flex;"><span>    rax <span style="color:#f92672">*</span>pel;
+</span></span><span style="display:flex;"><span>    rax <span style="color:#f92672">*</span>consumers;
+</span></span><span style="display:flex;"><span>} streamCG;
+</span></span></code></pre></div><h3 id="streamconsumer">streamConsumer</h3>
+<p>消费者结构如下：</p>
+<ul>
+<li>seen_time：为该消费者最后一次活跃的时间</li>
+<li>name：消费者名称，为sds结构</li>
+<li>pel：为该消费者尚未确认的消息，消息ID为键，streamNACK为值，存储在rax树中</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> streamConsumer {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">mstime_t</span> seen_time;
+</span></span><span style="display:flex;"><span>    sds name;
+</span></span><span style="display:flex;"><span>    rax <span style="color:#f92672">*</span>pel;
+</span></span><span style="display:flex;"><span>} streamConsumer;
+</span></span></code></pre></div><h3 id="streamnack">streamNACK</h3>
+<p>该结构为未确认消息，streamNACK维护了消费组或消费者尚未确认的消息，消费组中的pel的元素与消费者的pel元素是共享的。该结构如下：</p>
+<ul>
+<li>delivery_time：为该消息最后发送给消费方的时间</li>
+<li>delivery_count：该消息已发送的次数</li>
+<li>consumer：当前归属的消费者</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> streamNACK {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">mstime_t</span> delivery_time;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> delivery_count;
+</span></span><span style="display:flex;"><span>    streamConsumer <span style="color:#f92672">*</span>consumer;
+</span></span><span style="display:flex;"><span>} streamNACK;
+</span></span></code></pre></div><h3 id="streamiterator">streamIterator</h3>
+<p>该结构主要提供遍历功能，基本结构如下：</p>
+<ul>
+<li>stream：当前迭代器正在遍历的消息流</li>
+<li>master_id：为listpack中第一个插入的消息ID（master entry）</li>
+<li>master_fields_count：第一个entry的field个数</li>
+<li>master_fields_start：master entry的field首地址</li>
+<li>master_fields_ptr：记录field的位置</li>
+<li>entry_flags：当前遍历的消息的标志位</li>
+<li>rev：迭代器方向</li>
+<li>start_key,end_key：遍历范围</li>
+<li>ri：rax迭代器，用于遍历rax树中的所有key</li>
+<li>lp：当前的listpack指针</li>
+<li>lp_ele：当前正在遍历的listpack中的元素</li>
+<li>lp_flags：指向翻墙消息的flag域</li>
+<li>field_buf,value_buf：从listpack读取数据的缓存</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> streamIterator {
+</span></span><span style="display:flex;"><span>    stream <span style="color:#f92672">*</span>stream;         <span style="color:#75715e">/* The stream we are iterating. */</span>
+</span></span><span style="display:flex;"><span>    streamID master_id;     <span style="color:#75715e">/* ID of the master entry at listpack head. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> master_fields_count;       <span style="color:#75715e">/* Master entries # of fields. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>master_fields_start; <span style="color:#75715e">/* Master entries start in listpack. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>master_fields_ptr;   <span style="color:#75715e">/* Master field to emit next. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> entry_flags;                    <span style="color:#75715e">/* Flags of entry we are emitting. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> rev;                <span style="color:#75715e">/* True if iterating end to start (reverse). */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> start_key[<span style="color:#ae81ff">2</span>];  <span style="color:#75715e">/* Start key as 128 bit big endian. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> end_key[<span style="color:#ae81ff">2</span>];    <span style="color:#75715e">/* End key as 128 bit big endian. */</span>
+</span></span><span style="display:flex;"><span>    raxIterator ri;         <span style="color:#75715e">/* Rax iterator. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>lp;      <span style="color:#75715e">/* Current listpack. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>lp_ele;  <span style="color:#75715e">/* Current listpack cursor. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>lp_flags; <span style="color:#75715e">/* Current entry flags pointer. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* Buffers used to hold the string of lpGet() when the element is
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * integer encoded, so that there is no string representation of the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * element inside the listpack itself. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> field_buf[LP_INTBUF_SIZE];
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> value_buf[LP_INTBUF_SIZE];
+</span></span><span style="display:flex;"><span>} streamIterator;
+</span></span></code></pre></div><h2 id="listpack">listpack</h2>
+<p>listpack是一个字符串列表的序列化格式，该结构可用于存储字符串或整型。其主要结构如下图所示：
+<img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/listpack.PNG" alt="listpack基本结构">
+listpack主要由四部分构成，分别是：</p>
+<ul>
+<li>Total Bytes为整个listpack的空间大小</li>
+<li>Num Elem：listpack的Entry个数，占用两个字节，但是Entry个数大于等于65535时，该值为65535，所以这种情况下获取元素个数，需要遍历整个listpack</li>
+<li>Entry：为每个具体的元素</li>
+<li>End：为listpack的结束标志，占用一个字节，内容为0xFF</li>
+</ul>
+<p>Entry由三部分构成，基本如下：</p>
+<ul>
+<li>Encode：元素的编码方式，占用一个字节</li>
+<li>content：内容</li>
+<li>backlen：记录entry的长度（不包括该字段本身）</li>
+</ul>
+<p>其中编码方式取值如下图所示：
+<img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/stream/encode.PNG" alt="编码取值"></p>
+<p>Stream的消息内容存储在listpack中，消息存储格式是每个字段都是一个entry，而不是键整个消息作为字符串存储的，每个listpack会存储多个消息，具体存储个数由<code>stream-node-max-bytes</code>（listpack节点最大占用字节数，默认4096）和<code>stream-node-max-entries</code>（最大存储元素个数，默认100）决定.</p>
+<p>每个listpack在创建时，会将第一个插入的entry构建成master entry，其基本结构如下所示：</p>
+<pre tabindex="0"><code>count   |   deleted  |  num-fields  |   field-1 |   field-2 |   0
+</code></pre><p>其中：</p>
+<ul>
+<li>count：为当前listpack中所有未删除的消息个数</li>
+<li>deleted：当前listpack中所有已经删除的消息个数</li>
+<li>num-fields：field个数</li>
+<li>field-N：field域</li>
+<li>0为标识位，再从后向前遍历listpack时使用</li>
+</ul>
+<p>存储一个消息时，如果该消息的field域与master entry完全相同，则不需要再次存储field域</p>
+<h2 id="rax">Rax</h2>
+<p>Redis对于Rax的解释为<code>A radix tree implement</code>，基数树的一种实现。Rax中不仅可以存储字符串，也可以为该字符串设置值形成kv结构。其基本结构如下：</p>
+<ul>
+<li>head：指向头节点</li>
+<li>numele：元素个数（key）</li>
+<li>numnodes：节点个数</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> rax {
+</span></span><span style="display:flex;"><span>    raxNode <span style="color:#f92672">*</span>head;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> numele;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> numnodes;
+</span></span><span style="display:flex;"><span>} rax;
+</span></span></code></pre></div><h2 id="raxnode">raxNode</h2>
+<p>raxNode代表Rax树中的一个节点，其基本结构如下所示：</p>
+<ul>
+<li>iskey：表明当前节点是否包含一个key，占用1bit</li>
+<li>isnull：表明当前key对应的value是否为空，占用1bit</li>
+<li>iscompr：表明当前节点是否为压缩节点，占用1bit</li>
+<li>size：压缩节点压缩的字符串长度或者非压缩节点的子节点个数，占用29bit</li>
+<li>data：包含填充字段，同时存储了当前节点包含的字符串以及子节点的指针，key对应的value指针。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> raxNode {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint32_t</span> iskey:<span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint32_t</span> isnull:<span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint32_t</span> iscompr:<span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint32_t</span> size:<span style="color:#ae81ff">29</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> data[];
+</span></span><span style="display:flex;"><span>} raxNode;
+</span></span></code></pre></div><p>其中raxNode分为压缩节点域非压缩节点。主要区别在于非压缩节点的每个字符都有子节点，如果字符个数小于2，都是非压缩节点。</p>
+<h2 id="raxstack">raxStack</h2>
+<p>raxStack结构用于存储从根节点到当前节点的路径，基本结构如下：</p>
+<ul>
+<li>stack：用于记录路径，该指针可能指向static_items或者堆内存</li>
+<li>items,maxitems：代表stack指向的空间的已用空间以及最大空间</li>
+<li>static_items：一个数组，每个元素都是指针，存储路径</li>
+<li>oom：代表当前栈是否出现过内存溢出</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> raxStack {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">void</span> <span style="color:#f92672">**</span>stack;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">size_t</span> items, maxitems;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>static_items[RAX_STACK_STATIC_ITEMS];
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> oom;
+</span></span><span style="display:flex;"><span>} raxStack;
+</span></span></code></pre></div><h2 id="raxiterator">raxIterator</h2>
+<p>raxIterator用于遍历Rax树中的所有key，基本结构如下：</p>
+<ul>
+<li>flags：代表当前迭代器标志位,取值如下：
+<ul>
+<li>RAX_ITER_JUST_SEEKED：当前迭代器指向的元素是刚刚搜索过的，当需要从迭代器中获取元素时，直接返回当前元素并清空标志位。</li>
+<li>RAX_ITER_EOF：代表当前迭代器已经遍历到最后一个节点</li>
+<li>RAX_ITER_SAFE：代表当前迭代器为安全迭代器，可以进行写操作</li>
+</ul>
+</li>
+<li>rt：当前迭代器对应的rax</li>
+<li>key：存储了当前迭代器遍历到的key，该指针指向key_static_string或者堆内存</li>
+<li>data：value值</li>
+<li>key_len,key_max：key指向的空间的已用空间以及最大空间</li>
+<li>key_static_string：key的默认存储空间，key过大时，会使用堆内存</li>
+<li>node：当前key所在的raxNode</li>
+<li>stack：记录了从根节点到当前节点的路径，用于raxNode线上遍历</li>
+<li>node_cb：为节点的回调函数，默认为空</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> raxIterator {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> flags;
+</span></span><span style="display:flex;"><span>    rax <span style="color:#f92672">*</span>rt;                <span style="color:#75715e">/* Radix tree we are iterating. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>key;     <span style="color:#75715e">/* The current string. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>data;             <span style="color:#75715e">/* Data associated to this key. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">size_t</span> key_len;         <span style="color:#75715e">/* Current key length. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">size_t</span> key_max;         <span style="color:#75715e">/* Max key len the current key buffer can hold. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> key_static_string[RAX_ITER_STATIC_LEN];
+</span></span><span style="display:flex;"><span>    raxNode <span style="color:#f92672">*</span>node;          <span style="color:#75715e">/* Current node. Only for unsafe iteration. */</span>
+</span></span><span style="display:flex;"><span>    raxStack stack;         <span style="color:#75715e">/* Stack used for unsafe iteration. */</span>
+</span></span><span style="display:flex;"><span>    raxNodeCallback node_cb; <span style="color:#75715e">/* Optional node callback. Normally set to NULL. */</span>
+</span></span><span style="display:flex;"><span>} raxIterator;
+</span></span></code></pre></div><h1 id="总结">总结</h1>
+<p>上文主要对Redis Stream的基本结构与其底层数据结构做了简要分析，了解了消息由listpack结构存储，以消息ID为key，listpack为value存储在Rax树中。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/">
+                数据结构
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">
+                源码分析
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/redis/">
+                Redis
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-quicklist/">Redis底层数据结构-Quicklist源码分析</a></li>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-intset/">Redis底层数据结构-Intset源码分析</a></li>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-dict/">Redis底层数据结构-Dict源码分析</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

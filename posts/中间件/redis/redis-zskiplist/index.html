@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-zskiplist/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-zskiplist/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Redis底层数据结构-SkipList源码分析",
+      "headline" : "Redis底层数据结构-SkipList源码分析",
+      "description" : "简介 跳表(SkipList)通过对有序链表添加多级索引，从而实现类似于二分查找效果的有序链表，它的插入\/删除\/搜索的平均时间复杂度为O(log n)，该数据结构可以用来代替平衡树以提高效率。其基本结构如 下图所示：\n如果此时查找51的节点，步骤基本如下：\n从第二层开始查找，1比51小，向后比较 21比51小，21后面为NULL，下降到第一层的21先后比较 第一层中21的next节点为41，41比51小，41的next节点61比51大，下降到第0层比较 41的next节点为51，查找完成。 数据结构 zskiplistNode：\nele：存储SDS类型的数据 score：排序用的分值 backward：后退指针，指向当前节点最底层的前驱节点，第一个指向NULL level：数组，它的长度在生成时随机生成一个1 ~ 64的值，值越大出现概率越低 forward：指向本层的下一个节点，尾节点指向NULL span：指向的节点与本节点之间的元素个数 zskiplist：\nheader：指向跳表的头节点 tail：指向跳表的尾节点 length：跳表的长度 level：跳表的高度 \/* ZSETs use a specialized version of Skiplists *\/ typedef struct zskiplistNode { sds ele; double score; struct zskiplistNode *backward; struct zskiplistLevel { struct zskiplistNode *forward; unsigned long span; } level[]; } zskiplistNode; typedef struct zskiplist { struct zskiplistNode *header, *tail; unsigned long length; int level; } zskiplist; typedef struct zset { dict *dict; zskiplist *zsl; } zset; 接口 zslCreate zslCreateNode \/* Create a skiplist node with the specified number of levels. * The SDS string \u0026#39;ele\u0026#39; is referenced by the node after the call. *\/ zskiplistNode *zslCreateNode(int level, double score, sds ele) { \/\/申请内存空间 zskiplistNode *zn = zmalloc(sizeof(*zn)\u002blevel*sizeof(struct zskiplistLevel)); \/\/初始化 zn-\u0026gt;score = score; zn-\u0026gt;ele = ele; return zn; } zslCreate \/* Create a new skiplist. *\/ zskiplist *zslCreate(void) { int j; \/\/指向跳表的指针 zskiplist *zsl; \/\/申请内存空间 zsl = zmalloc(sizeof(*zsl)); \/\/设置默认值 zsl-\u0026gt;level = 1; zsl-\u0026gt;length = 0; \/\/创建头节点 zsl-\u0026gt;header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL); \/\/将头节点的level数组的forward设置为NULL，span设置为0 for (j = 0; j \u0026lt; ZSKIPLIST_MAXLEVEL; j\u002b\u002b) { zsl-\u0026gt;header-\u0026gt;level[j].forward = NULL; zsl-\u0026gt;header-\u0026gt;level[j].span = 0; } \/\/设置头尾节点 zsl-\u0026gt;header-\u0026gt;backward = NULL; zsl-\u0026gt;tail = NULL; return zsl; } zslRandomLevel level最小值为1，最大值为64，该方法随机生成1 ~ 64的值。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-05-25 21:31:00 \u002b0000 UTC",
+      "dateModified" : "2020-05-25 21:31:00 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/redis\/redis-zskiplist\/",
+      "keywords" : [ "数据结构","源码分析","Redis", ]
+  }
+</script>
+<title>Redis底层数据结构-SkipList源码分析</title>
+  <meta property="og:title" content="Redis底层数据结构-SkipList源码分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 跳表(SkipList)通过对有序链表添加多级索引，从而实现类似于二分查找效果的有序链表，它的插入/删除/搜索的平均时间复杂度为O(log n)，该数据结构可以用来代替平衡树以提高效率。其基本结构如 下图所示：
+如果此时查找51的节点，步骤基本如下：
+从第二层开始查找，1比51小，向后比较 21比51小，21后面为NULL，下降到第一层的21先后比较 第一层中21的next节点为41，41比51小，41的next节点61比51大，下降到第0层比较 41的next节点为51，查找完成。 数据结构 zskiplistNode：
+ele：存储SDS类型的数据 score：排序用的分值 backward：后退指针，指向当前节点最底层的前驱节点，第一个指向NULL level：数组，它的长度在生成时随机生成一个1 ~ 64的值，值越大出现概率越低 forward：指向本层的下一个节点，尾节点指向NULL span：指向的节点与本节点之间的元素个数 zskiplist：
+header：指向跳表的头节点 tail：指向跳表的尾节点 length：跳表的长度 level：跳表的高度 /* ZSETs use a specialized version of Skiplists */ typedef struct zskiplistNode { sds ele; double score; struct zskiplistNode *backward; struct zskiplistLevel { struct zskiplistNode *forward; unsigned long span; } level[]; } zskiplistNode; typedef struct zskiplist { struct zskiplistNode *header, *tail; unsigned long length; int level; } zskiplist; typedef struct zset { dict *dict; zskiplist *zsl; } zset; 接口 zslCreate zslCreateNode /* Create a skiplist node with the specified number of levels. * The SDS string &#39;ele&#39; is referenced by the node after the call. */ zskiplistNode *zslCreateNode(int level, double score, sds ele) { //申请内存空间 zskiplistNode *zn = zmalloc(sizeof(*zn)&#43;level*sizeof(struct zskiplistLevel)); //初始化 zn-&gt;score = score; zn-&gt;ele = ele; return zn; } zslCreate /* Create a new skiplist. */ zskiplist *zslCreate(void) { int j; //指向跳表的指针 zskiplist *zsl; //申请内存空间 zsl = zmalloc(sizeof(*zsl)); //设置默认值 zsl-&gt;level = 1; zsl-&gt;length = 0; //创建头节点 zsl-&gt;header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL); //将头节点的level数组的forward设置为NULL，span设置为0 for (j = 0; j &lt; ZSKIPLIST_MAXLEVEL; j&#43;&#43;) { zsl-&gt;header-&gt;level[j].forward = NULL; zsl-&gt;header-&gt;level[j].span = 0; } //设置头尾节点 zsl-&gt;header-&gt;backward = NULL; zsl-&gt;tail = NULL; return zsl; } zslRandomLevel level最小值为1，最大值为64，该方法随机生成1 ~ 64的值。
+" />
+  <meta name="description" content="简介 跳表(SkipList)通过对有序链表添加多级索引，从而实现类似于二分查找效果的有序链表，它的插入/删除/搜索的平均时间复杂度为O(log n)，该数据结构可以用来代替平衡树以提高效率。其基本结构如 下图所示：
+如果此时查找51的节点，步骤基本如下：
+从第二层开始查找，1比51小，向后比较 21比51小，21后面为NULL，下降到第一层的21先后比较 第一层中21的next节点为41，41比51小，41的next节点61比51大，下降到第0层比较 41的next节点为51，查找完成。 数据结构 zskiplistNode：
+ele：存储SDS类型的数据 score：排序用的分值 backward：后退指针，指向当前节点最底层的前驱节点，第一个指向NULL level：数组，它的长度在生成时随机生成一个1 ~ 64的值，值越大出现概率越低 forward：指向本层的下一个节点，尾节点指向NULL span：指向的节点与本节点之间的元素个数 zskiplist：
+header：指向跳表的头节点 tail：指向跳表的尾节点 length：跳表的长度 level：跳表的高度 /* ZSETs use a specialized version of Skiplists */ typedef struct zskiplistNode { sds ele; double score; struct zskiplistNode *backward; struct zskiplistLevel { struct zskiplistNode *forward; unsigned long span; } level[]; } zskiplistNode; typedef struct zskiplist { struct zskiplistNode *header, *tail; unsigned long length; int level; } zskiplist; typedef struct zset { dict *dict; zskiplist *zsl; } zset; 接口 zslCreate zslCreateNode /* Create a skiplist node with the specified number of levels. * The SDS string &#39;ele&#39; is referenced by the node after the call. */ zskiplistNode *zslCreateNode(int level, double score, sds ele) { //申请内存空间 zskiplistNode *zn = zmalloc(sizeof(*zn)&#43;level*sizeof(struct zskiplistLevel)); //初始化 zn-&gt;score = score; zn-&gt;ele = ele; return zn; } zslCreate /* Create a new skiplist. */ zskiplist *zslCreate(void) { int j; //指向跳表的指针 zskiplist *zsl; //申请内存空间 zsl = zmalloc(sizeof(*zsl)); //设置默认值 zsl-&gt;level = 1; zsl-&gt;length = 0; //创建头节点 zsl-&gt;header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL); //将头节点的level数组的forward设置为NULL，span设置为0 for (j = 0; j &lt; ZSKIPLIST_MAXLEVEL; j&#43;&#43;) { zsl-&gt;header-&gt;level[j].forward = NULL; zsl-&gt;header-&gt;level[j].span = 0; } //设置头尾节点 zsl-&gt;header-&gt;backward = NULL; zsl-&gt;tail = NULL; return zsl; } zslRandomLevel level最小值为1，最大值为64，该方法随机生成1 ~ 64的值。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Redis底层数据结构-SkipList源码分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-05-25 21:31:00 UTC">
+                25 May 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="简介">简介</h1>
+<p>跳表(SkipList)通过对有序链表添加多级索引，从而实现类似于二分查找效果的有序链表，它的插入/删除/搜索的平均时间复杂度为<code>O(log n)</code>，该数据结构可以用来代替平衡树以提高效率。其基本结构如 下图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/skiplist/skiplist.png" alt="跳表基本结构"></p>
+<p>如果此时查找51的节点，步骤基本如下：</p>
+<ol>
+<li>从第二层开始查找，1比51小，向后比较</li>
+<li>21比51小，21后面为NULL，下降到第一层的21先后比较</li>
+<li>第一层中21的next节点为41，41比51小，41的next节点61比51大，下降到第0层比较</li>
+<li>41的next节点为51，查找完成。</li>
+</ol>
+<h1 id="数据结构">数据结构</h1>
+<p>zskiplistNode：</p>
+<ul>
+<li>ele：存储SDS类型的数据</li>
+<li>score：排序用的分值</li>
+<li>backward：后退指针，指向当前节点最底层的前驱节点，第一个指向NULL</li>
+<li>level：数组，它的长度在生成时随机生成一个1 ~ 64的值，值越大出现概率越低
+<ul>
+<li>forward：指向本层的下一个节点，尾节点指向NULL</li>
+<li>span：指向的节点与本节点之间的元素个数</li>
+</ul>
+</li>
+</ul>
+<p>zskiplist：</p>
+<ul>
+<li>header：指向跳表的头节点</li>
+<li>tail：指向跳表的尾节点</li>
+<li>length：跳表的长度</li>
+<li>level：跳表的高度</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#75715e">/* ZSETs use a specialized version of Skiplists */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> zskiplistNode {
+</span></span><span style="display:flex;"><span>    sds ele;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">double</span> score;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> zskiplistNode <span style="color:#f92672">*</span>backward;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> zskiplistLevel {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">struct</span> zskiplistNode <span style="color:#f92672">*</span>forward;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> span;
+</span></span><span style="display:flex;"><span>    } level[];
+</span></span><span style="display:flex;"><span>} zskiplistNode;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> zskiplist {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> zskiplistNode <span style="color:#f92672">*</span>header, <span style="color:#f92672">*</span>tail;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> length;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> level;
+</span></span><span style="display:flex;"><span>} zskiplist;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> zset {
+</span></span><span style="display:flex;"><span>    dict <span style="color:#f92672">*</span>dict;
+</span></span><span style="display:flex;"><span>    zskiplist <span style="color:#f92672">*</span>zsl;
+</span></span><span style="display:flex;"><span>} zset;
+</span></span></code></pre></div><h1 id="接口">接口</h1>
+<h2 id="zslcreate">zslCreate</h2>
+<h3 id="zslcreatenode">zslCreateNode</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#75715e">/* Create a skiplist node with the specified number of levels.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * The SDS string &#39;ele&#39; is referenced by the node after the call. */</span>
+</span></span><span style="display:flex;"><span>zskiplistNode <span style="color:#f92672">*</span><span style="color:#a6e22e">zslCreateNode</span>(<span style="color:#66d9ef">int</span> level, <span style="color:#66d9ef">double</span> score, sds ele) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//申请内存空间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    zskiplistNode <span style="color:#f92672">*</span>zn <span style="color:#f92672">=</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">zmalloc</span>(<span style="color:#66d9ef">sizeof</span>(<span style="color:#f92672">*</span>zn)<span style="color:#f92672">+</span>level<span style="color:#f92672">*</span><span style="color:#66d9ef">sizeof</span>(<span style="color:#66d9ef">struct</span> zskiplistLevel));
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//初始化
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    zn<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">=</span> score;
+</span></span><span style="display:flex;"><span>    zn<span style="color:#f92672">-&gt;</span>ele <span style="color:#f92672">=</span> ele;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> zn;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="zslcreate-1">zslCreate</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#75715e">/* Create a new skiplist. */</span>
+</span></span><span style="display:flex;"><span>zskiplist <span style="color:#f92672">*</span><span style="color:#a6e22e">zslCreate</span>(<span style="color:#66d9ef">void</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> j;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//指向跳表的指针
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    zskiplist <span style="color:#f92672">*</span>zsl;
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//申请内存空间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    zsl <span style="color:#f92672">=</span> <span style="color:#a6e22e">zmalloc</span>(<span style="color:#66d9ef">sizeof</span>(<span style="color:#f92672">*</span>zsl));
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//设置默认值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    zsl<span style="color:#f92672">-&gt;</span>level <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    zsl<span style="color:#f92672">-&gt;</span>length <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//创建头节点
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    zsl<span style="color:#f92672">-&gt;</span>header <span style="color:#f92672">=</span> <span style="color:#a6e22e">zslCreateNode</span>(ZSKIPLIST_MAXLEVEL,<span style="color:#ae81ff">0</span>,NULL);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//将头节点的level数组的forward设置为NULL，span设置为0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> (j <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; j <span style="color:#f92672">&lt;</span> ZSKIPLIST_MAXLEVEL; j<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>header<span style="color:#f92672">-&gt;</span>level[j].forward <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>header<span style="color:#f92672">-&gt;</span>level[j].span <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//设置头尾节点
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    zsl<span style="color:#f92672">-&gt;</span>header<span style="color:#f92672">-&gt;</span>backward <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>    zsl<span style="color:#f92672">-&gt;</span>tail <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> zsl;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="zslrandomlevel">zslRandomLevel</h2>
+<p>level最小值为1，最大值为64，该方法随机生成1 ~ 64的值。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#75715e">#define ZSKIPLIST_MAXLEVEL 64
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define ZSKIPLIST_P 0.25
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">zslRandomLevel</span>(<span style="color:#66d9ef">void</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> level <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//生成随机值，取低16位为x，当x &lt; 0.25 * 0xFFFF时，level自增1
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">while</span> ((<span style="color:#a6e22e">random</span>()<span style="color:#f92672">&amp;</span><span style="color:#ae81ff">0xFFFF</span>) <span style="color:#f92672">&lt;</span> (ZSKIPLIST_P <span style="color:#f92672">*</span> <span style="color:#ae81ff">0xFFFF</span>))
+</span></span><span style="display:flex;"><span>        level <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> (level<span style="color:#f92672">&lt;</span>ZSKIPLIST_MAXLEVEL) <span style="color:#f92672">?</span> level : ZSKIPLIST_MAXLEVEL;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="zslinsert">zslInsert</h2>
+<p>插入逻辑主要如下：</p>
+<ul>
+<li>查找要插入的位置</li>
+<li>调整跳表高度</li>
+<li>插入节点</li>
+<li>调整backward</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span>zskiplistNode <span style="color:#f92672">*</span><span style="color:#a6e22e">zslInsert</span>(zskiplist <span style="color:#f92672">*</span>zsl, <span style="color:#66d9ef">double</span> score, sds ele) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//保存每一层需要更新的节点
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    zskiplistNode <span style="color:#f92672">*</span>update[ZSKIPLIST_MAXLEVEL], <span style="color:#f92672">*</span>x;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//保存从header到update[i]节点的步长
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> rank[ZSKIPLIST_MAXLEVEL];
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i, level;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">serverAssert</span>(<span style="color:#f92672">!</span><span style="color:#a6e22e">isnan</span>(score));
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//查找要插入的位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    x <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>header;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>; i<span style="color:#f92672">--</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* store rank that is crossed to reach the insert position */</span>
+</span></span><span style="display:flex;"><span>        rank[i] <span style="color:#f92672">=</span> i <span style="color:#f92672">==</span> (zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#f92672">?</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">:</span> rank[i<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>];
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (x<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&lt;</span> score <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                    (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">==</span> score <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#a6e22e">sdscmp</span>(x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>ele,ele) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>)))
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            rank[i] <span style="color:#f92672">+=</span> x<span style="color:#f92672">-&gt;</span>level[i].span;
+</span></span><span style="display:flex;"><span>            x <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[i].forward;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        update[i] <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//获取随机层数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    level <span style="color:#f92672">=</span> <span style="color:#a6e22e">zslRandomLevel</span>();
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//如果插入的层数大于最高层，设置rank和update数组
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (level <span style="color:#f92672">&gt;</span> zsl<span style="color:#f92672">-&gt;</span>level) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>level; i <span style="color:#f92672">&lt;</span> level; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>            rank[i] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>            update[i] <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>header;
+</span></span><span style="display:flex;"><span>            update[i]<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>length;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>level <span style="color:#f92672">=</span> level;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//创建节点
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    x <span style="color:#f92672">=</span> <span style="color:#a6e22e">zslCreateNode</span>(level,score,ele);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> level; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//更新指向
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        x<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">=</span> update[i]<span style="color:#f92672">-&gt;</span>level[i].forward;
+</span></span><span style="display:flex;"><span>        update[i]<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//更新span
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        x<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">=</span> update[i]<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">-</span> (rank[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">-</span> rank[i]);
+</span></span><span style="display:flex;"><span>        update[i]<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">=</span> (rank[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">-</span> rank[i]) <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* increment span for untouched levels */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> level; i <span style="color:#f92672">&lt;</span> zsl<span style="color:#f92672">-&gt;</span>level; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>        update[i]<span style="color:#f92672">-&gt;</span>level[i].span<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//调整backward指针
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    x<span style="color:#f92672">-&gt;</span>backward <span style="color:#f92672">=</span> (update[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">==</span> zsl<span style="color:#f92672">-&gt;</span>header) <span style="color:#f92672">?</span> NULL <span style="color:#f92672">:</span> update[<span style="color:#ae81ff">0</span>];
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward)
+</span></span><span style="display:flex;"><span>        x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward<span style="color:#f92672">-&gt;</span>backward <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>tail <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>    zsl<span style="color:#f92672">-&gt;</span>length<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> x;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="zsldelete">zslDelete</h2>
+<p>删除逻辑主要如下：</p>
+<ul>
+<li>查找需要删除的节点</li>
+<li>设置span和forward</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#75715e">// 删除指定的节点，节点是否删除取决于 node是否为 NULL，如果为 NULL的话就删除，否则将值存到 *node中
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">zslDelete</span>(zskiplist <span style="color:#f92672">*</span>zsl, <span style="color:#66d9ef">double</span> score, sds ele, zskiplistNode <span style="color:#f92672">**</span>node) {
+</span></span><span style="display:flex;"><span>    zskiplistNode <span style="color:#f92672">*</span>update[ZSKIPLIST_MAXLEVEL], <span style="color:#f92672">*</span>x;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    x <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>header;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 定位到每一层需要删除的位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>; i<span style="color:#f92672">--</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (x<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&lt;</span> score <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                    (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">==</span> score <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                     <span style="color:#a6e22e">sdscmp</span>(x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>ele,ele) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>)))
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            x <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[i].forward;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        update[i] <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 在第一层(也就是完整的链表)中找到要删除的节点位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    x <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 完全相同才进行删除
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (x <span style="color:#f92672">&amp;&amp;</span> score <span style="color:#f92672">==</span> x<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">sdscmp</span>(x<span style="color:#f92672">-&gt;</span>ele,ele) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">zslDeleteNode</span>(zsl, x, update);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>node)
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">zslFreeNode</span>(x);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">*</span>node <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 遍历结束也没找到
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 删除节点
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">zslDeleteNode</span>(zskiplist <span style="color:#f92672">*</span>zsl, zskiplistNode <span style="color:#f92672">*</span>x, zskiplistNode <span style="color:#f92672">**</span>update) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> zsl<span style="color:#f92672">-&gt;</span>level; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 更新 span和前驱指针
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> (update[i]<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">==</span> x) {
+</span></span><span style="display:flex;"><span>            update[i]<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">+=</span> x<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>            update[i]<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[i].forward;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 不相等说明这些节点都在要删除的节点之前，跨度 span应该减 1
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            update[i]<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">-=</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 更新前驱指针，相当于更新双向链表的 prev指向
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward<span style="color:#f92672">-&gt;</span>backward <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>backward;
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 说明要删除的节点是最后一个节点，更新尾节点
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        zsl<span style="color:#f92672">-&gt;</span>tail <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>backward;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 对于最上面都是空的层，应该排除，从第一个有数据的层开始算作有效
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">while</span>(zsl<span style="color:#f92672">-&gt;</span>level <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">1</span> <span style="color:#f92672">&amp;&amp;</span> zsl<span style="color:#f92672">-&gt;</span>header<span style="color:#f92672">-&gt;</span>level[zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>].forward <span style="color:#f92672">==</span> NULL)
+</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>    zsl<span style="color:#f92672">-&gt;</span>length<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="zslfree">zslFree</h2>
+<p>删除跳表逻辑：</p>
+<ul>
+<li>释放头节点</li>
+<li>从头节点的第0层开始，通过forward向后遍历，逐个释放节点的内存空间</li>
+<li>最后释放跳表指针空间</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#75715e">/* Free a whole skiplist. */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">zslFree</span>(zskiplist <span style="color:#f92672">*</span>zsl) {
+</span></span><span style="display:flex;"><span>    zskiplistNode <span style="color:#f92672">*</span>node <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>header<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward, <span style="color:#f92672">*</span>next;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">zfree</span>(zsl<span style="color:#f92672">-&gt;</span>header);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span>(node) {
+</span></span><span style="display:flex;"><span>        next <span style="color:#f92672">=</span> node<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward;
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">zslFreeNode</span>(node);
+</span></span><span style="display:flex;"><span>        node <span style="color:#f92672">=</span> next;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">zfree</span>(zsl);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//释放节点，首先释放SDS的空间，再释放节点空间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">zslFreeNode</span>(zskiplistNode <span style="color:#f92672">*</span>node) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">sdsfree</span>(node<span style="color:#f92672">-&gt;</span>ele);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">zfree</span>(node);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="zslupdatescore">zslUpdateScore</h2>
+<p>更新节点的排序分数基本逻辑如下：</p>
+<ul>
+<li>找到对应需要更新的节点</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span>zskiplistNode <span style="color:#f92672">*</span><span style="color:#a6e22e">zslUpdateScore</span>(zskiplist <span style="color:#f92672">*</span>zsl, <span style="color:#66d9ef">double</span> curscore, sds ele, <span style="color:#66d9ef">double</span> newscore) {
+</span></span><span style="display:flex;"><span>    zskiplistNode <span style="color:#f92672">*</span>update[ZSKIPLIST_MAXLEVEL], <span style="color:#f92672">*</span>x;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//找到对应需要更新的节点
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    x <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>header;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>; i<span style="color:#f92672">--</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (x<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&lt;</span> curscore <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                    (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">==</span> curscore <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                     <span style="color:#a6e22e">sdscmp</span>(x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>ele,ele) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>)))
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            x <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[i].forward;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        update[i] <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* Jump to our element: note that this function assumes that the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * element with the matching score exists. */</span>
+</span></span><span style="display:flex;"><span>    x <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward;
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">serverAssert</span>(x <span style="color:#f92672">&amp;&amp;</span> curscore <span style="color:#f92672">==</span> x<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">sdscmp</span>(x<span style="color:#f92672">-&gt;</span>ele,ele) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//直接更新    
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> ((x<span style="color:#f92672">-&gt;</span>backward <span style="color:#f92672">==</span> NULL <span style="color:#f92672">||</span> x<span style="color:#f92672">-&gt;</span>backward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&lt;</span> newscore) <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>        (x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward <span style="color:#f92672">==</span> NULL <span style="color:#f92672">||</span> x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&gt;</span> newscore))
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        x<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">=</span> newscore;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> x;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//无法重用旧节点时，删除后重新添加
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">zslDeleteNode</span>(zsl, x, update);
+</span></span><span style="display:flex;"><span>    zskiplistNode <span style="color:#f92672">*</span>newnode <span style="color:#f92672">=</span> <span style="color:#a6e22e">zslInsert</span>(zsl,newscore,x<span style="color:#f92672">-&gt;</span>ele);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* We reused the old node x-&gt;ele SDS string, free the node now
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * since zslInsert created a new one. */</span>
+</span></span><span style="display:flex;"><span>    x<span style="color:#f92672">-&gt;</span>ele <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">zslFreeNode</span>(x);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> newnode;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h1 id="总结">总结</h1>
+<p>本文主要对跳表的概念和基本查询思路做了简要分析，对Redis中的跳表的数据结构和基本增删改查接口做了简要的源代码分析。在Redis中的有序集合<code>zset</code>就是通过<code>skiplist</code>和<code>dict</code>组合实现的。另外一处运用则是集群节点中用作内部的数据结构。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/">
+                数据结构
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">
+                源码分析
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/redis/">
+                Redis
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis%E5%BA%95%E5%B1%82%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84-sds/">Redis底层数据结构-SDS</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

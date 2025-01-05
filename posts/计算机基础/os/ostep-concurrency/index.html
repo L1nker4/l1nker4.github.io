@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/os/ostep-concurrency/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/os/ostep-concurrency/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "OSTEP阅读笔记- Concurrency（二）",
+      "headline" : "OSTEP阅读笔记- Concurrency（二）",
+      "description" : "Chapter 26 并发介绍 本章介绍为单个运行进程提供的新抽象：thread。线程共享地址空间。\n每个线程都有自己的PC与自己用于计算的register。如果有两个线程运行在同一个处理器上，发生context switch时，与进程不同的是，使用PCB保存进程状态，使用TCB保存线程状态。区别是：地址空间保持不变（不需要切换当前使用的页表）。\n另一个主要区别在于栈，传统进程只有一个栈，如图26.1所示：\n多线程中，每个线程拥有自己的栈，位于栈上的变量、参数、返回值是无法共享的。\n26.1 实例：线程创建 示例：使用pthead_create()创建了两个线程，主程序调用pthread_join()等待指定线程执行完成。\n线程的执行顺序取决于系统调度。\n26.2 共享数据导致的问题 多线程对共享数据进行操作会导致非预期结果。\n26.3 核心问题：不可控的调度 竞态条件（race condition）：结果取决于代码的执行顺序。运气不好会导致错误的结果。\n26.4 原子性 Q：如何构建有用的同步原语？需要从硬件中获取那些支持？\n26.5 等待另一个线程 需要研究多线程中的wait\/signal机制。\nChapter 27 线程API Q：如何创建和控制线程？\n27.1 pthread_create 在POSIX中：\n#include \u0026lt;pthread.h\u0026gt; int pthread_create( pthread_t * thread, const pthread_attr_t * attr, void * (*start_routine)(void*), void * arg); 参数：\nthread：指向pthread_t结构类型的指针，利用它与线程交互。 attr：用于指定该线程可能具有的任何属性，包括设置栈大小、调度优先级。属性通过调用pthread_attr_init()初始化。 start_routine：一个函数指针，指示线程应该在哪个函数上运行。 arg：传递给线程的参数 27.2 pthread_join #include \u0026lt;pthread.h\u0026gt; int pthread_join(pthread_t thread, void **retval); 参数：\nthread：指定需要等待的线程 retval：指向你希望得到的返回值，定义为一个指向void的指针。 27.3 锁 互斥进入临界区：\nint pthread_mutex_lock(pthread_mutex_t *mutex); int pthread_mutex_unlock(pthread_mutex_t *mutex); 使用：\npthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER; pthread_mutex_lock(\u0026amp;lock); x = x \u002b 1; \/\/ or whatever your critical section is pthread_mutex_unlock(\u0026amp;lock); 27.4 条件变量 当线程之间必须发生某种信号时，如果一个线程在等待另一个线程继续执行某些操作，条件变量就很有用。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-12-17 16:57:51 \u002b0000 UTC",
+      "dateModified" : "2020-12-17 16:57:51 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80\/os\/ostep-concurrency\/",
+      "keywords" : [ "操作系统", ]
+  }
+</script>
+<title>OSTEP阅读笔记- Concurrency（二）</title>
+  <meta property="og:title" content="OSTEP阅读笔记- Concurrency（二）" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="Chapter 26 并发介绍 本章介绍为单个运行进程提供的新抽象：thread。线程共享地址空间。
+每个线程都有自己的PC与自己用于计算的register。如果有两个线程运行在同一个处理器上，发生context switch时，与进程不同的是，使用PCB保存进程状态，使用TCB保存线程状态。区别是：地址空间保持不变（不需要切换当前使用的页表）。
+另一个主要区别在于栈，传统进程只有一个栈，如图26.1所示：
+多线程中，每个线程拥有自己的栈，位于栈上的变量、参数、返回值是无法共享的。
+26.1 实例：线程创建 示例：使用pthead_create()创建了两个线程，主程序调用pthread_join()等待指定线程执行完成。
+线程的执行顺序取决于系统调度。
+26.2 共享数据导致的问题 多线程对共享数据进行操作会导致非预期结果。
+26.3 核心问题：不可控的调度 竞态条件（race condition）：结果取决于代码的执行顺序。运气不好会导致错误的结果。
+26.4 原子性 Q：如何构建有用的同步原语？需要从硬件中获取那些支持？
+26.5 等待另一个线程 需要研究多线程中的wait/signal机制。
+Chapter 27 线程API Q：如何创建和控制线程？
+27.1 pthread_create 在POSIX中：
+#include &lt;pthread.h&gt; int pthread_create( pthread_t * thread, const pthread_attr_t * attr, void * (*start_routine)(void*), void * arg); 参数：
+thread：指向pthread_t结构类型的指针，利用它与线程交互。 attr：用于指定该线程可能具有的任何属性，包括设置栈大小、调度优先级。属性通过调用pthread_attr_init()初始化。 start_routine：一个函数指针，指示线程应该在哪个函数上运行。 arg：传递给线程的参数 27.2 pthread_join #include &lt;pthread.h&gt; int pthread_join(pthread_t thread, void **retval); 参数：
+thread：指定需要等待的线程 retval：指向你希望得到的返回值，定义为一个指向void的指针。 27.3 锁 互斥进入临界区：
+int pthread_mutex_lock(pthread_mutex_t *mutex); int pthread_mutex_unlock(pthread_mutex_t *mutex); 使用：
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER; pthread_mutex_lock(&amp;lock); x = x &#43; 1; // or whatever your critical section is pthread_mutex_unlock(&amp;lock); 27.4 条件变量 当线程之间必须发生某种信号时，如果一个线程在等待另一个线程继续执行某些操作，条件变量就很有用。
+" />
+  <meta name="description" content="Chapter 26 并发介绍 本章介绍为单个运行进程提供的新抽象：thread。线程共享地址空间。
+每个线程都有自己的PC与自己用于计算的register。如果有两个线程运行在同一个处理器上，发生context switch时，与进程不同的是，使用PCB保存进程状态，使用TCB保存线程状态。区别是：地址空间保持不变（不需要切换当前使用的页表）。
+另一个主要区别在于栈，传统进程只有一个栈，如图26.1所示：
+多线程中，每个线程拥有自己的栈，位于栈上的变量、参数、返回值是无法共享的。
+26.1 实例：线程创建 示例：使用pthead_create()创建了两个线程，主程序调用pthread_join()等待指定线程执行完成。
+线程的执行顺序取决于系统调度。
+26.2 共享数据导致的问题 多线程对共享数据进行操作会导致非预期结果。
+26.3 核心问题：不可控的调度 竞态条件（race condition）：结果取决于代码的执行顺序。运气不好会导致错误的结果。
+26.4 原子性 Q：如何构建有用的同步原语？需要从硬件中获取那些支持？
+26.5 等待另一个线程 需要研究多线程中的wait/signal机制。
+Chapter 27 线程API Q：如何创建和控制线程？
+27.1 pthread_create 在POSIX中：
+#include &lt;pthread.h&gt; int pthread_create( pthread_t * thread, const pthread_attr_t * attr, void * (*start_routine)(void*), void * arg); 参数：
+thread：指向pthread_t结构类型的指针，利用它与线程交互。 attr：用于指定该线程可能具有的任何属性，包括设置栈大小、调度优先级。属性通过调用pthread_attr_init()初始化。 start_routine：一个函数指针，指示线程应该在哪个函数上运行。 arg：传递给线程的参数 27.2 pthread_join #include &lt;pthread.h&gt; int pthread_join(pthread_t thread, void **retval); 参数：
+thread：指定需要等待的线程 retval：指向你希望得到的返回值，定义为一个指向void的指针。 27.3 锁 互斥进入临界区：
+int pthread_mutex_lock(pthread_mutex_t *mutex); int pthread_mutex_unlock(pthread_mutex_t *mutex); 使用：
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER; pthread_mutex_lock(&amp;lock); x = x &#43; 1; // or whatever your critical section is pthread_mutex_unlock(&amp;lock); 27.4 条件变量 当线程之间必须发生某种信号时，如果一个线程在等待另一个线程继续执行某些操作，条件变量就很有用。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">OSTEP阅读笔记- Concurrency（二）</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-12-17 16:57:51 UTC">
+                17 Dec 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="chapter-26-并发介绍">Chapter 26 并发介绍</h2>
+<p>本章介绍为单个运行进程提供的新抽象：thread。线程共享地址空间。</p>
+<p>每个线程都有自己的PC与自己用于计算的<code>register</code>。如果有两个线程运行在同一个处理器上，发生<code>context switch</code>时，与进程不同的是，使用PCB保存进程状态，使用TCB保存线程状态。区别是：地址空间保持不变（不需要切换当前使用的页表）。</p>
+<p>另一个主要区别在于栈，传统进程只有一个栈，如图26.1所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-26/26.1.jpg" alt=""></p>
+<p>多线程中，每个线程拥有自己的栈，位于栈上的变量、参数、返回值是无法共享的。</p>
+<h3 id="261-实例线程创建">26.1 实例：线程创建</h3>
+<p>示例：使用<code>pthead_create()</code>创建了两个线程，主程序调用<code>pthread_join()</code>等待指定线程执行完成。</p>
+<p>线程的执行顺序取决于系统调度。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-26/26.2.jpg" alt=""></p>
+<h3 id="262-共享数据导致的问题">26.2 共享数据导致的问题</h3>
+<p>多线程对共享数据进行操作会导致非预期结果。</p>
+<h3 id="263-核心问题不可控的调度">26.3 核心问题：不可控的调度</h3>
+<p>竞态条件（<strong>race condition</strong>）：结果取决于代码的执行顺序。运气不好会导致错误的结果。</p>
+<h3 id="264-原子性">26.4 原子性</h3>
+<blockquote>
+<p>Q：如何构建有用的同步原语？需要从硬件中获取那些支持？</p>
+</blockquote>
+<h3 id="265-等待另一个线程">26.5 等待另一个线程</h3>
+<p>需要研究多线程中的<code>wait/signal</code>机制。</p>
+<h2 id="chapter-27-线程api">Chapter 27 线程API</h2>
+<blockquote>
+<p>Q：如何创建和控制线程？</p>
+</blockquote>
+<h3 id="271-pthread_create">27.1 pthread_create</h3>
+<p>在POSIX中：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;pthread.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">pthread_create</span>( <span style="color:#66d9ef">pthread_t</span> <span style="color:#f92672">*</span> <span style="color:#66d9ef">thread</span>,
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">pthread_attr_t</span> <span style="color:#f92672">*</span> attr,
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span> (<span style="color:#f92672">*</span>start_routine)(<span style="color:#66d9ef">void</span><span style="color:#f92672">*</span>),
+</span></span><span style="display:flex;"><span>					<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span> arg);
+</span></span></code></pre></div><p>参数：</p>
+<ul>
+<li><strong>thread</strong>：指向pthread_t结构类型的指针，利用它与线程交互。</li>
+<li><strong>attr</strong>：用于指定该线程可能具有的任何属性，包括设置栈大小、调度优先级。属性通过调用<code>pthread_attr_init()</code>初始化。</li>
+<li><strong>start_routine</strong>：一个函数指针，指示线程应该在哪个函数上运行。</li>
+<li><strong>arg</strong>：传递给线程的参数</li>
+</ul>
+<h3 id="272-pthread_join">27.2 pthread_join</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;pthread.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">pthread_join</span>(<span style="color:#66d9ef">pthread_t</span> <span style="color:#66d9ef">thread</span>, <span style="color:#66d9ef">void</span> <span style="color:#f92672">**</span>retval);
+</span></span></code></pre></div><p>参数：</p>
+<ul>
+<li><strong>thread</strong>：指定需要等待的线程</li>
+<li><strong>retval</strong>：指向你希望得到的返回值，定义为一个指向void的指针。</li>
+</ul>
+<h3 id="273-锁">27.3 锁</h3>
+<p>互斥进入临界区：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">pthread_mutex_lock</span>(<span style="color:#66d9ef">pthread_mutex_t</span> <span style="color:#f92672">*</span>mutex);
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">pthread_mutex_unlock</span>(<span style="color:#66d9ef">pthread_mutex_t</span> <span style="color:#f92672">*</span>mutex);
+</span></span></code></pre></div><p>使用：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">pthread_mutex_t</span> lock <span style="color:#f92672">=</span> PTHREAD_MUTEX_INITIALIZER;
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">pthread_mutex_lock</span>(<span style="color:#f92672">&amp;</span>lock);
+</span></span><span style="display:flex;"><span>x <span style="color:#f92672">=</span> x <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>; <span style="color:#75715e">// or whatever your critical section is
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">pthread_mutex_unlock</span>(<span style="color:#f92672">&amp;</span>lock);
+</span></span></code></pre></div><h3 id="274-条件变量">27.4 条件变量</h3>
+<p>当线程之间必须发生某种信号时，如果一个线程在等待另一个线程继续执行某些操作，条件变量就很有用。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">pthread_cond_wait</span>(<span style="color:#66d9ef">pthread_cond_t</span> <span style="color:#f92672">*</span>cond, <span style="color:#66d9ef">pthread_mutex_t</span> <span style="color:#f92672">*</span>mutex);
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">pthread_cond_signal</span>(<span style="color:#66d9ef">pthread_cond_t</span> <span style="color:#f92672">*</span>cond);
+</span></span></code></pre></div><p>要使用条件变量，还需要一个与条件相关的锁。</p>
+<ul>
+<li>pthread_cond_wait：使调用线程进入休眠状态，等待其他线程发出信号。</li>
+<li>pthread_cond_signal：唤醒线程</li>
+</ul>
+<h3 id="补充线程api使用指导">补充：线程API使用指导</h3>
+<ul>
+<li>保持简洁</li>
+<li>让线程交互减到最少</li>
+<li>初始化锁和条件变量</li>
+<li>检查返回值</li>
+<li>注意传给线程的参数和返回指</li>
+<li>每个线程都有自己的栈</li>
+<li>线程之间通过条件变量发送信号</li>
+<li>多查手册</li>
+</ul>
+<h2 id="chapter-28-锁">Chapter 28 锁</h2>
+<p>并发编程的基本问题：希望原子式执行一系列指令，但是由于处理器中断，无法做到。</p>
+<p>锁可以保证在临界区能够保证原子性。</p>
+<h3 id="281-锁的基本思想">28.1 锁的基本思想</h3>
+<p>锁就是一个变量，因此需要声明才能使用，锁变量保存了锁在某一时刻的状态，要么是可用的：表示没有线程持有锁，要么是被占用的：表示有线程持有锁。也可以访问其他信息：比如查询持有锁的线程，或请求获取锁的线程队列。</p>
+<ul>
+<li>lock：尝试获取锁，如果没有其他线程持有锁，该线程会获得锁，进入临界区，并成为锁的持有者。</li>
+<li>unlock：持有者一旦调用<code>unlock()</code>，锁就会变成可用，如果没有其他等待线程。</li>
+</ul>
+<h3 id="284-评价锁">28.4 评价锁</h3>
+<p>如何评价一种锁实现的效果？</p>
+<p>标准：</p>
+<ul>
+<li>第一：锁是否能实现互斥</li>
+<li>第二：公平性</li>
+<li>第三：性能</li>
+</ul>
+<h3 id="285-控制中断">28.5 控制中断</h3>
+<p>最早提供的互斥解决方案之一就是在临界区关闭中断。这个解决方案是为单处理器系统开发的。优点是简单。</p>
+<p>缺点：</p>
+<ul>
+<li>不安全的操作，允许任何线程进行关中断</li>
+<li>不支持多处理器，如果多个线程运行在不同的CPU上，每个线程都试图进入同一临界区。</li>
+<li>关闭中断导致中断丢失，比如磁盘设备完成读取任务，但是CPU无法识别到中断</li>
+<li>效率低</li>
+</ul>
+<h3 id="286-测试并设置指令-原子交换">28.6 测试并设置指令 原子交换</h3>
+<p>由于关中断方式无法在多处理器上运行，所以需要让硬件支持，最简单的硬件支持是测试并设置（<strong>test-and-set</strong>），也称为原子交换（<strong>atomic exchange</strong>）。</p>
+<p>通过自旋等待，直到持有锁的线程释放资源。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-28/28.1.jpg" alt=""></p>
+<p>上述代码有两个问题：</p>
+<ul>
+<li>正确性
+<ul>
+<li>无法互斥</li>
+</ul>
+</li>
+<li>性能
+<ul>
+<li>自旋等待性能开销大</li>
+</ul>
+</li>
+</ul>
+<h3 id="287-实现可用的自旋锁">28.7 实现可用的自旋锁</h3>
+<p>没有硬件支持是无法实现的，因此产生了一些指令，在<code>x86</code>中，是<code>xchg</code>指令。其功能是返回旧值，更新为新值，C代码描述如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">testAndSet</span>(<span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>old_ptr, <span style="color:#66d9ef">int</span> new){
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> old <span style="color:#f92672">=</span> <span style="color:#f92672">*</span> old_ptr;
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">*</span>old_ptr <span style="color:#f92672">=</span> new;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> old;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>可以利用这个指令完成一个简单的<code>spin lock</code>。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-28/28.3.jpg" alt=""></p>
+<p>此方法与28.1中的实现区别在于：<strong>获取并更新两个操作是原子性的，并不会存在同时进入临界区的时机。</strong></p>
+<p>这也是此方法能完成互斥功能的关键。</p>
+<h3 id="288-评价自旋锁">28.8 评价自旋锁</h3>
+<ul>
+<li>正确性：能够互斥</li>
+<li>公平性：自旋锁没有公平性，会导致线程饥饿</li>
+<li>性能
+<ul>
+<li>单处理器：性能开销大</li>
+<li>多处理器：性能不错</li>
+</ul>
+</li>
+</ul>
+<h3 id="289-cas">28.9 CAS</h3>
+<p>比较并交换指令（compare-and-set），C代码描述如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">compareAndSet</span>(<span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span> ptr, <span style="color:#66d9ef">int</span> expected, <span style="color:#66d9ef">int</span> new){
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> actual <span style="color:#f92672">=</span> <span style="color:#f92672">*</span>ptr;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span>(actual <span style="color:#f92672">==</span> expected)
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">*</span>ptr <span style="color:#f92672">=</span> new;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> actual;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>可以使用该指令改写<code>lock()</code>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>(<span style="color:#66d9ef">lock_t</span> <span style="color:#f92672">*</span>lock){
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span>(<span style="color:#a6e22e">compareAndSet</span>(<span style="color:#f92672">&amp;</span>lock<span style="color:#f92672">-&gt;</span>flag,<span style="color:#ae81ff">0</span>,<span style="color:#ae81ff">1</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>        ;<span style="color:#75715e">//spin
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span></code></pre></div><p>X86的CAS指令如下：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-28/CAS-X86.jpg" alt=""></p>
+<h3 id="2810-链接的加载和条件式存储指令">28.10 链接的加载和条件式存储指令</h3>
+<p>链接的加载指令：从内存中取出值。</p>
+<p>条件式存储指令：只有上一次加载的地址在期间都没有更新时，才会成功。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-28/28.5.jpg" alt=""></p>
+<p>使用这两个指令如何实现一个锁？</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-28/28.6.jpg" alt=""></p>
+<h3 id="2811-获取并增加">28.11 获取并增加</h3>
+<p>获取并增加：它能原子性的返回特定地址的旧值，并将值自增1，C代码如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">fetchAndAdd</span>(<span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span> ptr){
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> old <span style="color:#f92672">=</span> <span style="color:#f92672">*</span>ptr;
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">*</span>ptr <span style="color:#f92672">=</span> old <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> old;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>可以通过此指令完成一个ticket锁：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> <span style="color:#66d9ef">lock_t</span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> ticket;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> turn;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock_init</span>(<span style="color:#66d9ef">lock_t</span> <span style="color:#f92672">*</span>lock){
+</span></span><span style="display:flex;"><span>    lock<span style="color:#f92672">-&gt;</span>ticket <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    lock<span style="color:#f92672">-&gt;</span>turn <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>(<span style="color:#66d9ef">lock_t</span> <span style="color:#f92672">*</span>lock){
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> myturn <span style="color:#f92672">=</span> <span style="color:#a6e22e">fetchAndAdd</span>(<span style="color:#f92672">&amp;</span>lock<span style="color:#f92672">-&gt;</span>ticket);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span>(lock<span style="color:#f92672">-&gt;</span>turn<span style="color:#f92672">!=</span> myturn)
+</span></span><span style="display:flex;"><span>        ;<span style="color:#75715e">//spin
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unlock</span>(<span style="color:#66d9ef">lock_t</span> <span style="color:#f92672">*</span>lock){
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fetchAndAdd</span>(<span style="color:#f92672">&amp;</span>lock<span style="color:#f92672">-&gt;</span>turn);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>通过检查<code>turn</code>字段与获取的<code>ticket</code>是否相等，判断是否可以进入临界区。</p>
+<p>不同于之前的方法，本方法能保证所有线程都能获取锁，而不会导致某一个线程饥饿。</p>
+<h3 id="2812-自旋过多怎么办">28.12 自旋过多：怎么办</h3>
+<blockquote>
+<p>Q：这样避免自旋浪费CPU时间？</p>
+</blockquote>
+<h3 id="2813-简单方法让出cpu">28.13 简单方法：让出CPU</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">lock</span>(){
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span>(<span style="color:#a6e22e">testAndSet</span>(<span style="color:#f92672">&amp;</span>flag, <span style="color:#ae81ff">1</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">yield</span>();
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>调用<code>yield()</code>让线程主动放弃CPU。</p>
+<p>但是如果线程数量多，采用此方法会导致<code>context switch</code>成本提高。</p>
+<p>同时还会有线程饥饿问题，一个线程可能一直处在让出CPU的循环，而其他线程反复进入临界区。</p>
+<h3 id="2814-使用队列休眠代替自旋">28.14 使用队列：休眠代替自旋</h3>
+<p>如图28.9所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-28/28.9.jpg" alt=""></p>
+<h3 id="2815-linux的fulex锁">28.15 Linux的fulex锁</h3>
+<p>利用一个整数，同时利记录锁是否被持有（整数的最高位），以及等待者的个数（整数的其它位）。</p>
+<p>因此整数如果是负数，则处于被持有状态（有符号整数，高位为1为负数）。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-28/28.10.jpg" alt=""></p>
+<h3 id="2816-两阶段锁">28.16 两阶段锁</h3>
+<p>两阶段锁的第一阶段会先自旋一段时间，希望可以获得锁。但是如果自旋阶段没有获得锁，第二阶段调用者会睡眠，直到锁可用。</p>
+<h2 id="chapter-29-基于锁的并发数据结构">Chapter 29 基于锁的并发数据结构</h2>
+<blockquote>
+<p>Q：如何给数据结构加锁，能够保证高性能，并实现线程安全？</p>
+</blockquote>
+<h3 id="291-并发计数器">29.1 并发计数器</h3>
+<p>如何实现一个线程安全的计数器？</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-29/29.2.jpg" alt=""></p>
+<p>但是通过锁保护线程安全影响性能。</p>
+<p>如果多线程运行下的速率和单线程下一样，就将其称为完美扩展（perfect scaling）。</p>
+<blockquote>
+<p>注：下文的扩展性是指，程序在并发环境下的性能优劣。</p>
+</blockquote>
+<p>人们提出了懒惰计数器（<strong>sloopy counter</strong>），懒惰计数器通过多个局部计数器和一个全局计数器来实现一个逻辑计数器，其中每个CPU核心都有一个局部计数器，每个计数器都有一个锁保护线程安全。</p>
+<p>基本思想：如果一个CPU上的线程想增加计数器，增加自己的局部计数器，访问局部计数器通过对应的局部锁同步的。全局计数器的值会定期更新，通过获取全局锁，然后加上局部计数器的值，并将其清空。</p>
+<p>更新的频率取决去阈值$S$，$S$越小，懒惰计数器越趋向于非扩展的计数器，$S$越大，扩展性越强，但是全局计数器和局部计数器的偏差较大。图29.5是懒惰计数器的基本实现：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-29/29.5.jpg" alt=""></p>
+<h3 id="292-并发list">29.2 并发List</h3>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-29/29.7.jpg" alt=""></p>
+<p>插入时检查是否发生内存分配错误，但是异常控制流容易产生错误。如何重写插入和查找函数？</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-29/29.8.jpg" alt=""></p>
+<p>上述的写法，在插入时，缩小了锁的粒度。但是扩展性不好。</p>
+<p><strong>hand-over-hand locking</strong>。：每个节点都有一个锁，代替了原来整个链表共享一个锁。遍历链表时，首先抢占下一个节点的锁，然后释放当前节点的锁。</p>
+<p>但是这种方法的性能并不比单锁快。</p>
+<h3 id="293-并发queue">29.3 并发Queue</h3>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-29/29.9.jpg" alt=""></p>
+<p>特点：</p>
+<ul>
+<li>入队只获取tail锁</li>
+<li>出队只获取head锁</li>
+</ul>
+<h3 id="294-并发hash">29.4 并发Hash</h3>
+<p>并发Hash中，每个桶都有一个锁。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-29/29.10.jpg" alt=""></p>
+<h2 id="chapter-30-条件变量">Chapter 30 条件变量</h2>
+<p>很多情况下，线程需要检查某一condition满足之后，才会继续运行。</p>
+<blockquote>
+<p>Q：线程应该如何等待一个条件？</p>
+</blockquote>
+<h3 id="301-定义和程序">30.1 定义和程序</h3>
+<p>线程可以使用<code>condition variable</code>，来等待一个条件变为真，条件变量是一个显式队列，当条件不满足时，线程把自己加入阻塞队列，进入阻塞状态，另外某个线程，当它改变了上述状态时，就可以唤醒一个或多个等待线程。</p>
+<p>POSIX调用如图30.3所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-30/30.3.jpg" alt=""></p>
+<p>那么done变量是否需要，下面的代码是否正确？</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-30/30.3-1.jpg" alt=""></p>
+<p>假设子线程立即运行，并且调用<code>thr_exit()</code>，在这种情况下，子线程发送信号，但是没有在条件变量上等待的线程，父线程运行时，就会调用<code>wait()</code>进入阻塞状态，并且没有其它线程唤醒它。</p>
+<h3 id="302-生产者消费者问题">30.2 生产者/消费者问题</h3>
+<p>假设有一个或多个生产者线程和一个或多个消费者线程，生产者把生产的数据项放入缓冲区；消费者从缓冲区取走数据项，以某种方式进行消费。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-30/30.12.jpg" alt=""></p>
+<h3 id="303-覆盖条件">30.3 覆盖条件</h3>
+<p>下面是一个多线程内存分配库的覆盖条件的例子：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-30/30.13.jpg" alt=""></p>
+<p>当线程进入内存分配中时，它可能会因为内存不足而等待。线程释放内存后，会发出信号通知会有更多的内存空间，但是有一个问题：应该唤醒那个等待线程？</p>
+<p>场景：线程$Ta$申请100 bytes内存，线程$Tb$申请10 bytes内存，但是当前无空闲内存可分配，$Ta$和$Tb$都等待在条件变量上。此时线程$Tc$调用了<code>free(50)</code>，但是$Tc$如果唤醒$Ta$，那么$Ta$会因为内存不够继续等待。</p>
+<p>因此可以使用<code>pthread_cond_broadcast()</code>代替上面的<code>pthread_cond_signal()</code>唤醒所有的等待线程。当然也有缺点：影响性能，不必要地唤醒了其他等待的线程。</p>
+<p>这种条件变量称为覆盖条件（<strong>covering condition</strong>）。</p>
+<h2 id="chapter-31-信号量">Chapter 31 信号量</h2>
+<blockquote>
+<p>Q：如何使用信号量代替锁和条件变量？信号量的概念，不用锁和条件变量，如何实现信号量？</p>
+</blockquote>
+<h3 id="311-信号量的定义">31.1 信号量的定义</h3>
+<p>信号量是一个整数型的对象，可以用两个函数来操作它，在POSIX标准中，分别是<code>sem_wait()</code>和<code>sem_post()</code>。含义分别如下：</p>
+<ul>
+<li><strong>sem_wait</strong>：
+<ul>
+<li>decrement the value of semaphore s by one</li>
+<li>wait it value of semaphore s is negative</li>
+</ul>
+</li>
+<li><strong>sem_post</strong>：
+<ul>
+<li>increment the value of semphore s by one</li>
+<li>if there are one or more threads waiting, wake one</li>
+</ul>
+</li>
+</ul>
+<p>信号量如果为负数，那么绝对值就是等待线程的个数。</p>
+<h3 id="312-二值信号量">31.2 二值信号量</h3>
+<p>二值信号量就是锁。</p>
+<h3 id="313-信号量用作条件变量">31.3 信号量用作条件变量</h3>
+<p>信号量也可以用在一个线程暂停执行，等待某一条件成立的场景。例如：一个线程要等待一个链表非空，才能删除一个元素。此时可以将信号量作为条件变量。</p>
+<h3 id="314-生产者消费者问题">31.4 生产者消费者问题</h3>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-31/31.12.jpg" alt=""></p>
+<h3 id="315-读写锁">31.5 读写锁</h3>
+<p>如果某个线程需要进行更新操作，需要调用<code>rwlock_acquire_lock()</code>获得写锁，调用<code>rwlock_release_writelock()</code>释放锁，内部通过一个信号量保证只有一个写者能进入临界区。</p>
+<p>读锁会通过<code>reader</code>变量追踪当前有多少个读者在访问该数据结构。</p>
+<p>一旦一个读者获得了读锁，其他的读者也可以获得这个读锁。当时想要获取写锁的线程，必须等待所有的读者都结束。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-31/30.13.jpg" alt=""></p>
+<h3 id="316-哲学家就餐问题">31.6 哲学家就餐问题</h3>
+<p>基本问题：假设又五位哲学家围着一个圆桌，每两位哲学家之间有一把叉子，一位哲学家只有同时拿到了左手边和右手边的两把叉子才能吃到东西。如何解决同步问题。</p>
+<p>每位哲学家的基本操作：</p>
+<pre tabindex="0"><code>while(1) {
+	think();
+	getforks();
+	eat();
+	putforks();
+}
+</code></pre><p>如何保证没有死锁，并且不会有哲学家饿死？</p>
+<p>需要一些辅助函数：例如哲学家P希望用左手边的叉子，他会调用left(p)，右手边的叉子调用right(p)。</p>
+<pre tabindex="0"><code>int left(int p){return p};
+int right(int p){return (p + 1) % 5 ;}
+</code></pre><h4 id="第一次尝试">第一次尝试</h4>
+<p>将每个信号量都设置为1</p>
+<pre tabindex="0"><code>void getforks(){
+	sem_wait(forks[left(p)]);
+	sem_wait(forks[right(p)]);
+}
+
+void putforks() {
+	sem_post(forks[left(p)]);
+	sem_post(forks[right(p)]);
+}
+</code></pre><p>步骤是依次获取每把叉子的锁，先获取左手边的。</p>
+<p>这个方案是有问题的，如果每个哲学家都拿到了左手边的叉子，他们会被阻塞，并一直等待另一只叉子。</p>
+<h4 id="破除依赖">破除依赖</h4>
+<p>如何解决？ 修改某个哲学家的取叉子顺序。</p>
+<pre tabindex="0"><code>void getforks() {
+	if(p == 4){
+		sem_wait(forks[right(p)]);
+		sem_wait(forks[left(p)]);
+	}else{
+		sem_wait(forks[left(p)]);
+		sem_wait(forks[right(p)]);
+	}
+}
+</code></pre><h3 id="317-如何实现信号量">31.7 如何实现信号量</h3>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-31/31.16.jpg" alt=""></p>
+<h2 id="chapter-32-常见并发问题">Chapter 32 常见并发问题</h2>
+<blockquote>
+<p>Q：如何处理常见的并发缺陷？</p>
+</blockquote>
+<h3 id="321-有哪些类型的缺陷">32.1 有哪些类型的缺陷</h3>
+<p>死锁和非死锁。</p>
+<h3 id="322-非死锁缺陷">32.2 非死锁缺陷</h3>
+<ul>
+<li>反原子性</li>
+<li>错误顺序缺陷</li>
+</ul>
+<h4 id="违反原子性缺陷">违反原子性缺陷</h4>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-32/mysql_concurrency.jpg" alt=""></p>
+<p>这是MySQL中出现的例子，两个线程都要访问<code>thd</code>中的<code>proc_info</code>，第一个线程检查<code>proc_info</code>非空，然后打印值，第二个线程设置其为空，当第一个线程恢复执行时，会由于空指针而报错。</p>
+<p>解决方案很简单，将共享变量的访问加锁，确保串行化访问变量。</p>
+<h4 id="违反顺序缺陷">违反顺序缺陷</h4>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-32/2.jpg" alt=""></p>
+<p>线程2假定已经初始化了，然而如果线程1没有首先执行，线程2则会因为空指针报错。</p>
+<p>如何解决？ 保证执行顺序不被打破。</p>
+<p>可以使用条件变量解决。</p>
+<h3 id="323-死锁缺陷">32.3 死锁缺陷</h3>
+<p>线程1持有锁L1，线程2持有锁L2，线程1请求L2，线程2请求L1。</p>
+<blockquote>
+<p>Q：如何应对死锁？</p>
+</blockquote>
+<h4 id="发生的原因">发生的原因</h4>
+<ul>
+<li>大型项目中，组件之间有复杂的依赖。</li>
+<li>封装会隐藏实现细节，会让人忽视。</li>
+</ul>
+<h4 id="产生死锁的条件">产生死锁的条件</h4>
+<ul>
+<li>互斥：线程对于需要的资源进行互斥访问。</li>
+<li>持有并等待：线程持有了资源。</li>
+<li>非抢占：线程获得的资源，不能被抢占。</li>
+<li>循环等待：线程之间存在一个环路，环路上的每个线程都额外持有一个资源，而这个资源又是下一个线程要申请的。</li>
+</ul>
+<h4 id="预防">预防</h4>
+<ul>
+<li>
+<p>从循环等待条件解决：让代码不会产生循环等待，最直接的方法就是获取锁时提供一个全序，偏序也是一种有用的方法，Linux中内存映射就是一个偏序锁的好例子。</p>
+</li>
+<li>
+<p>从持有并等待条件解决：通过原子性地抢锁来避免。</p>
+</li>
+<li>
+<p>从非抢占条件解决：可以通过<code>tryLock()</code>解决问题。</p>
+</li>
+<li>
+<p>从互斥条件解决：方法是完全避免互斥，但是代码总会存在临界区，因此很难避免互斥。</p>
+<ul>
+<li>可以使用lock-free，通过强大地硬件指令，可以构造出不需要锁的数据结构。</li>
+</ul>
+</li>
+</ul>
+<h4 id="通过调度避免死锁">通过调度避免死锁</h4>
+<h4 id="检查和恢复">检查和恢复</h4>
+<p>允许死锁偶尔发生，检查到死锁时再采取行动。</p>
+<p>很多数据库系统使用了死锁检测和恢复技术，死锁检测器会定期运行，通过构建资源图来检查循环。</p>
+<h2 id="chapter-33-基于事件的并发">Chapter 33 基于事件的并发</h2>
+<blockquote>
+<p>Q：不用线程，同时保证对并发的控制，如何构建并发服务器？</p>
+</blockquote>
+<h3 id="331-基本想法事件循环">33.1 基本想法：事件循环</h3>
+<p>使用的基本的方法是<strong>基于事件的并发</strong>。该方法很简单：等待某事发生。当它发生时，检查事件类型，然后做少量的相应工作。</p>
+<p>想看一个典型的基于事件的服务器，这种应用被称为事件循环：</p>
+<pre tabindex="0"><code>while(1) {
+	events = getEvents();
+	for(e in events)
+		processEvent(e);
+}
+</code></pre><p>这也带来了问题：基于事件的服务器如何决定哪个事件发生，尤其是对于网络和磁盘IO？时间服务器如何确定是否有它的消息已经到达？</p>
+<h3 id="332-重要apiselect">33.2 重要API：select()</h3>
+<p>大多数OS提供了基本的API决定如何接收事件。即通过<code>select()</code>或<code>poll()</code>系统调用。</p>
+<p>这些接口对程序的支持很简单：检查是否有任何应该关注的进入I/O。假定网络程序希望检查是否有网络数据包已到达，以便为它们提供服务，</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">select</span>(<span style="color:#66d9ef">int</span> nfds,
+</span></span><span style="display:flex;"><span>          fd_set <span style="color:#f92672">*</span><span style="color:#66d9ef">restrict</span> readfds,
+</span></span><span style="display:flex;"><span>          fd_set <span style="color:#f92672">*</span><span style="color:#66d9ef">restrict</span> writefds,
+</span></span><span style="display:flex;"><span>          fd_set <span style="color:#f92672">*</span><span style="color:#66d9ef">restrict</span> errorfds,
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">struct</span> timeval <span style="color:#f92672">*</span><span style="color:#66d9ef">restrict</span> timeout);
+</span></span></code></pre></div><p><code>select()</code>检查I/O描述符集合，它们的地址通过<code>readfds</code>、<code>writefds</code>、<code>errorfds</code>传入，分别查看它们中的某些描述符是否已准备好读取，是否准备好写入，或者异常情况待处理。在每个集合中检查前nfds个描述符，返回时，<code>select()</code>用给定请求操作准备好的描述符组成的子集替换给定的描述符集合。<code>select()</code>返回所有集合中就绪描述符的总数。</p>
+<ul>
+<li>阻塞接口：在返回给调用者之前完成所有工作。</li>
+<li>非阻塞接口：开始一些工作后立即返回，从而让所有需要完成的工作都在后台完成。</li>
+</ul>
+<h3 id="333-使用select">33.3 使用select()</h3>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-32/33.1.jpg" alt=""></p>
+<ol>
+<li>使用<code>FD_ZERO()</code>宏首先清除文件描述符集合。</li>
+<li>使用<code>FD_SET()</code>将所有从<code>minFD</code>到<code>maxFD</code>的文件描述符包含到集合中。
+<ul>
+<li>例如，这组描述符可能表示服务器正在关注的所有网络套接字。</li>
+</ul>
+</li>
+<li>最后，服务器调用<code>select()</code>来查看哪些连接有可用的数据。</li>
+<li>然后通过在循环中使用<code>FD_ISSET()</code>，事件服务器可以查看哪些描述符已准备好数据并处理传入的数据。</li>
+</ol>
+<h3 id="334-无需锁">33.4 无需锁</h3>
+<p>使用单个CPU和基于事件的应用程序，也就不存在并发问题。具体来说，因为一次只处理一个事件，所以不需要锁来保护指定对象。</p>
+<h3 id="335-阻塞系统调用">33.5 阻塞系统调用</h3>
+<p>如果某个事件要求你发出可能会阻塞的系统调用，该怎么办？</p>
+<p>例如：一个请求进入服务器，要求磁盘读取文件并将内容返回到客户端。为了处理这样的请求，需要发出<code>open()</code>系统调用打开文件，<code>read()</code>读取文件。</p>
+<p>由于IO操作远慢于CPU，因此需要很长时间才能提供服务。</p>
+<p>在基于事件的方法中，事件循环阻塞时，系统会处于闲置状态，并不会读取新事件。曹诚资源浪费。</p>
+<p>因此，在基于事件的系统中必须：不允许阻塞调用。</p>
+<h3 id="336-解决方案异步io">33.6 解决方案：异步I/O</h3>
+<p>异步I/O（<strong>asynchronous I/O</strong>）：发出I/O请求后，在I/O完成之前立即将控制权返回给调用者，另外的接口让应用程序能够确定各种I/O是否已完成。</p>
+<p>macOS中提供了AIO的接口，这些API围绕着一个基本结构：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> aiocb{
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> aio_fildes;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">off_t</span> aio_offset;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">volatile</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>aio_buf;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">size_t</span> aio_nbytes;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>要发起AIO请求，应用程序首先用相关信息填充此结构：</p>
+<ul>
+<li><strong>aio_fildes</strong>：要读取文件的文件描述符</li>
+<li><strong>aio_offset</strong>：文件内的偏移量</li>
+<li><strong>aio_buf</strong>：复制读取结果的目标内存位置</li>
+<li><strong>aio_nbytes</strong>：读取长度</li>
+</ul>
+<p>通过<code>aio_read()</code>进行异步读取。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">aio_read</span>(<span style="color:#66d9ef">struct</span> aiocb <span style="color:#f92672">*</span> aiocbp);
+</span></span></code></pre></div><p>如何知道IO何时完成，并且缓冲区现在有了请求的数据？</p>
+<p><code>aio_error()</code>检查aiocbp应用的请求是否已完成。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">aio_error</span>(<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">struct</span> aiocb <span style="color:#f92672">*</span> aiocbp);
+</span></span></code></pre></div><p>因此，检查AIO是否已经完成需要轮询。为了解决这个问题，一些系统提供了基于中断的方法，此方法使用UNIX信号（signal）在异步IO完成时通知应用程序，从而消除了轮询的需要。</p>
+<h3 id="337-另一个问题状态管理">33.7 另一个问题：状态管理</h3>
+<p>基于事件的方法存在另一个问题：代码比传统的基于线程的复杂。</p>
+<p>原因在于：需要手动的管理事件IO状态，基于线程的程序不需要，因为时线程栈自动管理。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/">
+                操作系统
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/os/ostep-virtualization/">OSTEP阅读笔记-Virtuallization（一）</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-dict/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-dict/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Redis底层数据结构-Dict源码分析",
+      "headline" : "Redis底层数据结构-Dict源码分析",
+      "description" : "简介 字典是一种用来存储键值对的数据结构。Redis本身就是KV型数据库，整个数据库就是用字典进行存储的，对Redis的增删改查操作，实际上就是对字典中的数据进行增删改查操作。\n数据结构 HashTable table：指针数组，用于存储键值对，指向的是dictEntry结构体，每个dictEntry存有键值对 size：table数组的大小 sizemask：掩码，用来计算键的索引值。值恒为size -1 used：table数组已存键值对个数 Hash表的数组容量初始值为4，扩容倍数为当前一倍，所以sizemask大小为3,7,11,31，二进制表示为111111...，在计算索引值时，首先计算hash值，通过hash = dict-\u0026gt; type-\u0026gt;hashFunction(k0)得到对应hash。再通过idx = hash \u0026amp; d-\u0026gt;dt[table].sizemask计算entry存储的索引位置，位运算速度快于取余运算，Redis使用链地址法来解决hash冲突问题。\ntypedef struct dictht { dictEntry **table; unsigned long size; unsigned long sizemask; unsigned long used; } dictht; rehash hashtable一般需要将负载因子维护在一个合理的范围，使得其达到最大的操作效率，当键值对数量太多或太少时，都需要对hashtable进行相应的扩展或缩容。rehash动作是分批次、渐进式完成的，这是为了避免rehash对server性能造成影响。\nRedis进行rehash的执行步骤如下：\n为ht[1]分配空间，空间大小取决于ht[0]包含的键值对数量。 将所有保存在ht[0]的键值对rehash到ht[1]上，即重新计算对应hash和index，并存储在ht[1] 释放ht[0]空间，将ht[1]设置为ht[0]，并在ht[1]新建一个空白hashtable，为下一次rehash服务。 在渐进式rehash过程中，查询等操作同时使用两个hashtable。\ndictEntry 键值对节点，存放键值对数据。\ntypedef struct dictEntry { \/\/键 void *key; union { \/\/存储值 void *val; uint64_t u64; \/\/存储过期时间 int64_t s64; double d; } v;\/\/值，联合体 \/\/next指针，Hash冲突时的单链表法 struct dictEntry *next; } dictEntry; dictType 存放的是对字典操作的函数指针\ntypedef struct dictType { \/\/Hash函数，默认使用MurmurHash2算法来计算hash值 uint64_t (*hashFunction)(const void *key); \/\/键对应的复制函数 void *(*keyDup)(void *privdata, const void *key); \/\/值对应的复制函数 void *(*valDup)(void *privdata, const void *obj); \/\/键的比对函数 int (*keyCompare)(void *privdata, const void *key1, const void *key2); \/\/键的销毁函数 void (*keyDestructor)(void *privdata, void *key); \/\/值得销毁函数 void (*valDestructor)(void *privdata, void *obj); } dictType; dict type：字典操作函数指针，指向一个dictType结构的指针 privdata：私有数据，配合tyoe指针指向的函数一起使用 ht：大小为2的数组，默认使用ht[0]，当字典扩容缩容时进行rehash时，才会用到ht[1] rehashidx：标记该字典是否在进行rehash，没进行为-1，用来记录rehash到了哪个元素，值为下标值 iterators：用来记录当前运行的安全迭代器数，当有安全迭代器，会暂停rehash 基本结构图如图所示： ",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-05-29 18:30:20 \u002b0000 UTC",
+      "dateModified" : "2020-05-29 18:30:20 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/redis\/redis-dict\/",
+      "keywords" : [ "数据结构","源码分析","Redis", ]
+  }
+</script>
+<title>Redis底层数据结构-Dict源码分析</title>
+  <meta property="og:title" content="Redis底层数据结构-Dict源码分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 字典是一种用来存储键值对的数据结构。Redis本身就是KV型数据库，整个数据库就是用字典进行存储的，对Redis的增删改查操作，实际上就是对字典中的数据进行增删改查操作。
+数据结构 HashTable table：指针数组，用于存储键值对，指向的是dictEntry结构体，每个dictEntry存有键值对 size：table数组的大小 sizemask：掩码，用来计算键的索引值。值恒为size -1 used：table数组已存键值对个数 Hash表的数组容量初始值为4，扩容倍数为当前一倍，所以sizemask大小为3,7,11,31，二进制表示为111111...，在计算索引值时，首先计算hash值，通过hash = dict-&gt; type-&gt;hashFunction(k0)得到对应hash。再通过idx = hash &amp; d-&gt;dt[table].sizemask计算entry存储的索引位置，位运算速度快于取余运算，Redis使用链地址法来解决hash冲突问题。
+typedef struct dictht { dictEntry **table; unsigned long size; unsigned long sizemask; unsigned long used; } dictht; rehash hashtable一般需要将负载因子维护在一个合理的范围，使得其达到最大的操作效率，当键值对数量太多或太少时，都需要对hashtable进行相应的扩展或缩容。rehash动作是分批次、渐进式完成的，这是为了避免rehash对server性能造成影响。
+Redis进行rehash的执行步骤如下：
+为ht[1]分配空间，空间大小取决于ht[0]包含的键值对数量。 将所有保存在ht[0]的键值对rehash到ht[1]上，即重新计算对应hash和index，并存储在ht[1] 释放ht[0]空间，将ht[1]设置为ht[0]，并在ht[1]新建一个空白hashtable，为下一次rehash服务。 在渐进式rehash过程中，查询等操作同时使用两个hashtable。
+dictEntry 键值对节点，存放键值对数据。
+typedef struct dictEntry { //键 void *key; union { //存储值 void *val; uint64_t u64; //存储过期时间 int64_t s64; double d; } v;//值，联合体 //next指针，Hash冲突时的单链表法 struct dictEntry *next; } dictEntry; dictType 存放的是对字典操作的函数指针
+typedef struct dictType { //Hash函数，默认使用MurmurHash2算法来计算hash值 uint64_t (*hashFunction)(const void *key); //键对应的复制函数 void *(*keyDup)(void *privdata, const void *key); //值对应的复制函数 void *(*valDup)(void *privdata, const void *obj); //键的比对函数 int (*keyCompare)(void *privdata, const void *key1, const void *key2); //键的销毁函数 void (*keyDestructor)(void *privdata, void *key); //值得销毁函数 void (*valDestructor)(void *privdata, void *obj); } dictType; dict type：字典操作函数指针，指向一个dictType结构的指针 privdata：私有数据，配合tyoe指针指向的函数一起使用 ht：大小为2的数组，默认使用ht[0]，当字典扩容缩容时进行rehash时，才会用到ht[1] rehashidx：标记该字典是否在进行rehash，没进行为-1，用来记录rehash到了哪个元素，值为下标值 iterators：用来记录当前运行的安全迭代器数，当有安全迭代器，会暂停rehash 基本结构图如图所示： " />
+  <meta name="description" content="简介 字典是一种用来存储键值对的数据结构。Redis本身就是KV型数据库，整个数据库就是用字典进行存储的，对Redis的增删改查操作，实际上就是对字典中的数据进行增删改查操作。
+数据结构 HashTable table：指针数组，用于存储键值对，指向的是dictEntry结构体，每个dictEntry存有键值对 size：table数组的大小 sizemask：掩码，用来计算键的索引值。值恒为size -1 used：table数组已存键值对个数 Hash表的数组容量初始值为4，扩容倍数为当前一倍，所以sizemask大小为3,7,11,31，二进制表示为111111...，在计算索引值时，首先计算hash值，通过hash = dict-&gt; type-&gt;hashFunction(k0)得到对应hash。再通过idx = hash &amp; d-&gt;dt[table].sizemask计算entry存储的索引位置，位运算速度快于取余运算，Redis使用链地址法来解决hash冲突问题。
+typedef struct dictht { dictEntry **table; unsigned long size; unsigned long sizemask; unsigned long used; } dictht; rehash hashtable一般需要将负载因子维护在一个合理的范围，使得其达到最大的操作效率，当键值对数量太多或太少时，都需要对hashtable进行相应的扩展或缩容。rehash动作是分批次、渐进式完成的，这是为了避免rehash对server性能造成影响。
+Redis进行rehash的执行步骤如下：
+为ht[1]分配空间，空间大小取决于ht[0]包含的键值对数量。 将所有保存在ht[0]的键值对rehash到ht[1]上，即重新计算对应hash和index，并存储在ht[1] 释放ht[0]空间，将ht[1]设置为ht[0]，并在ht[1]新建一个空白hashtable，为下一次rehash服务。 在渐进式rehash过程中，查询等操作同时使用两个hashtable。
+dictEntry 键值对节点，存放键值对数据。
+typedef struct dictEntry { //键 void *key; union { //存储值 void *val; uint64_t u64; //存储过期时间 int64_t s64; double d; } v;//值，联合体 //next指针，Hash冲突时的单链表法 struct dictEntry *next; } dictEntry; dictType 存放的是对字典操作的函数指针
+typedef struct dictType { //Hash函数，默认使用MurmurHash2算法来计算hash值 uint64_t (*hashFunction)(const void *key); //键对应的复制函数 void *(*keyDup)(void *privdata, const void *key); //值对应的复制函数 void *(*valDup)(void *privdata, const void *obj); //键的比对函数 int (*keyCompare)(void *privdata, const void *key1, const void *key2); //键的销毁函数 void (*keyDestructor)(void *privdata, void *key); //值得销毁函数 void (*valDestructor)(void *privdata, void *obj); } dictType; dict type：字典操作函数指针，指向一个dictType结构的指针 privdata：私有数据，配合tyoe指针指向的函数一起使用 ht：大小为2的数组，默认使用ht[0]，当字典扩容缩容时进行rehash时，才会用到ht[1] rehashidx：标记该字典是否在进行rehash，没进行为-1，用来记录rehash到了哪个元素，值为下标值 iterators：用来记录当前运行的安全迭代器数，当有安全迭代器，会暂停rehash 基本结构图如图所示： " />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Redis底层数据结构-Dict源码分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-05-29 18:30:20 UTC">
+                29 May 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="简介">简介</h1>
+<p>字典是一种用来存储键值对的数据结构。Redis本身就是KV型数据库，整个数据库就是用字典进行存储的，对Redis的增删改查操作，实际上就是对字典中的数据进行增删改查操作。</p>
+<h1 id="数据结构">数据结构</h1>
+<h2 id="hashtable">HashTable</h2>
+<ul>
+<li>table：指针数组，用于存储键值对，指向的是<code>dictEntry</code>结构体，每个<code>dictEntry</code>存有键值对</li>
+<li>size：table数组的大小</li>
+<li>sizemask：掩码，用来计算键的索引值。值恒为size -1</li>
+<li>used：table数组已存键值对个数</li>
+</ul>
+<p>Hash表的数组容量初始值为4，扩容倍数为当前一倍，所以sizemask大小为<code>3,7,11,31</code>，二进制表示为<code>111111...</code>，在计算索引值时，首先计算hash值，通过<code>hash = dict-&gt; type-&gt;hashFunction(k0)</code>得到对应hash。再通过<code>idx = hash &amp; d-&gt;dt[table].sizemask</code>计算entry存储的索引位置，位运算速度快于取余运算，Redis使用链地址法来解决<strong>hash冲突</strong>问题。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> dictht {
+</span></span><span style="display:flex;"><span>    dictEntry <span style="color:#f92672">**</span>table;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> size;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> sizemask;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> used;
+</span></span><span style="display:flex;"><span>} dictht;
+</span></span></code></pre></div><h3 id="rehash">rehash</h3>
+<p>hashtable一般需要将负载因子维护在一个合理的范围，使得其达到最大的操作效率，当键值对数量太多或太少时，都需要对hashtable进行相应的扩展或缩容。rehash动作是分批次、渐进式完成的，这是为了避免rehash对server性能造成影响。</p>
+<p>Redis进行rehash的执行步骤如下：</p>
+<ol>
+<li>为<code>ht[1]</code>分配空间，空间大小取决于<code>ht[0]</code>包含的键值对数量。</li>
+<li>将所有保存在<code>ht[0]</code>的键值对rehash到<code>ht[1]</code>上，即重新计算对应hash和index，并存储在<code>ht[1]</code></li>
+<li>释放<code>ht[0]</code>空间，将<code>ht[1]</code>设置为<code>ht[0]</code>，并在<code>ht[1]</code>新建一个空白hashtable，为下一次rehash服务。</li>
+</ol>
+<p>在渐进式rehash过程中，查询等操作同时使用两个hashtable。</p>
+<h3 id="dictentry">dictEntry</h3>
+<p>键值对节点，存放键值对数据。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> dictEntry {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//键
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">union</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//存储值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>val;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">uint64_t</span> u64;
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//存储过期时间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">int64_t</span> s64;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">double</span> d;
+</span></span><span style="display:flex;"><span>    } v;<span style="color:#75715e">//值，联合体
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//next指针，Hash冲突时的单链表法
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">struct</span> dictEntry <span style="color:#f92672">*</span>next;
+</span></span><span style="display:flex;"><span>} dictEntry;
+</span></span></code></pre></div><h3 id="dicttype">dictType</h3>
+<p>存放的是对字典操作的函数指针</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> dictType {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//Hash函数，默认使用MurmurHash2算法来计算hash值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">uint64_t</span> (<span style="color:#f92672">*</span>hashFunction)(<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//键对应的复制函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>(<span style="color:#f92672">*</span>keyDup)(<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>privdata, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//值对应的复制函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>(<span style="color:#f92672">*</span>valDup)(<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>privdata, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>obj);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//键的比对函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">int</span> (<span style="color:#f92672">*</span>keyCompare)(<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>privdata, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key1, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key2);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//键的销毁函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">void</span> (<span style="color:#f92672">*</span>keyDestructor)(<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>privdata, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//值得销毁函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">void</span> (<span style="color:#f92672">*</span>valDestructor)(<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>privdata, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>obj);
+</span></span><span style="display:flex;"><span>} dictType;
+</span></span></code></pre></div><h2 id="dict">dict</h2>
+<ul>
+<li>type：字典操作函数指针，指向一个dictType结构的指针</li>
+<li>privdata：私有数据，配合tyoe指针指向的函数一起使用</li>
+<li>ht：大小为2的数组，默认使用ht[0]，当字典扩容缩容时进行rehash时，才会用到ht[1]</li>
+<li>rehashidx：标记该字典是否在进行rehash，没进行为-1，用来记录rehash到了哪个元素，值为下标值</li>
+<li>iterators：用来记录当前运行的安全迭代器数，当有安全迭代器，会暂停rehash</li>
+</ul>
+<p>基本结构图如图所示：
+<img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/redis/dict/dict.png" alt="字典结构图"></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> dict {
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//存放字典的操作函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    dictType <span style="color:#f92672">*</span>type;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//依赖的数据
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>privdata;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//Hash表
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    dictht ht[<span style="color:#ae81ff">2</span>];
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//rehash标识，默认为-1，代表没有进行rehash操作
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">long</span> rehashidx; 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//当前运行的迭代器数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> iterators;
+</span></span><span style="display:flex;"><span>} dict;
+</span></span></code></pre></div><h1 id="接口">接口</h1>
+<h2 id="dictcreate">dictCreate</h2>
+<p>redis-server启动时，会初始化一个空字典用于存储整个数据库的键值对，初始化的主要逻辑如下：</p>
+<ul>
+<li>申请空间</li>
+<li>调用<code>_dictInit</code>完成初始化</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span>dict <span style="color:#f92672">*</span><span style="color:#a6e22e">dictCreate</span>(dictType <span style="color:#f92672">*</span>type,
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>privDataPtr)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    dict <span style="color:#f92672">*</span>d <span style="color:#f92672">=</span> <span style="color:#a6e22e">zmalloc</span>(<span style="color:#66d9ef">sizeof</span>(<span style="color:#f92672">*</span>d));
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_dictInit</span>(d,type,privDataPtr);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> d;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">_dictInit</span>(dict <span style="color:#f92672">*</span>d, dictType <span style="color:#f92672">*</span>type,
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>privDataPtr)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_dictReset</span>(<span style="color:#f92672">&amp;</span>d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>]);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_dictReset</span>(<span style="color:#f92672">&amp;</span>d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>]);
+</span></span><span style="display:flex;"><span>    d<span style="color:#f92672">-&gt;</span>type <span style="color:#f92672">=</span> type;
+</span></span><span style="display:flex;"><span>    d<span style="color:#f92672">-&gt;</span>privdata <span style="color:#f92672">=</span> privDataPtr;
+</span></span><span style="display:flex;"><span>    d<span style="color:#f92672">-&gt;</span>rehashidx <span style="color:#f92672">=</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    d<span style="color:#f92672">-&gt;</span>iterators <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> DICT_OK;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="dictadd">dictAdd</h2>
+<p>添加键值对，主要逻辑如下：</p>
+<ul>
+<li>调用<code>dictAddRaw</code>，添加键</li>
+<li>给返回的新节点设置值（更新val字段）</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">dictAdd</span>(dict <span style="color:#f92672">*</span>d, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>val)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//添加键，字典中键已存在则返回NULL，否则添加新节点，并返回
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    dictEntry <span style="color:#f92672">*</span>entry <span style="color:#f92672">=</span> <span style="color:#a6e22e">dictAddRaw</span>(d,key,NULL);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//键存在则添加错误
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>entry) <span style="color:#66d9ef">return</span> DICT_ERR;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//设置值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">dictSetVal</span>(d, entry, val);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> DICT_OK;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//d为入参字典，key为键，existing为Hash表节点地址
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>dictEntry <span style="color:#f92672">*</span><span style="color:#a6e22e">dictAddRaw</span>(dict <span style="color:#f92672">*</span>d, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key, dictEntry <span style="color:#f92672">**</span>existing)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> index;
+</span></span><span style="display:flex;"><span>    dictEntry <span style="color:#f92672">*</span>entry;
+</span></span><span style="display:flex;"><span>    dictht <span style="color:#f92672">*</span>ht;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//字典是否在进行rehash操作
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">dictIsRehashing</span>(d)) <span style="color:#a6e22e">_dictRehashStep</span>(d);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//查找键，找到直接返回-1，并把老节点存放在existing里，否则返回新节点索引值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> ((index <span style="color:#f92672">=</span> <span style="color:#a6e22e">_dictKeyIndex</span>(d, key, <span style="color:#a6e22e">dictHashKey</span>(d,key), existing)) <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> NULL;<span style="color:#960050;background-color:#1e0010">，</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//检测容量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    ht <span style="color:#f92672">=</span> <span style="color:#a6e22e">dictIsRehashing</span>(d) <span style="color:#f92672">?</span> <span style="color:#f92672">&amp;</span>d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>] <span style="color:#f92672">:</span> <span style="color:#f92672">&amp;</span>d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>];
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//申请新节点内存空间，插入哈希表
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    entry <span style="color:#f92672">=</span> <span style="color:#a6e22e">zmalloc</span>(<span style="color:#66d9ef">sizeof</span>(<span style="color:#f92672">*</span>entry));
+</span></span><span style="display:flex;"><span>    entry<span style="color:#f92672">-&gt;</span>next <span style="color:#f92672">=</span> ht<span style="color:#f92672">-&gt;</span>table[index];
+</span></span><span style="display:flex;"><span>    ht<span style="color:#f92672">-&gt;</span>table[index] <span style="color:#f92672">=</span> entry;
+</span></span><span style="display:flex;"><span>    ht<span style="color:#f92672">-&gt;</span>used<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//存储键信息
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">dictSetKey</span>(d, entry, key);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> entry;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="dictexpand">dictExpand</h2>
+<p>扩容操作主要逻辑：</p>
+<ul>
+<li>计算扩容大小（是size的下一个2的幂）</li>
+<li>将新申请的地址存放于ht[1]，并把<code>rehashidx</code>标为1，表示需要进行rehash</li>
+</ul>
+<p>扩容完成后ht[1]中为全新的Hash表，扩容之后，添加操作的键值对全部存放于全新的Hash表中，修改删除查找等操作需要在ht[0]和ht[1]中进行检查。此外还需要将ht[0]中的键值对rehash到ht[1]中。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">dictExpand</span>(dict <span style="color:#f92672">*</span>d, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> size)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//如果已存在空间大于传入size，则无效
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">dictIsRehashing</span>(d) <span style="color:#f92672">||</span> d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].used <span style="color:#f92672">&gt;</span> size)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> DICT_ERR;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    dictht n; <span style="color:#75715e">/* the new hash table */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//扩容值为2的幂
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> realsize <span style="color:#f92672">=</span> <span style="color:#a6e22e">_dictNextPower</span>(size);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//相同则不扩容
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (realsize <span style="color:#f92672">==</span> d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].size) <span style="color:#66d9ef">return</span> DICT_ERR;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//将新的hash表内部变量初始化，并申请对应的内存空间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    n.size <span style="color:#f92672">=</span> realsize;
+</span></span><span style="display:flex;"><span>    n.sizemask <span style="color:#f92672">=</span> realsize<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    n.table <span style="color:#f92672">=</span> <span style="color:#a6e22e">zcalloc</span>(realsize<span style="color:#f92672">*</span><span style="color:#66d9ef">sizeof</span>(dictEntry<span style="color:#f92672">*</span>));
+</span></span><span style="display:flex;"><span>    n.used <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//如果当前是空表，就直接存放在ht[0]
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].table <span style="color:#f92672">==</span> NULL) {
+</span></span><span style="display:flex;"><span>        d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">=</span> n;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> DICT_OK;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">扩容后的新内存放入</span>ht[<span style="color:#ae81ff">1</span>]
+</span></span><span style="display:flex;"><span>    d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>] <span style="color:#f92672">=</span> n;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//表示需要进行rehash
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    d<span style="color:#f92672">-&gt;</span>rehashidx <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> DICT_OK;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="dictresize">dictResize</h2>
+<p>缩容操作主要通过<code>dictExpand(d, minimal)</code>实现。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#75715e">#define DICT_HT_INITIAL_SIZE     4
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">dictResize</span>(dict <span style="color:#f92672">*</span>d)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> minimal;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//判断是否在rehash
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>dict_can_resize <span style="color:#f92672">||</span> <span style="color:#a6e22e">dictIsRehashing</span>(d)) <span style="color:#66d9ef">return</span> DICT_ERR;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//minimal为ht[0]的已使用量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    minimal <span style="color:#f92672">=</span> d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].used;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//如果键值对数量 &lt; 4，将缩容至4
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (minimal <span style="color:#f92672">&lt;</span> DICT_HT_INITIAL_SIZE)
+</span></span><span style="display:flex;"><span>        minimal <span style="color:#f92672">=</span> DICT_HT_INITIAL_SIZE;
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//调用dictExpand进行缩容
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dictExpand</span>(d, minimal);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="rehash-1">Rehash</h2>
+<p>Rehash在缩容和扩容时都会触发。执行插入、删除、查找、修改操作前，会判断当前字典是否在rehash，如果在，调用<code>dictRehashStep</code>进行rehash（只对一个节点rehash）。如果服务处于空闲时，也会进行rehash操作（<code>incrementally</code>批量，一次100个节点）</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">dictRehash</span>(dict <span style="color:#f92672">*</span>d, <span style="color:#66d9ef">int</span> n) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> empty_visits <span style="color:#f92672">=</span> n<span style="color:#f92672">*</span><span style="color:#ae81ff">10</span>; <span style="color:#75715e">/* Max number of empty buckets to visit. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//如果已经rehash结束，直接返回
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span><span style="color:#a6e22e">dictIsRehashing</span>(d)) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span>(n<span style="color:#f92672">--</span> <span style="color:#f92672">&amp;&amp;</span> d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].used <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span>) {
+</span></span><span style="display:flex;"><span>        dictEntry <span style="color:#f92672">*</span>de, <span style="color:#f92672">*</span>nextde;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* Note that rehashidx can&#39;t overflow as we are sure there are more
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * elements because ht[0].used != 0 */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">assert</span>(d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].size <span style="color:#f92672">&gt;</span> (<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>)d<span style="color:#f92672">-&gt;</span>rehashidx);
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//找到hash表中不为空的位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">while</span>(d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].table[d<span style="color:#f92672">-&gt;</span>rehashidx] <span style="color:#f92672">==</span> NULL) {
+</span></span><span style="display:flex;"><span>            d<span style="color:#f92672">-&gt;</span>rehashidx<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (<span style="color:#f92672">--</span>empty_visits <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//de为rehash标识，存放正在进行rehash节点的索引值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        de <span style="color:#f92672">=</span> d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].table[d<span style="color:#f92672">-&gt;</span>rehashidx];
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* Move all the keys in this bucket from the old to the new hash HT */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span>(de) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">uint64_t</span> h;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            nextde <span style="color:#f92672">=</span> de<span style="color:#f92672">-&gt;</span>next;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            h <span style="color:#f92672">=</span> <span style="color:#a6e22e">dictHashKey</span>(d, de<span style="color:#f92672">-&gt;</span>key) <span style="color:#f92672">&amp;</span> d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>].sizemask;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//插入
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            de<span style="color:#f92672">-&gt;</span>next <span style="color:#f92672">=</span> d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>].table[h];
+</span></span><span style="display:flex;"><span>            d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>].table[h] <span style="color:#f92672">=</span> de;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//更新数据
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].used<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>            d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>].used<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>            de <span style="color:#f92672">=</span> nextde;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//置空
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].table[d<span style="color:#f92672">-&gt;</span>rehashidx] <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>        d<span style="color:#f92672">-&gt;</span>rehashidx<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//检查是否已经rehash过了
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].used <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">zfree</span>(d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].table);
+</span></span><span style="display:flex;"><span>        d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">=</span> d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>];
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">_dictReset</span>(<span style="color:#f92672">&amp;</span>d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>]);
+</span></span><span style="display:flex;"><span>        d<span style="color:#f92672">-&gt;</span>rehashidx <span style="color:#f92672">=</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* More to rehash... */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="dictfind">dictFind</h2>
+<p>查找键的逻辑较为简单，遍历ht[0]和ht[1]。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span>dictEntry <span style="color:#f92672">*</span><span style="color:#a6e22e">dictFind</span>(dict <span style="color:#f92672">*</span>d, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    dictEntry <span style="color:#f92672">*</span>he;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> h, idx, table;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//字典为空，直接返回
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].used <span style="color:#f92672">+</span> d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>].used <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) <span style="color:#66d9ef">return</span> NULL; <span style="color:#75715e">/* dict is empty */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">dictIsRehashing</span>(d)) <span style="color:#a6e22e">_dictRehashStep</span>(d);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//获取键的hash值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    h <span style="color:#f92672">=</span> <span style="color:#a6e22e">dictHashKey</span>(d, key);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//遍历查找hash表,ht[0]和ht[1]
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> (table <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; table <span style="color:#f92672">&lt;=</span> <span style="color:#ae81ff">1</span>; table<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>        idx <span style="color:#f92672">=</span> h <span style="color:#f92672">&amp;</span> d<span style="color:#f92672">-&gt;</span>ht[table].sizemask;
+</span></span><span style="display:flex;"><span>        he <span style="color:#f92672">=</span> d<span style="color:#f92672">-&gt;</span>ht[table].table[idx];
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//遍历单链表
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">while</span>(he) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (key<span style="color:#f92672">==</span>he<span style="color:#f92672">-&gt;</span>key <span style="color:#f92672">||</span> <span style="color:#a6e22e">dictCompareKeys</span>(d, key, he<span style="color:#f92672">-&gt;</span>key))
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> he;
+</span></span><span style="display:flex;"><span>            he <span style="color:#f92672">=</span> he<span style="color:#f92672">-&gt;</span>next;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span><span style="color:#a6e22e">dictIsRehashing</span>(d)) <span style="color:#66d9ef">return</span> NULL;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> NULL;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="dictdelete">dictDelete</h2>
+<p>删除的主要逻辑如下：</p>
+<ul>
+<li>查找该键是否存在于该字典中</li>
+<li>存在则将节点从单链表中删除</li>
+<li>释放节点内存空间，used减一</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">dictDelete</span>(dict <span style="color:#f92672">*</span>ht, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dictGenericDelete</span>(ht,key,<span style="color:#ae81ff">0</span>) <span style="color:#f92672">?</span> DICT_OK : DICT_ERR;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> dictEntry <span style="color:#f92672">*</span><span style="color:#a6e22e">dictGenericDelete</span>(dict <span style="color:#f92672">*</span>d, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>key, <span style="color:#66d9ef">int</span> nofree) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> h, idx;
+</span></span><span style="display:flex;"><span>    dictEntry <span style="color:#f92672">*</span>he, <span style="color:#f92672">*</span>prevHe;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> table;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//如果字典为空直接返回
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">0</span>].used <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> d<span style="color:#f92672">-&gt;</span>ht[<span style="color:#ae81ff">1</span>].used <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) <span style="color:#66d9ef">return</span> NULL;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//。如果正在rehash，则调用_dictRehashStep进行rehash一次
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">dictIsRehashing</span>(d)) <span style="color:#a6e22e">_dictRehashStep</span>(d);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//获取需要删除节点的键Hash值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    h <span style="color:#f92672">=</span> <span style="color:#a6e22e">dictHashKey</span>(d, key);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//从ht[0]和ht[1]中查找
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> (table <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; table <span style="color:#f92672">&lt;=</span> <span style="color:#ae81ff">1</span>; table<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>        idx <span style="color:#f92672">=</span> h <span style="color:#f92672">&amp;</span> d<span style="color:#f92672">-&gt;</span>ht[table].sizemask;
+</span></span><span style="display:flex;"><span>        he <span style="color:#f92672">=</span> d<span style="color:#f92672">-&gt;</span>ht[table].table[idx];
+</span></span><span style="display:flex;"><span>        prevHe <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//遍历单链表查找
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">while</span>(he) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (key<span style="color:#f92672">==</span>he<span style="color:#f92672">-&gt;</span>key <span style="color:#f92672">||</span> <span style="color:#a6e22e">dictCompareKeys</span>(d, key, he<span style="color:#f92672">-&gt;</span>key)) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//删除节点
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#66d9ef">if</span> (prevHe)
+</span></span><span style="display:flex;"><span>                    prevHe<span style="color:#f92672">-&gt;</span>next <span style="color:#f92672">=</span> he<span style="color:#f92672">-&gt;</span>next;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>                    d<span style="color:#f92672">-&gt;</span>ht[table].table[idx] <span style="color:#f92672">=</span> he<span style="color:#f92672">-&gt;</span>next;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>nofree) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//释放节点内存空间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                    <span style="color:#a6e22e">dictFreeKey</span>(d, he);
+</span></span><span style="display:flex;"><span>                    <span style="color:#a6e22e">dictFreeVal</span>(d, he);
+</span></span><span style="display:flex;"><span>                    <span style="color:#a6e22e">zfree</span>(he);
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//used自减一
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                d<span style="color:#f92672">-&gt;</span>ht[table].used<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> he;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            prevHe <span style="color:#f92672">=</span> he;
+</span></span><span style="display:flex;"><span>            he <span style="color:#f92672">=</span> he<span style="color:#f92672">-&gt;</span>next;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span><span style="color:#a6e22e">dictIsRehashing</span>(d)) <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> NULL; <span style="color:#75715e">/* not found */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h1 id="总结">总结</h1>
+<p>本文主要对Redis中的字典基本结构做了简要分析，对字典的创建，键值对添加/删除/查找等操作与字典的缩容扩容机制做了简要分析，键值对修改操作主要通过<code>db.c</code>中的<code>dbOverwrite</code>函数调用<code>dictSetVal</code>实现。</p>
+<p>字典是通过两个hashtable来实现的，一个用于日常存储，一个用于渐进式rehash，字典被应用于提供的<strong>hash结构</strong>和服务端的<strong>数据库存储</strong>。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/">
+                数据结构
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/">
+                源码分析
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/redis/">
+                Redis
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-ziplist/">Redis底层数据结构-ZipList源码分析</a></li>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-zskiplist/">Redis底层数据结构-SkipList源码分析</a></li>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis%E5%BA%95%E5%B1%82%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84-sds/">Redis底层数据结构-SDS</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

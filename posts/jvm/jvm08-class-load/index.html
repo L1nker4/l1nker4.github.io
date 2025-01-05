@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/jvm/jvm08-class-load/" />
+  <link rel="canonical" href="http://localhost:59500/posts/jvm/jvm08-class-load/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "JVM之类加载机制（八）",
+      "headline" : "JVM之类加载机制（八）",
+      "description" : "类加载机制 JVM把Class描述类的数据从Class文件加载到内存，并对数据进行校验，转换解析和初始化，最终形成可以被虚拟机直接使用的Java类型，这个过程被称为类加载机制。\n类加载的时机 类加载机制的整个生命周期将经历：\n加载 验证 准备 解析 初始化 使用 卸载 其中验证，准备，解析三部分统称为连接。 加载，验证，准备，初始化，卸载这五个阶段的顺序是确定的，而解析阶段则不一定，他在某些情况下可以在初始化阶段之后再开始，这是为了支持Java语言的运行时绑定特性（也称为动态绑定或者晚期绑定）。\n关于在什么情况下进行类加载的第一个过程，JVM规范并没有强制约束，这点交给虚拟机的具体实现来自由把握，但是对于初始化阶段，JVM严格规定了有且仅有六种情况必须立即对类进行初始化（加载验证准备自然在此之前）：\n遇到new，getstatic，putstatic或invokestatic四条字节码指令时，如果类型没有进行初始化，则需要先出发其初始化阶段，主要场景有： 使用new关键字实例化对象的时候 读取或设置一个类型的静态字段（被final修饰，已在编译期把结果放入常量池的静态字段除外） 调用一个类型的静态方法的时候 使用java.lang.reflect包的方法对类型进行反射调用的时候，如果类型没有进行过初始化，则需要触发初始化 当初始化类的时候，如果发现其父类没有进行初始化，则需要先对父类进行初始化 当虚拟机启动时，用户需要指定一个要执行的主类，虚拟机会先初始化这个主类 当使用JDK 7新加入的动态语言支持时，如果使用一个java.lang.invoke.MethodHandle实例最后的解析结果为REF_getStatic、REF_putStatic、REF_invokeStatic 的方法句柄，并且这个方法句柄所对应的类还没初始化，则需要先触发其初始化。 当一个接口定义了JDK 8新加入的默认方法（被default关键字修饰的接口方法）时，如果有这个接口的实现类发生了初始化，那么该接口要在其之前被初始化 这六种场景中的行为被称为对一个类型的主动引用，除此之外，所有引用类型的方式不会触发初始化，称为被动引用。\n被动引用的Demo \/** * 被动引用 Demo1: * 通过子类引用父类的静态字段，不会导致子类初始化。 *\/ class SuperClass { static { System.out.println(\u0026#34;SuperClass init!\u0026#34;); } public static int value = 123; } class SubClass extends SuperClass { static { System.out.println(\u0026#34;SubClass init!\u0026#34;); } } public class NotInitialization { public static void main(String[] args) { System.out.println(SubClass.value); \/\/ SuperClass init! } } 对于静态字段，只有直接定义这个字段的类才会被初始化，因此通过其子类来引用父类中定义的静态字段，只会触发父类的初始化而不会触发子类的初始化。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-03-28 19:51:37 \u002b0000 UTC",
+      "dateModified" : "2020-03-28 19:51:37 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/jvm\/jvm08-class-load\/",
+      "keywords" : [ "Java","JVM", ]
+  }
+</script>
+<title>JVM之类加载机制（八）</title>
+  <meta property="og:title" content="JVM之类加载机制（八）" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="类加载机制 JVM把Class描述类的数据从Class文件加载到内存，并对数据进行校验，转换解析和初始化，最终形成可以被虚拟机直接使用的Java类型，这个过程被称为类加载机制。
+类加载的时机 类加载机制的整个生命周期将经历：
+加载 验证 准备 解析 初始化 使用 卸载 其中验证，准备，解析三部分统称为连接。 加载，验证，准备，初始化，卸载这五个阶段的顺序是确定的，而解析阶段则不一定，他在某些情况下可以在初始化阶段之后再开始，这是为了支持Java语言的运行时绑定特性（也称为动态绑定或者晚期绑定）。
+关于在什么情况下进行类加载的第一个过程，JVM规范并没有强制约束，这点交给虚拟机的具体实现来自由把握，但是对于初始化阶段，JVM严格规定了有且仅有六种情况必须立即对类进行初始化（加载验证准备自然在此之前）：
+遇到new，getstatic，putstatic或invokestatic四条字节码指令时，如果类型没有进行初始化，则需要先出发其初始化阶段，主要场景有： 使用new关键字实例化对象的时候 读取或设置一个类型的静态字段（被final修饰，已在编译期把结果放入常量池的静态字段除外） 调用一个类型的静态方法的时候 使用java.lang.reflect包的方法对类型进行反射调用的时候，如果类型没有进行过初始化，则需要触发初始化 当初始化类的时候，如果发现其父类没有进行初始化，则需要先对父类进行初始化 当虚拟机启动时，用户需要指定一个要执行的主类，虚拟机会先初始化这个主类 当使用JDK 7新加入的动态语言支持时，如果使用一个java.lang.invoke.MethodHandle实例最后的解析结果为REF_getStatic、REF_putStatic、REF_invokeStatic 的方法句柄，并且这个方法句柄所对应的类还没初始化，则需要先触发其初始化。 当一个接口定义了JDK 8新加入的默认方法（被default关键字修饰的接口方法）时，如果有这个接口的实现类发生了初始化，那么该接口要在其之前被初始化 这六种场景中的行为被称为对一个类型的主动引用，除此之外，所有引用类型的方式不会触发初始化，称为被动引用。
+被动引用的Demo /** * 被动引用 Demo1: * 通过子类引用父类的静态字段，不会导致子类初始化。 */ class SuperClass { static { System.out.println(&#34;SuperClass init!&#34;); } public static int value = 123; } class SubClass extends SuperClass { static { System.out.println(&#34;SubClass init!&#34;); } } public class NotInitialization { public static void main(String[] args) { System.out.println(SubClass.value); // SuperClass init! } } 对于静态字段，只有直接定义这个字段的类才会被初始化，因此通过其子类来引用父类中定义的静态字段，只会触发父类的初始化而不会触发子类的初始化。
+" />
+  <meta name="description" content="类加载机制 JVM把Class描述类的数据从Class文件加载到内存，并对数据进行校验，转换解析和初始化，最终形成可以被虚拟机直接使用的Java类型，这个过程被称为类加载机制。
+类加载的时机 类加载机制的整个生命周期将经历：
+加载 验证 准备 解析 初始化 使用 卸载 其中验证，准备，解析三部分统称为连接。 加载，验证，准备，初始化，卸载这五个阶段的顺序是确定的，而解析阶段则不一定，他在某些情况下可以在初始化阶段之后再开始，这是为了支持Java语言的运行时绑定特性（也称为动态绑定或者晚期绑定）。
+关于在什么情况下进行类加载的第一个过程，JVM规范并没有强制约束，这点交给虚拟机的具体实现来自由把握，但是对于初始化阶段，JVM严格规定了有且仅有六种情况必须立即对类进行初始化（加载验证准备自然在此之前）：
+遇到new，getstatic，putstatic或invokestatic四条字节码指令时，如果类型没有进行初始化，则需要先出发其初始化阶段，主要场景有： 使用new关键字实例化对象的时候 读取或设置一个类型的静态字段（被final修饰，已在编译期把结果放入常量池的静态字段除外） 调用一个类型的静态方法的时候 使用java.lang.reflect包的方法对类型进行反射调用的时候，如果类型没有进行过初始化，则需要触发初始化 当初始化类的时候，如果发现其父类没有进行初始化，则需要先对父类进行初始化 当虚拟机启动时，用户需要指定一个要执行的主类，虚拟机会先初始化这个主类 当使用JDK 7新加入的动态语言支持时，如果使用一个java.lang.invoke.MethodHandle实例最后的解析结果为REF_getStatic、REF_putStatic、REF_invokeStatic 的方法句柄，并且这个方法句柄所对应的类还没初始化，则需要先触发其初始化。 当一个接口定义了JDK 8新加入的默认方法（被default关键字修饰的接口方法）时，如果有这个接口的实现类发生了初始化，那么该接口要在其之前被初始化 这六种场景中的行为被称为对一个类型的主动引用，除此之外，所有引用类型的方式不会触发初始化，称为被动引用。
+被动引用的Demo /** * 被动引用 Demo1: * 通过子类引用父类的静态字段，不会导致子类初始化。 */ class SuperClass { static { System.out.println(&#34;SuperClass init!&#34;); } public static int value = 123; } class SubClass extends SuperClass { static { System.out.println(&#34;SubClass init!&#34;); } } public class NotInitialization { public static void main(String[] args) { System.out.println(SubClass.value); // SuperClass init! } } 对于静态字段，只有直接定义这个字段的类才会被初始化，因此通过其子类来引用父类中定义的静态字段，只会触发父类的初始化而不会触发子类的初始化。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">JVM之类加载机制（八）</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-03-28 19:51:37 UTC">
+                28 Mar 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="类加载机制">类加载机制</h2>
+<blockquote>
+<p>JVM把Class描述类的数据从Class文件加载到内存，并对数据进行校验，转换解析和初始化，最终形成可以被虚拟机直接使用的Java类型，这个过程被称为类加载机制。</p>
+</blockquote>
+<h3 id="类加载的时机">类加载的时机</h3>
+<p>类加载机制的整个生命周期将经历：</p>
+<ul>
+<li>加载</li>
+<li>验证</li>
+<li>准备</li>
+<li>解析</li>
+<li>初始化</li>
+<li>使用</li>
+<li>卸载</li>
+</ul>
+<p>其中验证，准备，解析三部分统称为连接。
+加载，验证，准备，初始化，卸载这五个阶段的顺序是确定的，而解析阶段则不一定，他在某些情况下可以在初始化阶段之后再开始，这是为了支持Java语言的运行时绑定特性（也称为动态绑定或者晚期绑定）。</p>
+<p>关于在什么情况下进行类加载的第一个过程，JVM规范并没有强制约束，这点交给虚拟机的具体实现来自由把握，但是对于初始化阶段，JVM严格规定了有且仅有六种情况必须立即对类进行初始化（加载验证准备自然在此之前）：</p>
+<ul>
+<li>遇到new，getstatic，putstatic或invokestatic四条字节码指令时，如果类型没有进行初始化，则需要先出发其初始化阶段，主要场景有：
+<ul>
+<li>使用new关键字实例化对象的时候</li>
+<li>读取或设置一个类型的静态字段（被final修饰，已在编译期把结果放入常量池的静态字段除外）</li>
+<li>调用一个类型的静态方法的时候</li>
+</ul>
+</li>
+<li>使用<code>java.lang.reflect</code>包的方法对类型进行反射调用的时候，如果类型没有进行过初始化，则需要触发初始化</li>
+<li>当初始化类的时候，如果发现其父类没有进行初始化，则需要先对父类进行初始化</li>
+<li>当虚拟机启动时，用户需要指定一个要执行的主类，虚拟机会先初始化这个主类</li>
+<li>当使用JDK 7新加入的动态语言支持时，如果使用一个<code>java.lang.invoke.MethodHandle</code>实例最后的解析结果为REF_getStatic、REF_putStatic、REF_invokeStatic 的方法句柄，并且这个方法句柄所对应的类还没初始化，则需要先触发其初始化。</li>
+<li>当一个接口定义了JDK 8新加入的默认方法（被default关键字修饰的接口方法）时，如果有这个接口的实现类发生了初始化，那么该接口要在其之前被初始化</li>
+</ul>
+<p>这六种场景中的行为被称为<strong>对一个类型的主动引用</strong>，除此之外，所有引用类型的方式不会触发初始化，称为<strong>被动引用</strong>。</p>
+<h4 id="被动引用的demo">被动引用的Demo</h4>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * 被动引用 Demo1:
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * 通过子类引用父类的静态字段，不会导致子类初始化。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">SuperClass</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> {
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;SuperClass init!&#34;</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> value <span style="color:#f92672">=</span> 123;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">SubClass</span> <span style="color:#66d9ef">extends</span> SuperClass {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> {
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;SubClass init!&#34;</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">NotInitialization</span> {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(SubClass.<span style="color:#a6e22e">value</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// SuperClass init!</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>对于静态字段，只有直接定义这个字段的类才会被初始化，因此通过其子类来引用父类中定义的静态字段，只会触发父类的初始化而不会触发子类的初始化。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * 被动引用 Demo2:
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * 通过数组定义来引用类，不会触发此类的初始化。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">NotInitialization</span> {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>        SuperClass<span style="color:#f92672">[]</span> superClasses <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> SuperClass<span style="color:#f92672">[</span>10<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这段代码不会触发父类的初始化，但会触发“[L 全类名”这个类的初始化，它由虚拟机自动生成，直接继承自 java.lang.Object，创建动作由字节码指令 newarray 触发。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * 被动引用 Demo3:
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * 常量在编译阶段会存入调用类的常量池中，本质上并没有直接引用到定义常量的类，因此不会触发定义常量的类的初始化。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ConstClass</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> {
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;ConstClass init!&#34;</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> String HELLO_BINGO <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;Hello Bingo&#34;</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">NotInitialization</span> {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(ConstClass.<span style="color:#a6e22e">HELLO_BINGO</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>编译通过之后，常量存储到 NotInitialization 类的常量池中，NotInitialization 的 Class 文件中并没有 ConstClass 类的符号引用入口，这两个类在编译成 Class 之后就没有任何联系了。
+<!-- raw HTML omitted --></p>
+<h3 id="接口的加载过程">接口的加载过程</h3>
+<p>接口的加载过程与类加载过程稍有不同。
+当一个类在初始化时，要求其父类全部都已经初始化过了，但是一个接口在初始化时，并不要求其父接口全部完成了初始化，当真正用到父接口的时候才会完成初始化。</p>
+<h2 id="类加载的过程">类加载的过程</h2>
+<h3 id="加载">加载</h3>
+<p>在加载过程，JVM需要完成以下三件事情：</p>
+<ul>
+<li>通过一个类的全限定名来获取定义此类的二进制字节流</li>
+<li>将这个字节流所代表的静态存储结构转化成方法区的运行时数据结构</li>
+<li>在内存中生成一个代表这个类的<code>java.lang.Class</code>对象，作为方法区这个类的各种数据的访问入口</li>
+</ul>
+<h4 id="获取二进制字节流">获取二进制字节流</h4>
+<ul>
+<li>从zip包中读取，jar，war，ear</li>
+<li>从网络中读取，Web Applet</li>
+<li>运行时计算生成，使用最多的是动态代理技术</li>
+<li>由其他文件生成，典型场景是JSP应用，由JSP生成对应的Class文件</li>
+<li>从数据库中读取</li>
+<li>从加密文件中获取</li>
+</ul>
+<h4 id="非数组类型与数据类加载比较">非数组类型与数据类加载比较</h4>
+<ul>
+<li>非数组类型的加载阶段可以使用JVM内置的引导类加载器，也可以使用用户自定义的类加载器，开发人员通过定义自己的类加载器区控制字节流的获取方式（重写一个类加载器的findClass()或loadClass()）</li>
+<li>数组类本身不通过类加载器创建，它通过JVM直接在内存中动态构造出来的，再由类加载器创建数组中的元素类</li>
+</ul>
+<h3 id="验证">验证</h3>
+<p>目的是确保Class文件的字节流中包含的信息符和JVM规范中的全部约束要求。保证这些信息被当作代码运行后不会危害JVM自身的安全。</p>
+<h4 id="验证的过程">验证的过程</h4>
+<ul>
+<li>文件格式验证：验证字节流是否符和Class规范，并且能被当前版本的虚拟机处理，这一阶段包括以下验证点：
+<ul>
+<li>是否以魔数0xCAFEBABE开头</li>
+<li>主次版本号是否在当前JVM处理范围内</li>
+<li>常量池的常量是否有不被支持</li>
+<li>指向常量的索引值中是否有不存在的常量或不符合类型的常量</li>
+<li>CONSTANT_Utf8_info型的常量中是否有不符合UTF-8编码的数据</li>
+<li>Class文件中各个部分以及文件本身是否有被删除的或附加的其他信息</li>
+</ul>
+</li>
+<li>元数据验证：对字节码描述的信息进行语义分析，以保证其描述信息符和Java语言规范
+<ul>
+<li>这个类是否有父类（除Object之外，所有的类都有父类）</li>
+<li>这个类是否继承了不被允许继承的类（被final修饰的类）</li>
+<li>如果这个类不是抽象类，是否实现了其父类或接口之中要求实现的所有方法</li>
+<li>类中的字段、方法是否与父类产生矛盾</li>
+</ul>
+</li>
+<li>字节码验证：通过数据流分析和控制流分析，确定程序语义是合法的，符合逻辑的。
+<ul>
+<li>保证任意时刻操作数栈的数据类型与指令代码序列都能配合工作</li>
+<li>保证任何跳转指令都不会跳转到方法体意外的字节码指令上</li>
+<li>保证方法体中的类型转换总是有效的</li>
+</ul>
+</li>
+<li>符号引用验证：发正在解析阶段，可以看作是对类自身以外的各类信息进行匹配性验证，确定该类是否缺少或者被禁止访问它以来的某些外部类、方法、字段等资源，本阶段需要校验以下内容：
+<ul>
+<li>符号引用中通过字符串描述的全限定名是否能找到对应的类</li>
+<li>在指定类中是否存在符和方法的字段描述符以及简单名称所描述的方法和字段</li>
+<li>符号引用中的类、字段、方法的可访问性是否可被当前类访问</li>
+</ul>
+</li>
+</ul>
+<h3 id="准备">准备</h3>
+<p>准备阶段是正式为类中定义的变量（静态变量）分配内存并设置类变量初始值的阶段。这些变量（不包括实例变量）所使用的内存都在方法区中进行分配。
+初始值“通常情况下”是数据类型的零值（0, null&hellip;），假设一个类变量的定义为：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> value <span style="color:#f92672">=</span> 123;
+</span></span></code></pre></div><p>那么变量 value 在准备阶段过后的初始值为 0 而不是 123，因为这时候尚未开始执行任何 Java 方法。</p>
+<p>存在“特殊情况”：如果类字段的字段属性表中存在 ConstantValue 属性，那么在准备阶段 value 就会被初始化为 ConstantValue 属性所指定的值，假设上面类变量 value 的定义变为：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> value <span style="color:#f92672">=</span> 123;
+</span></span></code></pre></div><p>那么在准备阶段虚拟机会根据 ConstantValue 的设置将 value 赋值为 123。</p>
+<h3 id="解析">解析</h3>
+<p>解析阶段是JVM将常量池内的符号引用替换为直接引用的过程。</p>
+<ul>
+<li>类或接口的解析</li>
+<li>字段解析</li>
+<li>方法解析</li>
+<li>接口方法解析</li>
+</ul>
+<h3 id="初始化">初始化</h3>
+<p>初始化阶段就是执行内构造器<code>&lt;clinit&gt;()</code>方法的过程，此方法是由Javac自动生成的。</p>
+<p><code>&lt;clinit&gt;()</code>方法是由编译器自动收集类中的所有类变量的赋值动作和静态代码块中的语句合并而产生的。收集顺序由语句在源代码中出现的顺序决定</p>
+<p>静态语句块中只能访问定义在静态语句块之前的变量，定义在它之后的变量，在前面的静态语句块中可以赋值，但不能访问。如下方代码所示：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Test</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> {
+</span></span><span style="display:flex;"><span>        i <span style="color:#f92672">=</span> 0;  <span style="color:#75715e">// 给变量赋值可以正常编译通过</span>
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(i);  <span style="color:#75715e">// 这句编译器会提示“非法向前引用”</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 1;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>&lt;clinit&gt;()</code>方法与类的构造方法不同，它不需要显式地调用父类构造器，JVM会保证在子类地<code>&lt;clinit&gt;()</code>方法执行前，父类的<code>&lt;clinit&gt;()</code>方法已经执行完毕。</p>
+<p>由于父类的<code>&lt;clinit&gt;()</code> 方法先执行，意味着父类中定义的静态语句块要优先于子类的变量赋值操作。如下方代码所示：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Parent</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> A <span style="color:#f92672">=</span> 1;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> {
+</span></span><span style="display:flex;"><span>        A <span style="color:#f92672">=</span> 2;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Sub</span> <span style="color:#66d9ef">extends</span> Parent {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> B <span style="color:#f92672">=</span> A;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>    System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(Sub.<span style="color:#a6e22e">B</span>); <span style="color:#75715e">// 输出 2</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>&lt;clinit&gt;()</code>方法不是必需的，如果一个类中没有静态代码块，也没有对类变量的赋值操作，那么编译器将不生成<code>&lt;clinit&gt;()</code>方法。</p>
+<p>接口中不能使用静态代码块，但接口也需要通过 <code>&lt;clinit&gt;()</code> 方法为接口中定义的静态成员变量显式初始化。但接口与类不同，接口的<code>&lt;clinit&gt;()</code> 方法不需要先执行父类的<code>&lt;clinit&gt;()</code> 方法，只有当父接口中定义的变量使用时，父接口才会初始化。</p>
+<p>JVM必须保证一个类的<code>&lt;clinit&gt;()</code>方法在多线程环境中能被正常的加锁同步，如果多个线程区执行<code>&lt;clinit&gt;()</code>方法，那么只会有一个线程能执行<code>&lt;clinit&gt;()</code>方法，其他线程需要阻塞等待。直至活动线程执行完毕。</p>
+<!-- raw HTML omitted -->
+<h2 id="类加载器">类加载器</h2>
+<p>任意一个类，都必须由类加载器和这个类本身共同确立其在JVM中的唯一性。每个类加载器都有一个独立的类名称空间。</p>
+<p>因此要比较两个类是否相等，只有在这两个类是同一个类加载器加载的前提下才有意义，否则即使两个类来源于同一个Class文件，被同一个JVM加载，只要类加载器不同，这两个类就必定不相等。</p>
+<p>这里的相等代表类的Class对象的equals方法，isAssignableFrom()方法，inInstance()方法的返回结果，也包括了使用instanceof关键字做对象所属关系判定的各种情况。</p>
+<h3 id="双亲委派模型">双亲委派模型</h3>
+<p>JVM存在三层类加载器：</p>
+<ul>
+<li>启动类加载器（Bootstrap ClassLoader）
+<ul>
+<li>负责加载存放在<code>&lt;JAVA_HOME&gt;\lib</code>目录，或被-Xbootclasspath参数指定的目录存放的，而且能被JVM识别的（如rt.jar,tools.jar）类库加载到内存中</li>
+</ul>
+</li>
+<li>扩展类加载器（Extension Classloader）
+<ul>
+<li>负责加载<code>&lt;JAVA_HOME&gt;\lib\ext</code>目录中，或被<code>java.ext.dirs</code>系统变量所指定的路径中所有的类库</li>
+</ul>
+</li>
+<li>应用程序类加载器（Application Classloader）
+<ul>
+<li>也称为系统类加载器，负责加载用户类路径上的所有类库。</li>
+</ul>
+</li>
+</ul>
+<p>类加载器之间的层次关系被称为类加载器的<strong>双亲委派模型</strong>，双亲委派模型要求除了顶层的启动类加载器外，其他的类加载器都应有自己的父类加载器。</p>
+<p>双亲委派模型的工作过程：如果一个类加载器收到了类加载的请求，他首先不会自己区尝试加载这个类，而是把这个请求委派给父类加载器区完成，每一个层次的类加载器都是如此，因此所有的类加载器最终都应该传送到最顶层的启动类加载器中，只有父类加载器反馈自己无法完成这个加载请求的时候，子加载器才会尝试自己去完成加载。</p>
+<p>使用双亲委派模型的好处就是Java中的类随着它的类加载器一起具备了一种带有优先级的层次关系。例如Object类由启动类加载器加载，同时也是所有类的父类。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/jvm/">
+                JVM
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/jvm/jvm07-bytecode/">JVM之字节码指令（七）</a></li>
+    
+    <li><a href="/posts/jvm/jvm06-class-file/">JVM之类文件结构（六）</a></li>
+    
+    <li><a href="/posts/jvm/jvm05-memory-allocate/">JVM之内存分配策略（五）</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

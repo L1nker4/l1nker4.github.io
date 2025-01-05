@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis%E5%86%85%E5%AD%98%E4%BC%98%E5%8C%96/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis%E5%86%85%E5%AD%98%E4%BC%98%E5%8C%96/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Redis内存优化",
+      "headline" : "Redis内存优化",
+      "description" : "查看内存使用情况 info memory\nused_memory:701520 redis分配器分配的内存量，也就是实际存储数据的内润使用总量\rused_memory_human:685.08K 以可读格式返回redis使用的内存总量\rused_memory_rss:664584 从操作系统角度，redis进程占用的总物理内存\rused_memory_rss_human:649.01K used_memory_peak:778480 内存分配器分配的最大内存，代表\u0060used_memory\u0060的历史峰值\rused_memory_peak_human:760.23K 以可读的格式显示内存的消耗峰值\rtotal_system_memory:0\rtotal_system_memory_human:0B\rused_memory_lua:37888 Lua引擎消耗的内存\rused_memory_lua_human:37.00K\rmaxmemory:0\rmaxmemory_human:0B\rmaxmemory_policy:noeviction\rmem_fragmentation_ratio:0.95 内存碎片率，used_memory_rss\/used_memory\rmem_allocator:jemalloc-3.6.0 redis使用的内存分配器 内存划分 Redis中使用的内存可分为如下几类：\n自身内存：自身维护的数据字典等元数据，占用较少 对象内存：存储的所有entry对象 缓存：客户端缓冲区\u002bAOF缓冲区等 Lua内存：用于加载Lua脚本 子进程内存：一般是持久化时fork出来的子进程占用的内存 运行内存：运行时消耗的内存 内存碎片：Redis使用jemalloc来分配内存，按照固定大小划分，当删除数据后，释放的内存不会立即返回给OS，Redis无法有效利用，因此形成碎片。 内存优化方案 对象内存 Redis中对象大多有两种存储方案，尽量将大小控制在较为节省的存储阈值之内。\n客户端缓冲区 客户端缓冲区占用内存较大的原因如下：\nclient访问大key，导致client输出缓存异常增长。 client使用monitor命令，它会将所有访问redis的命令持续放到输出缓冲区，导致输出缓冲区异常增长。 clinet使用pipeline封装了大量命令 从节点复制慢，导致主节点输出缓冲区积压。 优化方案:\n大key需要进行拆分 尽量避免使用monitor等指令 使用pipeline设置最大阈值 主从复制区设置阈值 内存碎片 手动执行memory purge命令 通过配置参数进行控制 activedefrag yes：启用自动碎片清理开关\ractive-defrag-ignore-bytes 100mb：内存碎片空间达到多少才开启碎片整理\ractive-defrag-threshold-lower 10：碎片率达到百分之多少才开启碎片整理\ractive-defrag-threshold-upper 100：内存碎片率超过多少，则尽最大努力整理（占用最大资源去做碎片整理）\ractive-defrag-cycle-min 25：内存自动整理占用资源最小百分比\ractive-defrag-cycle-max 75：内存自动整理占用资源最大百分比 子进程优化 Linux中的fork使用了copy on write机制，fork之后与父进程共享内存空间，只有发生写操作修改内存数据时，才会真正分配内存空间。\n其他注意事项 键值生命周期 周期数据需要设置过期时间，object idle time可以找垃圾key-value 过期时间不宜集中，会导致缓存穿透和雪崩等问题 命令使用技巧 O(n)以上命令关注n的数量 hgetall,lrange,smembers,zrange,sinter等 禁用命令 禁止线上使用keys,flushall,flushdb，通过redis的rename机制禁用掉命令，或者使用scan的方式渐进式处理 合理使用select redis的多数据库较弱，使用数字进行区分 很多客户端支持较差 同时多业务用多数据库实际上还是单线程处理，会有干扰 redis的事务功能较弱，不建议过多使用 不支持回滚 redis集群版本在使用Lua上有特殊要求 所有的key，必须爱一个slot上，否则返回error 必要情况下使用monitor命令时，注意不要长时间使用 ",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-07-20 18:12:10 \u002b0000 UTC",
+      "dateModified" : "2020-07-20 18:12:10 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/redis\/redis%E5%86%85%E5%AD%98%E4%BC%98%E5%8C%96\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Redis内存优化</title>
+  <meta property="og:title" content="Redis内存优化" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="查看内存使用情况 info memory
+used_memory:701520 redis分配器分配的内存量，也就是实际存储数据的内润使用总量used_memory_human:685.08K 以可读格式返回redis使用的内存总量used_memory_rss:664584 从操作系统角度，redis进程占用的总物理内存used_memory_rss_human:649.01K used_memory_peak:778480 内存分配器分配的最大内存，代表`used_memory`的历史峰值used_memory_peak_human:760.23K 以可读的格式显示内存的消耗峰值total_system_memory:0total_system_memory_human:0Bused_memory_lua:37888 Lua引擎消耗的内存used_memory_lua_human:37.00Kmaxmemory:0maxmemory_human:0Bmaxmemory_policy:noevictionmem_fragmentation_ratio:0.95 内存碎片率，used_memory_rss/used_memorymem_allocator:jemalloc-3.6.0 redis使用的内存分配器 内存划分 Redis中使用的内存可分为如下几类：
+自身内存：自身维护的数据字典等元数据，占用较少 对象内存：存储的所有entry对象 缓存：客户端缓冲区&#43;AOF缓冲区等 Lua内存：用于加载Lua脚本 子进程内存：一般是持久化时fork出来的子进程占用的内存 运行内存：运行时消耗的内存 内存碎片：Redis使用jemalloc来分配内存，按照固定大小划分，当删除数据后，释放的内存不会立即返回给OS，Redis无法有效利用，因此形成碎片。 内存优化方案 对象内存 Redis中对象大多有两种存储方案，尽量将大小控制在较为节省的存储阈值之内。
+客户端缓冲区 客户端缓冲区占用内存较大的原因如下：
+client访问大key，导致client输出缓存异常增长。 client使用monitor命令，它会将所有访问redis的命令持续放到输出缓冲区，导致输出缓冲区异常增长。 clinet使用pipeline封装了大量命令 从节点复制慢，导致主节点输出缓冲区积压。 优化方案:
+大key需要进行拆分 尽量避免使用monitor等指令 使用pipeline设置最大阈值 主从复制区设置阈值 内存碎片 手动执行memory purge命令 通过配置参数进行控制 activedefrag yes：启用自动碎片清理开关active-defrag-ignore-bytes 100mb：内存碎片空间达到多少才开启碎片整理active-defrag-threshold-lower 10：碎片率达到百分之多少才开启碎片整理active-defrag-threshold-upper 100：内存碎片率超过多少，则尽最大努力整理（占用最大资源去做碎片整理）active-defrag-cycle-min 25：内存自动整理占用资源最小百分比active-defrag-cycle-max 75：内存自动整理占用资源最大百分比 子进程优化 Linux中的fork使用了copy on write机制，fork之后与父进程共享内存空间，只有发生写操作修改内存数据时，才会真正分配内存空间。
+其他注意事项 键值生命周期 周期数据需要设置过期时间，object idle time可以找垃圾key-value 过期时间不宜集中，会导致缓存穿透和雪崩等问题 命令使用技巧 O(n)以上命令关注n的数量 hgetall,lrange,smembers,zrange,sinter等 禁用命令 禁止线上使用keys,flushall,flushdb，通过redis的rename机制禁用掉命令，或者使用scan的方式渐进式处理 合理使用select redis的多数据库较弱，使用数字进行区分 很多客户端支持较差 同时多业务用多数据库实际上还是单线程处理，会有干扰 redis的事务功能较弱，不建议过多使用 不支持回滚 redis集群版本在使用Lua上有特殊要求 所有的key，必须爱一个slot上，否则返回error 必要情况下使用monitor命令时，注意不要长时间使用 " />
+  <meta name="description" content="查看内存使用情况 info memory
+used_memory:701520 redis分配器分配的内存量，也就是实际存储数据的内润使用总量used_memory_human:685.08K 以可读格式返回redis使用的内存总量used_memory_rss:664584 从操作系统角度，redis进程占用的总物理内存used_memory_rss_human:649.01K used_memory_peak:778480 内存分配器分配的最大内存，代表`used_memory`的历史峰值used_memory_peak_human:760.23K 以可读的格式显示内存的消耗峰值total_system_memory:0total_system_memory_human:0Bused_memory_lua:37888 Lua引擎消耗的内存used_memory_lua_human:37.00Kmaxmemory:0maxmemory_human:0Bmaxmemory_policy:noevictionmem_fragmentation_ratio:0.95 内存碎片率，used_memory_rss/used_memorymem_allocator:jemalloc-3.6.0 redis使用的内存分配器 内存划分 Redis中使用的内存可分为如下几类：
+自身内存：自身维护的数据字典等元数据，占用较少 对象内存：存储的所有entry对象 缓存：客户端缓冲区&#43;AOF缓冲区等 Lua内存：用于加载Lua脚本 子进程内存：一般是持久化时fork出来的子进程占用的内存 运行内存：运行时消耗的内存 内存碎片：Redis使用jemalloc来分配内存，按照固定大小划分，当删除数据后，释放的内存不会立即返回给OS，Redis无法有效利用，因此形成碎片。 内存优化方案 对象内存 Redis中对象大多有两种存储方案，尽量将大小控制在较为节省的存储阈值之内。
+客户端缓冲区 客户端缓冲区占用内存较大的原因如下：
+client访问大key，导致client输出缓存异常增长。 client使用monitor命令，它会将所有访问redis的命令持续放到输出缓冲区，导致输出缓冲区异常增长。 clinet使用pipeline封装了大量命令 从节点复制慢，导致主节点输出缓冲区积压。 优化方案:
+大key需要进行拆分 尽量避免使用monitor等指令 使用pipeline设置最大阈值 主从复制区设置阈值 内存碎片 手动执行memory purge命令 通过配置参数进行控制 activedefrag yes：启用自动碎片清理开关active-defrag-ignore-bytes 100mb：内存碎片空间达到多少才开启碎片整理active-defrag-threshold-lower 10：碎片率达到百分之多少才开启碎片整理active-defrag-threshold-upper 100：内存碎片率超过多少，则尽最大努力整理（占用最大资源去做碎片整理）active-defrag-cycle-min 25：内存自动整理占用资源最小百分比active-defrag-cycle-max 75：内存自动整理占用资源最大百分比 子进程优化 Linux中的fork使用了copy on write机制，fork之后与父进程共享内存空间，只有发生写操作修改内存数据时，才会真正分配内存空间。
+其他注意事项 键值生命周期 周期数据需要设置过期时间，object idle time可以找垃圾key-value 过期时间不宜集中，会导致缓存穿透和雪崩等问题 命令使用技巧 O(n)以上命令关注n的数量 hgetall,lrange,smembers,zrange,sinter等 禁用命令 禁止线上使用keys,flushall,flushdb，通过redis的rename机制禁用掉命令，或者使用scan的方式渐进式处理 合理使用select redis的多数据库较弱，使用数字进行区分 很多客户端支持较差 同时多业务用多数据库实际上还是单线程处理，会有干扰 redis的事务功能较弱，不建议过多使用 不支持回滚 redis集群版本在使用Lua上有特殊要求 所有的key，必须爱一个slot上，否则返回error 必要情况下使用monitor命令时，注意不要长时间使用 " />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Redis内存优化</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-07-20 18:12:10 UTC">
+                20 Jul 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="查看内存使用情况">查看内存使用情况</h2>
+<blockquote>
+<p>info memory</p>
+</blockquote>
+<pre tabindex="0"><code>used_memory:701520                      redis分配器分配的内存量，也就是实际存储数据的内润使用总量
+used_memory_human:685.08K               以可读格式返回redis使用的内存总量
+used_memory_rss:664584                  从操作系统角度，redis进程占用的总物理内存
+used_memory_rss_human:649.01K          
+used_memory_peak:778480                  内存分配器分配的最大内存，代表`used_memory`的历史峰值
+used_memory_peak_human:760.23K          以可读的格式显示内存的消耗峰值
+total_system_memory:0
+total_system_memory_human:0B
+used_memory_lua:37888                   Lua引擎消耗的内存
+used_memory_lua_human:37.00K
+maxmemory:0
+maxmemory_human:0B
+maxmemory_policy:noeviction
+mem_fragmentation_ratio:0.95            内存碎片率，used_memory_rss/used_memory
+mem_allocator:jemalloc-3.6.0            redis使用的内存分配器
+</code></pre><h2 id="内存划分">内存划分</h2>
+<p>Redis中使用的内存可分为如下几类：</p>
+<ul>
+<li>自身内存：自身维护的数据字典等元数据，占用较少</li>
+<li>对象内存：存储的所有entry对象</li>
+<li>缓存：客户端缓冲区+AOF缓冲区等</li>
+<li>Lua内存：用于加载Lua脚本</li>
+<li>子进程内存：一般是持久化时fork出来的子进程占用的内存</li>
+<li>运行内存：运行时消耗的内存</li>
+<li>内存碎片：Redis使用jemalloc来分配内存，按照固定大小划分，当删除数据后，释放的内存不会立即返回给OS，Redis无法有效利用，因此形成碎片。</li>
+</ul>
+<h2 id="内存优化方案">内存优化方案</h2>
+<h3 id="对象内存">对象内存</h3>
+<p>Redis中对象大多有两种存储方案，尽量将大小控制在较为节省的存储阈值之内。</p>
+<h3 id="客户端缓冲区">客户端缓冲区</h3>
+<p>客户端缓冲区占用内存较大的原因如下：</p>
+<ul>
+<li>client访问大key，导致client输出缓存异常增长。</li>
+<li>client使用monitor命令，它会将所有访问redis的命令持续放到输出缓冲区，导致输出缓冲区异常增长。</li>
+<li>clinet使用pipeline封装了大量命令</li>
+<li>从节点复制慢，导致主节点输出缓冲区积压。</li>
+</ul>
+<p>优化方案:</p>
+<ul>
+<li>大key需要进行拆分</li>
+<li>尽量避免使用monitor等指令</li>
+<li>使用pipeline设置最大阈值</li>
+<li>主从复制区设置阈值</li>
+</ul>
+<h3 id="内存碎片">内存碎片</h3>
+<ul>
+<li>手动执行memory purge命令</li>
+<li>通过配置参数进行控制</li>
+</ul>
+<pre tabindex="0"><code>activedefrag yes：启用自动碎片清理开关
+active-defrag-ignore-bytes 100mb：内存碎片空间达到多少才开启碎片整理
+active-defrag-threshold-lower 10：碎片率达到百分之多少才开启碎片整理
+active-defrag-threshold-upper 100：内存碎片率超过多少，则尽最大努力整理（占用最大资源去做碎片整理）
+active-defrag-cycle-min 25：内存自动整理占用资源最小百分比
+active-defrag-cycle-max 75：内存自动整理占用资源最大百分比
+</code></pre><h3 id="子进程优化">子进程优化</h3>
+<p>Linux中的fork使用了copy on write机制，fork之后与父进程共享内存空间，只有发生写操作修改内存数据时，才会真正分配内存空间。</p>
+<h2 id="其他注意事项">其他注意事项</h2>
+<h3 id="键值生命周期">键值生命周期</h3>
+<ul>
+<li>周期数据需要设置过期时间，<code>object idle time</code>可以找垃圾key-value</li>
+<li>过期时间不宜集中，会导致缓存穿透和雪崩等问题</li>
+</ul>
+<h3 id="命令使用技巧">命令使用技巧</h3>
+<ul>
+<li>O(n)以上命令关注n的数量
+<ul>
+<li>hgetall,lrange,smembers,zrange,sinter等</li>
+</ul>
+</li>
+<li>禁用命令
+<ul>
+<li>禁止线上使用keys,flushall,flushdb，通过redis的rename机制禁用掉命令，或者使用scan的方式渐进式处理</li>
+</ul>
+</li>
+<li>合理使用select
+<ul>
+<li>redis的多数据库较弱，使用数字进行区分</li>
+<li>很多客户端支持较差</li>
+<li>同时多业务用多数据库实际上还是单线程处理，会有干扰</li>
+</ul>
+</li>
+<li>redis的事务功能较弱，不建议过多使用
+<ul>
+<li>不支持回滚</li>
+</ul>
+</li>
+<li>redis集群版本在使用Lua上有特殊要求
+<ul>
+<li>所有的key，必须爱一个slot上，否则返回error</li>
+</ul>
+</li>
+<li>必要情况下使用monitor命令时，注意不要长时间使用</li>
+</ul>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

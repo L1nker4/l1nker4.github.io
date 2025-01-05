@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/linux/linux%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90/" />
+  <link rel="canonical" href="http://localhost:59500/posts/linux/linux%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Linux内存管理模块分析",
+      "headline" : "Linux内存管理模块分析",
+      "description" : "概述 内存管理主要分为三个方面：\n管理物理内存：只有内核中负责内存管理的模块可以使用 管理虚拟内存：每个进程看到的都是独立且互不干扰的虚拟空间 物理内存和虚拟内存的转换：上述两者的映射关系 无论是内核态程序还是用户态程序，都使用虚拟内存，虚拟内存空间布局如下：\n内核空间部分：存放内核进程的程序 用户空间部分：存放用户进程的程序，从最低位开始，逐个段如下： Text Segment：存放二进制可执行代码的位置 Data Segment：存放静态常量 BSS Segment：存放未初始化的静态变量 Heap：动态分配内存的区域，malloc在这个空间分配 Memory Mapping Segment：用来把文件映射到内存的区域，如果可执行文件依赖某个动态链接库，so文件就映射在这。 Stack：进程的函数调用栈，由一个个frame（相当于函数实体）构成，内部存放局部变量、返回地址等信息，frame结构如下图所示： 可以通过pmap pid展示进程的地址空间相关信息。\n基本概念 分段机制 分段机制如下图所示：\n在Linux中，段表被称为段描述符表，放在全局描述符表 GDT中，一个段表项由段基址base，界限limit，还有一些标识符组成：\nDEFINE_PER_CPU_PAGE_ALIGNED(struct gdt_page, gdt_page) = { .gdt = { #ifdef CONFIG_X86_64 [GDT_ENTRY_KERNEL32_CS]\t= GDT_ENTRY_INIT(0xc09b, 0, 0xfffff), [GDT_ENTRY_KERNEL_CS]\t= GDT_ENTRY_INIT(0xa09b, 0, 0xfffff), [GDT_ENTRY_KERNEL_DS]\t= GDT_ENTRY_INIT(0xc093, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER32_CS]\t= GDT_ENTRY_INIT(0xc0fb, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_DS]\t= GDT_ENTRY_INIT(0xc0f3, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_CS]\t= GDT_ENTRY_INIT(0xa0fb, 0, 0xfffff), #else [GDT_ENTRY_KERNEL_CS]\t= GDT_ENTRY_INIT(0xc09a, 0, 0xfffff), [GDT_ENTRY_KERNEL_DS]\t= GDT_ENTRY_INIT(0xc092, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_CS]\t= GDT_ENTRY_INIT(0xc0fa, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_DS]\t= GDT_ENTRY_INIT(0xc0f2, 0, 0xfffff), ...... #endif } }; EXPORT_PER_CPU_SYMBOL_GPL(gdt_page); #define __KERNEL_CS\t(GDT_ENTRY_KERNEL_CS*8) #define __KERNEL_DS\t(GDT_ENTRY_KERNEL_DS*8) #define __USER_DS\t(GDT_ENTRY_DEFAULT_USER_DS*8 \u002b 3) #define __USER_CS\t(GDT_ENTRY_DEFAULT_USER_CS*8 \u002b 3) 分段机制在Linux中，可以做权限审核，用户态试图访问内核态，权限不足会禁止访问。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2022",
+      "datePublished": "2022-07-17 09:52:49 \u002b0000 UTC",
+      "dateModified" : "2022-07-17 09:52:49 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/linux\/linux%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E5%88%86%E6%9E%90\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Linux内存管理模块分析</title>
+  <meta property="og:title" content="Linux内存管理模块分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="概述 内存管理主要分为三个方面：
+管理物理内存：只有内核中负责内存管理的模块可以使用 管理虚拟内存：每个进程看到的都是独立且互不干扰的虚拟空间 物理内存和虚拟内存的转换：上述两者的映射关系 无论是内核态程序还是用户态程序，都使用虚拟内存，虚拟内存空间布局如下：
+内核空间部分：存放内核进程的程序 用户空间部分：存放用户进程的程序，从最低位开始，逐个段如下： Text Segment：存放二进制可执行代码的位置 Data Segment：存放静态常量 BSS Segment：存放未初始化的静态变量 Heap：动态分配内存的区域，malloc在这个空间分配 Memory Mapping Segment：用来把文件映射到内存的区域，如果可执行文件依赖某个动态链接库，so文件就映射在这。 Stack：进程的函数调用栈，由一个个frame（相当于函数实体）构成，内部存放局部变量、返回地址等信息，frame结构如下图所示： 可以通过pmap pid展示进程的地址空间相关信息。
+基本概念 分段机制 分段机制如下图所示：
+在Linux中，段表被称为段描述符表，放在全局描述符表 GDT中，一个段表项由段基址base，界限limit，还有一些标识符组成：
+DEFINE_PER_CPU_PAGE_ALIGNED(struct gdt_page, gdt_page) = { .gdt = { #ifdef CONFIG_X86_64 [GDT_ENTRY_KERNEL32_CS]	= GDT_ENTRY_INIT(0xc09b, 0, 0xfffff), [GDT_ENTRY_KERNEL_CS]	= GDT_ENTRY_INIT(0xa09b, 0, 0xfffff), [GDT_ENTRY_KERNEL_DS]	= GDT_ENTRY_INIT(0xc093, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER32_CS]	= GDT_ENTRY_INIT(0xc0fb, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_DS]	= GDT_ENTRY_INIT(0xc0f3, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_CS]	= GDT_ENTRY_INIT(0xa0fb, 0, 0xfffff), #else [GDT_ENTRY_KERNEL_CS]	= GDT_ENTRY_INIT(0xc09a, 0, 0xfffff), [GDT_ENTRY_KERNEL_DS]	= GDT_ENTRY_INIT(0xc092, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_CS]	= GDT_ENTRY_INIT(0xc0fa, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_DS]	= GDT_ENTRY_INIT(0xc0f2, 0, 0xfffff), ...... #endif } }; EXPORT_PER_CPU_SYMBOL_GPL(gdt_page); #define __KERNEL_CS	(GDT_ENTRY_KERNEL_CS*8) #define __KERNEL_DS	(GDT_ENTRY_KERNEL_DS*8) #define __USER_DS	(GDT_ENTRY_DEFAULT_USER_DS*8 &#43; 3) #define __USER_CS	(GDT_ENTRY_DEFAULT_USER_CS*8 &#43; 3) 分段机制在Linux中，可以做权限审核，用户态试图访问内核态，权限不足会禁止访问。
+" />
+  <meta name="description" content="概述 内存管理主要分为三个方面：
+管理物理内存：只有内核中负责内存管理的模块可以使用 管理虚拟内存：每个进程看到的都是独立且互不干扰的虚拟空间 物理内存和虚拟内存的转换：上述两者的映射关系 无论是内核态程序还是用户态程序，都使用虚拟内存，虚拟内存空间布局如下：
+内核空间部分：存放内核进程的程序 用户空间部分：存放用户进程的程序，从最低位开始，逐个段如下： Text Segment：存放二进制可执行代码的位置 Data Segment：存放静态常量 BSS Segment：存放未初始化的静态变量 Heap：动态分配内存的区域，malloc在这个空间分配 Memory Mapping Segment：用来把文件映射到内存的区域，如果可执行文件依赖某个动态链接库，so文件就映射在这。 Stack：进程的函数调用栈，由一个个frame（相当于函数实体）构成，内部存放局部变量、返回地址等信息，frame结构如下图所示： 可以通过pmap pid展示进程的地址空间相关信息。
+基本概念 分段机制 分段机制如下图所示：
+在Linux中，段表被称为段描述符表，放在全局描述符表 GDT中，一个段表项由段基址base，界限limit，还有一些标识符组成：
+DEFINE_PER_CPU_PAGE_ALIGNED(struct gdt_page, gdt_page) = { .gdt = { #ifdef CONFIG_X86_64 [GDT_ENTRY_KERNEL32_CS]	= GDT_ENTRY_INIT(0xc09b, 0, 0xfffff), [GDT_ENTRY_KERNEL_CS]	= GDT_ENTRY_INIT(0xa09b, 0, 0xfffff), [GDT_ENTRY_KERNEL_DS]	= GDT_ENTRY_INIT(0xc093, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER32_CS]	= GDT_ENTRY_INIT(0xc0fb, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_DS]	= GDT_ENTRY_INIT(0xc0f3, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_CS]	= GDT_ENTRY_INIT(0xa0fb, 0, 0xfffff), #else [GDT_ENTRY_KERNEL_CS]	= GDT_ENTRY_INIT(0xc09a, 0, 0xfffff), [GDT_ENTRY_KERNEL_DS]	= GDT_ENTRY_INIT(0xc092, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_CS]	= GDT_ENTRY_INIT(0xc0fa, 0, 0xfffff), [GDT_ENTRY_DEFAULT_USER_DS]	= GDT_ENTRY_INIT(0xc0f2, 0, 0xfffff), ...... #endif } }; EXPORT_PER_CPU_SYMBOL_GPL(gdt_page); #define __KERNEL_CS	(GDT_ENTRY_KERNEL_CS*8) #define __KERNEL_DS	(GDT_ENTRY_KERNEL_DS*8) #define __USER_DS	(GDT_ENTRY_DEFAULT_USER_DS*8 &#43; 3) #define __USER_CS	(GDT_ENTRY_DEFAULT_USER_CS*8 &#43; 3) 分段机制在Linux中，可以做权限审核，用户态试图访问内核态，权限不足会禁止访问。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Linux内存管理模块分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2022-07-17 09:52:49 UTC">
+                17 Jul 2022
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="概述">概述</h2>
+<p>内存管理主要分为三个方面：</p>
+<ul>
+<li>管理物理内存：只有内核中负责内存管理的模块可以使用</li>
+<li>管理虚拟内存：每个进程看到的都是独立且互不干扰的虚拟空间</li>
+<li>物理内存和虚拟内存的转换：上述两者的映射关系</li>
+</ul>
+<p>无论是内核态程序还是用户态程序，都使用虚拟内存，虚拟内存空间布局如下：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220723131749685.png" alt="Linux-Process-Virtual-Memory"></p>
+<ul>
+<li>内核空间部分：存放内核进程的程序</li>
+<li>用户空间部分：存放用户进程的程序，从最低位开始，逐个段如下：
+<ul>
+<li>Text Segment：存放二进制可执行代码的位置</li>
+<li>Data Segment：存放静态常量</li>
+<li>BSS Segment：存放未初始化的静态变量</li>
+<li>Heap：动态分配内存的区域，malloc在这个空间分配</li>
+<li>Memory Mapping Segment：用来把文件映射到内存的区域，如果可执行文件依赖某个动态链接库，so文件就映射在这。</li>
+<li>Stack：进程的函数调用栈，由一个个frame（相当于函数实体）构成，内部存放局部变量、返回地址等信息，frame结构如下图所示：</li>
+</ul>
+</li>
+</ul>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220717113852718.png" alt="stack-frame"></p>
+<p>可以通过<code>pmap pid</code>展示进程的地址空间相关信息。</p>
+<h2 id="基本概念">基本概念</h2>
+<h3 id="分段机制">分段机制</h3>
+<p>分段机制如下图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220717133205056.png" alt="分段机制"></p>
+<p>在Linux中，段表被称为<strong>段描述符表</strong>，放在<strong>全局描述符表 GDT</strong>中，一个段表项由段基址base，界限limit，还有一些标识符组成：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#a6e22e">DEFINE_PER_CPU_PAGE_ALIGNED</span>(<span style="color:#66d9ef">struct</span> gdt_page, gdt_page) <span style="color:#f92672">=</span> { .gdt <span style="color:#f92672">=</span> {
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#ifdef CONFIG_X86_64
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	[GDT_ENTRY_KERNEL32_CS]		<span style="color:#f92672">=</span> <span style="color:#a6e22e">GDT_ENTRY_INIT</span>(<span style="color:#ae81ff">0xc09b</span>, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0xfffff</span>),
+</span></span><span style="display:flex;"><span>	[GDT_ENTRY_KERNEL_CS]		<span style="color:#f92672">=</span> <span style="color:#a6e22e">GDT_ENTRY_INIT</span>(<span style="color:#ae81ff">0xa09b</span>, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0xfffff</span>),
+</span></span><span style="display:flex;"><span>	[GDT_ENTRY_KERNEL_DS]		<span style="color:#f92672">=</span> <span style="color:#a6e22e">GDT_ENTRY_INIT</span>(<span style="color:#ae81ff">0xc093</span>, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0xfffff</span>),
+</span></span><span style="display:flex;"><span>	[GDT_ENTRY_DEFAULT_USER32_CS]	<span style="color:#f92672">=</span> <span style="color:#a6e22e">GDT_ENTRY_INIT</span>(<span style="color:#ae81ff">0xc0fb</span>, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0xfffff</span>),
+</span></span><span style="display:flex;"><span>	[GDT_ENTRY_DEFAULT_USER_DS]	<span style="color:#f92672">=</span> <span style="color:#a6e22e">GDT_ENTRY_INIT</span>(<span style="color:#ae81ff">0xc0f3</span>, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0xfffff</span>),
+</span></span><span style="display:flex;"><span>	[GDT_ENTRY_DEFAULT_USER_CS]	<span style="color:#f92672">=</span> <span style="color:#a6e22e">GDT_ENTRY_INIT</span>(<span style="color:#ae81ff">0xa0fb</span>, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0xfffff</span>),
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#else
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	[GDT_ENTRY_KERNEL_CS]		<span style="color:#f92672">=</span> <span style="color:#a6e22e">GDT_ENTRY_INIT</span>(<span style="color:#ae81ff">0xc09a</span>, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0xfffff</span>),
+</span></span><span style="display:flex;"><span>	[GDT_ENTRY_KERNEL_DS]		<span style="color:#f92672">=</span> <span style="color:#a6e22e">GDT_ENTRY_INIT</span>(<span style="color:#ae81ff">0xc092</span>, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0xfffff</span>),
+</span></span><span style="display:flex;"><span>	[GDT_ENTRY_DEFAULT_USER_CS]	<span style="color:#f92672">=</span> <span style="color:#a6e22e">GDT_ENTRY_INIT</span>(<span style="color:#ae81ff">0xc0fa</span>, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0xfffff</span>),
+</span></span><span style="display:flex;"><span>	[GDT_ENTRY_DEFAULT_USER_DS]	<span style="color:#f92672">=</span> <span style="color:#a6e22e">GDT_ENTRY_INIT</span>(<span style="color:#ae81ff">0xc0f2</span>, <span style="color:#ae81ff">0</span>, <span style="color:#ae81ff">0xfffff</span>),
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>} };
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">EXPORT_PER_CPU_SYMBOL_GPL</span>(gdt_page);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define __KERNEL_CS			(GDT_ENTRY_KERNEL_CS*8)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define __KERNEL_DS			(GDT_ENTRY_KERNEL_DS*8)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define __USER_DS			(GDT_ENTRY_DEFAULT_USER_DS*8 + 3)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define __USER_CS			(GDT_ENTRY_DEFAULT_USER_CS*8 + 3)
+</span></span></span></code></pre></div><p>分段机制在Linux中，可以做权限审核，用户态试图访问内核态，权限不足会禁止访问。</p>
+<h3 id="分页机制">分页机制</h3>
+<p>Linux使用的更多的是分页机制，将物理内存分成一块块相同大小的page，其机制如下图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220717135216416.png" alt="分页机制"></p>
+<p>多级页表的好处：</p>
+<ul>
+<li>减少页表占用的内存空间</li>
+<li>增加地址映射空间</li>
+</ul>
+<p>Linux的64位系统使用四级页表，其结构如下所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220717135853082.png" alt="多级页表"></p>
+<h2 id="进程空间管理">进程空间管理</h2>
+<p>进程的<code>task_struct</code>中对进程地址存储了<code>mm_struct</code>，整个虚拟内存空间分为用户态空间和内核态空间，两者分界线由<code>mm_struct-&gt;task_size</code>决定。</p>
+<p>32位最大寻址空间为$2^{32} =4G$，其中内核态占用顶部1G，用户态占用底部3G</p>
+<p>64为系统虚拟地址只使用了48位，内核态和用户态各使用128T</p>
+<h3 id="用户态空间">用户态空间</h3>
+<p><code>mm_struct</code>中关于用户态空间的信息如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> mmap_base;	<span style="color:#75715e">/* base of mmap area */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> total_vm;		<span style="color:#75715e">//总共映射的页数量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> locked_vm;	<span style="color:#75715e">//被锁定不能换出到磁盘的页数量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> pinned_vm;	<span style="color:#75715e">//不能换出也不能移动的页数量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> data_vm;		<span style="color:#75715e">//存放数据的页数量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> exec_vm;		<span style="color:#75715e">//存放可执行文件的页数量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> stack_vm;		<span style="color:#75715e">//栈所占的页数量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//可执行代码开始位置、结束位置，已初始化数据开始位置、结束位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> start_code, end_code, start_data, end_data;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//堆开始位置、结束位置、栈开始位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> start_brk, brk, start_stack;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//参数列表的开始结束位置，环境变量的开始结束位置，这两者都位于栈的最顶部
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> arg_start, arg_end, env_start, env_end;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//描述内存区域
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">struct</span> vm_area_struct <span style="color:#f92672">*</span>mmap;		<span style="color:#75715e">/* list of VMAs */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> rb_root mm_rb;
+</span></span></code></pre></div><p><code>vm_area_struct</code>是一个单链表，将<strong>进程拥有的内存区域</strong>串接起来 （根据地址串起来），并使用红黑树存储，方便快速查询。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> vm_area_struct {
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* The first cache line has the info for VMA tree walking. */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> vm_start;		<span style="color:#75715e">//区域开始位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> vm_end;		<span style="color:#75715e">//区域结束位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#75715e">/* linked list of VM areas per task, sorted by address */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> vm_area_struct <span style="color:#f92672">*</span>vm_next, <span style="color:#f92672">*</span>vm_prev;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> rb_node vm_rb;		<span style="color:#75715e">//红黑树存储节点
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">struct</span> mm_struct <span style="color:#f92672">*</span>vm_mm;	<span style="color:#75715e">/* The address space we belong to. */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> list_head anon_vma_chain; <span style="color:#75715e">/* Serialized by mmap_sem &amp;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">					  * page_table_lock */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> anon_vma <span style="color:#f92672">*</span>anon_vma;	<span style="color:#75715e">/* Serialized by page_table_lock */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* Function pointers to deal with this struct. */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">struct</span> vm_operations_struct <span style="color:#f92672">*</span>vm_ops;	<span style="color:#75715e">//可以操作的动作
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">struct</span> file <span style="color:#f92672">*</span> vm_file;		<span style="color:#75715e">/* File we map to (can be NULL). */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span> vm_private_data;		<span style="color:#75715e">/* was vm_pte (shared mem) */</span>
+</span></span><span style="display:flex;"><span>} __randomize_layout;
+</span></span></code></pre></div><blockquote>
+<p>Q：什么时候将<code>vm_area_struct</code>和上面的内存区域关联起来？</p>
+</blockquote>
+<p><code>load_elf_binary </code>除了解析ELF格式外，还需要建立内存映射：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">load_elf_binary</span>(<span style="color:#66d9ef">struct</span> linux_binprm <span style="color:#f92672">*</span>bprm)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//设置内存映射区mmap_base
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#a6e22e">setup_new_exec</span>(bprm);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//设置栈的vm_area_struct的args等参数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">setup_arg_pages</span>(bprm, <span style="color:#a6e22e">randomize_stack_top</span>(STACK_TOP),
+</span></span><span style="display:flex;"><span>				 executable_stack);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  error <span style="color:#f92672">=</span> <span style="color:#a6e22e">elf_map</span>(bprm<span style="color:#f92672">-&gt;</span>file, load_bias <span style="color:#f92672">+</span> vaddr, elf_ppnt,
+</span></span><span style="display:flex;"><span>				elf_prot, elf_flags, total_size);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//设置堆的参数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">set_brk</span>(elf_bss, elf_brk, bss_prot);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//依赖的so文件映射到内存中的内存映射区域。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  elf_entry <span style="color:#f92672">=</span> <span style="color:#a6e22e">load_elf_interp</span>(<span style="color:#f92672">&amp;</span>loc<span style="color:#f92672">-&gt;</span>interp_elf_ex,
+</span></span><span style="display:flex;"><span>					    interpreter,
+</span></span><span style="display:flex;"><span>					    <span style="color:#f92672">&amp;</span>interp_map_addr,
+</span></span><span style="display:flex;"><span>					    load_bias, interp_elf_phdata);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>  current<span style="color:#f92672">-&gt;</span>mm<span style="color:#f92672">-&gt;</span>end_code <span style="color:#f92672">=</span> end_code;
+</span></span><span style="display:flex;"><span>  current<span style="color:#f92672">-&gt;</span>mm<span style="color:#f92672">-&gt;</span>start_code <span style="color:#f92672">=</span> start_code;
+</span></span><span style="display:flex;"><span>  current<span style="color:#f92672">-&gt;</span>mm<span style="color:#f92672">-&gt;</span>start_data <span style="color:#f92672">=</span> start_data;
+</span></span><span style="display:flex;"><span>  current<span style="color:#f92672">-&gt;</span>mm<span style="color:#f92672">-&gt;</span>end_data <span style="color:#f92672">=</span> end_data;
+</span></span><span style="display:flex;"><span>  current<span style="color:#f92672">-&gt;</span>mm<span style="color:#f92672">-&gt;</span>start_stack <span style="color:#f92672">=</span> bprm<span style="color:#f92672">-&gt;</span>p;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="内核态空间">内核态空间</h3>
+<p>32位系统的内核态空间布局如下所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/image-20220717151758224.png" alt="内核态内存空间结构"></p>
+<ul>
+<li>直接映射区：这部分与物理地址的前896MB进行映射。
+<ul>
+<li>系统启动时，使用物理内存的前1M加载内核代码段等，可以查看<code>/proc/iomem</code></li>
+<li>如果系统调用创建进程，进程<code>task_struct</code>会存放在这，相应的页表项也会被创建。</li>
+<li>内核栈分也被分配在该区域。</li>
+</ul>
+</li>
+<li>内核动态映射空间（vmalloc）：类似于用户态的堆区，内核态使用<code>vmalloc</code>申请内存</li>
+<li>持久内核映射：可以调用<code>kmap</code>将高端内存页到该区域</li>
+<li>固定内核映射：满足特殊需求。</li>
+</ul>
+<h2 id="物理内存管理">物理内存管理</h2>
+<p>平坦内存模型（Flat Memory Model）：物理内存中页是连续的，对于任何物理地址，只需要除以页大小，就可以算出具体的页面地址，每个页通过<code>struct page</code>表示。</p>
+<ul>
+<li>SMP（Symmetric multiprocessing）：多处理器通过一个总线同时访问内存。
+<ul>
+<li>总线称为性能瓶颈</li>
+</ul>
+</li>
+<li>NUMA（Non-uniform memory access）：非一致内存访问，每个CPU拥有自己的本地内存，这块内存称为一个NUMA节点，本地内存不足时可以申请另外的NUMA节点。
+<ul>
+<li>此时内存被分为一个个内存节点，节点再划分一个个页面，此时页号需要保证全局唯一</li>
+<li>NUMA是非连续内存模型</li>
+</ul>
+</li>
+</ul>
+<p>物理内存管理整体分为以下的流程：</p>
+<ul>
+<li>物理内存分为NUMA节点，分别管理。</li>
+<li>每个NUMA节点分为多个内存区域</li>
+<li>每个内存区域分为多个物理页面</li>
+<li>Buddy System将多个连续的页面作为一个大内存块分配给需求进程</li>
+<li>kswapd内核进程负责物理页的换入换出</li>
+<li>slab机制将从伙伴系统申请的大内存块划分成小块，并将热点结构<code>task_struct</code>等做缓存块，提供需求方使用。</li>
+</ul>
+<h3 id="节点">节点</h3>
+<p>对于NUMA方式，首先需要一个结构来表示NUMA节点，Linux中使用下面的结构体来表示，各字段注释如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> pglist_data {
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> zone node_zones[MAX_NR_ZONES];	<span style="color:#75715e">//每个节点划分一个个zone，放在该数组中
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">struct</span> zonelist node_zonelists[MAX_ZONELISTS];	<span style="color:#75715e">//备用节点和内存区域的情况
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">int</span> nr_zones;					<span style="color:#75715e">//当前节点的zone数量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">struct</span> page <span style="color:#f92672">*</span>node_mem_map;		<span style="color:#75715e">//该节点的struct page数组
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> node_start_pfn;	<span style="color:#75715e">//节点的起始页号
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> node_present_pages; <span style="color:#75715e">//真正可用的物理页面数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> node_spanned_pages; <span style="color:#75715e">//节点中包含不连续的物理内存地址的页面数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">int</span> node_id;				<span style="color:#75715e">//节点
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>......
+</span></span><span style="display:flex;"><span>} <span style="color:#66d9ef">pg_data_t</span>;
+</span></span></code></pre></div><h3 id="zone">zone</h3>
+<p>表示zone的数据结构定义如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> zone {
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> pglist_data	<span style="color:#f92672">*</span>zone_pgdat;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> per_cpu_pageset __percpu <span style="color:#f92672">*</span>pageset;	<span style="color:#75715e">//区分冷热页面
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>		zone_start_pfn;		<span style="color:#75715e">//zone的第一个页
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * spanned_pages is the total pages spanned by the zone, including
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * holes, which is calculated as:
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * 	spanned_pages = zone_end_pfn - zone_start_pfn;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * present_pages is physical pages existing within the zone, which
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * is calculated as:
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 *	present_pages = spanned_pages - absent_pages(pages in holes);
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * managed_pages is present pages managed by the buddy system, which
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * is calculated as (reserved_pages includes pages allocated by the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * bootmem allocator):
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 *	managed_pages = present_pages - reserved_pages;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>		managed_pages;	<span style="color:#75715e">//被伙伴系统管理的所有page数量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>		spanned_pages;	<span style="color:#75715e">//spanned_pages = zone_end_pfn - zone_start_pfn;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>		present_pages;	<span style="color:#75715e">//真实的page数量
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span>		<span style="color:#f92672">*</span>name;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* free areas of different sizes */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> free_area	free_area[MAX_ORDER];
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* zone flags, see below */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>		flags;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* Primarily protects free_area */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">spinlock_t</span>		lock;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>} ____cacheline_internodealigned_in_
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//zone的类型
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">enum</span> zone_type {
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#ifdef CONFIG_ZONE_DMA
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	ZONE_DMA,
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#ifdef CONFIG_ZONE_DMA32
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	ZONE_DMA32,
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	ZONE_NORMAL,
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#ifdef CONFIG_HIGHMEM
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	ZONE_HIGHMEM,
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	ZONE_MOVABLE,
+</span></span><span style="display:flex;"><span>	__MAX_NR_ZONES
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>zone的类型分别如下：</p>
+<ul>
+<li>ZONE_DMA：用作DMA的内存结构</li>
+<li>ZONE_NORMAL：直接映射区</li>
+<li>ZONE_HIGHMEM：高端内存区</li>
+<li>ZONE_MOVABLE：可移动区域，通过将内存划分为可移动区域和不可移动区域，来避免内存碎片。</li>
+</ul>
+<p><strong>冷热页面</strong>：页面是否被加载到CPU cache中，若在cache中则是<code>Hot Page</code>，CPU读取非常快。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> per_cpu_pages {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> count;    <span style="color:#75715e">// number of pages in the list
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">int</span> high;    <span style="color:#75715e">// high watermark, emptying needed
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">int</span> batch;    <span style="color:#75715e">// chunk size for buddy add/remove
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#75715e">// Lists of pages, one per migrate type stored on the pcp-lists
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>   <span style="color:#75715e">//每个CPU在每个zone上都有MIGRATE_PCPTYPES个冷热页链表（根据迁移类型划分）
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#66d9ef">struct</span> list_head lists[MIGRATE_PCPTYPES];
+</span></span><span style="display:flex;"><span> };
+</span></span></code></pre></div><h3 id="page">page</h3>
+<p>page是组成物理内存的基本单位，内部有很多<code>union</code>结构，物理页面若直接使用一整页的内存，page直接和虚拟地址空间建立映射关系，则被称为<strong>匿名页</strong>，若page用于关联一个文件，再和虚拟地址空间建立映射关系，这种文件则被称为内存映射文件。</p>
+<p>第一种模式，使用以下字段存储元数据：</p>
+<ul>
+<li>struct address_space *mapping：用于内存映射</li>
+<li>pgoff_t index：映射区的偏移量</li>
+<li>atomic_t _mapcount：记录指向该页的页表项</li>
+<li>struct list_head lru：如果页面被换出，就在换出页的链表中</li>
+</ul>
+<p>第二种模式，仅需要分配小块内存，例如一个<code>task_struct</code>结构只需要一小块内存。Linux使用<code>slab allocator</code>分配称为slab的一小块内存，其基本原理是：申请一整块内存页，然后划分成多个小块的内存存储池，并使用复杂的队列来维护状态。，由于队列的维护操作过于复杂，后来使用<code>slub allocator</code>分配，此方式不使用队列。可以看成前者的另一种的实现。</p>
+<h3 id="page整页分配">page整页分配</h3>
+<p>对于分配较大的内存（分配页级别的），可以使用<code>Buddy System</code>来分配。Linux中内存页大小默认为<code>4KB</code>，将所有的空闲页分组为11个页块链表，页块大小分别是1、2、4、8、16、32、64、128、256、512、1024个连续页，最大可以申请1024个连续页（共4MB），其结构如下所示：</p>
+<p>当向内核请求分配$(2^{i-1}, 2^i] $个页块时，按照$2 ^ i$个请求处理，如果该页块链表中没有足够的空闲页快，就去更大一级的链表中申请，并且会将更大一级的页块分裂，并返回所需页块大小给请求进程。</p>
+<h3 id="slab机制">slab机制</h3>
+<p>首先slab分配器是基于<code>Buddy System</code>的，slab需要从buddy分配器获取连续的物理页，然后将其内部划分为一个个小的slab。Linux内核从2.6起提供了slab和slub两种方案，两者差异上面已经记录。</p>
+<h4 id="分配流程">分配流程</h4>
+<p>slab机制主要针对一些<strong>经常被分配并释放的对象</strong>，这些对象一般比较小，使用buddy分配器会造成大量的内存碎片，并且处理速度慢，slab分配器基于对象进行管理，相同类型分为一类，每次申请时，slab分配器就从列表中分配一个该类型的对象，当要释放时，将其重新保存在该类型的列表中，而不是返回给buddy分配器，避免了重复初始化等开销。slab对象类型主要有：<code>task_struct</code>、<code>mm_struct </code>、<code>fs_struct</code>等。</p>
+<p>创建进程时，需要创建<code>task_struct</code>并复制父进程数据，需要先调用<code>alloc_task_struct_node</code>分配，其执行流程如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">struct</span> kmem_cache <span style="color:#f92672">*</span>task_struct_cachep;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//task_struct_cachep被kmem_cache_create创建，大小为arch_task_struct_size
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>task_struct_cachep <span style="color:#f92672">=</span> <span style="color:#a6e22e">kmem_cache_create</span>(<span style="color:#e6db74">&#34;task_struct&#34;</span>,
+</span></span><span style="display:flex;"><span>			arch_task_struct_size, align,
+</span></span><span style="display:flex;"><span>			SLAB_PANIC<span style="color:#f92672">|</span>SLAB_NOTRACK<span style="color:#f92672">|</span>SLAB_ACCOUNT, NULL);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">inline</span> <span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span><span style="color:#a6e22e">alloc_task_struct_node</span>(<span style="color:#66d9ef">int</span> node)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">kmem_cache_alloc_node</span>(task_struct_cachep, GFP_KERNEL, node);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">inline</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">free_task_struct</span>(<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>tsk)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">kmem_cache_free</span>(task_struct_cachep, tsk);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>task_struct_cachep</code>被用作分配<code>task_struct</code>的缓存，每次创建该结构时，都会先查看缓存是否有直接可用的，而不用直接去内存里面分配。当进程结束后，<code>task_struct</code>不会被直接销毁，而是放回到缓存中。SLAB缓存结构信息如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> kmem_cache {
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> kmem_cache_cpu __percpu <span style="color:#f92672">*</span>cpu_slab;
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* Used for retriving partial slabs etc */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> flags;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> min_partial;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> size;		<span style="color:#75715e">//包含指针的大小
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">int</span> object_size;	<span style="color:#75715e">//纯对象的大小
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">int</span> offset;		<span style="color:#75715e">//下一个空闲对象指针的offset
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#ifdef CONFIG_SLUB_CPU_PARTIAL
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">int</span> cpu_partial;	<span style="color:#75715e">/* Number of per cpu partial objects to keep around */</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">struct</span> kmem_cache_order_objects oo;
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* Allocation and freeing of slabs */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> kmem_cache_order_objects max;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> kmem_cache_order_objects min;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">gfp_t</span> allocflags;	<span style="color:#75715e">/* gfp flags to use on each alloc */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> refcount;		<span style="color:#75715e">/* Refcount for slab cache destroy */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">void</span> (<span style="color:#f92672">*</span>ctor)(<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>name;	<span style="color:#75715e">/* Name (only for display!) */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> list_head list;	<span style="color:#75715e">//slab的缓存链表
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> kmem_cache_node <span style="color:#f92672">*</span>node[MAX_NUMNODES];
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>缓存块分为以下两种：</p>
+<ul>
+<li>kmem_cache_cpu：CPU slab块，快速通道</li>
+<li>kmem_cache_node：Node slab块，普通通道</li>
+</ul>
+<p>分配时首先从快速通道分配，若里面没有空闲块，再到普通通道分配，如果还是没有空闲块，才去Buddy System分配新的页。</p>
+<p><code>kmem_cache_cpu</code>结构如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> kmem_cache_cpu {
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">void</span> <span style="color:#f92672">**</span>freelist;	<span style="color:#75715e">//指向大内存块的第一个空闲的项，形成空闲链表
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> tid;	<span style="color:#75715e">/* Globally unique transaction id */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> page <span style="color:#f92672">*</span>page;	<span style="color:#75715e">//指向内存块的第一个页，缓存块从里面分配
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#ifdef CONFIG_SLUB_CPU_PARTIAL
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">struct</span> page <span style="color:#f92672">*</span>partial;	<span style="color:#75715e">//部分空闲的slab缓存块
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>......
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p><code>kmem_cache_node</code> 结构如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> kmem_cache_node {
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">spinlock_t</span> list_lock;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#ifdef CONFIG_SLUB
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> nr_partial;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> list_head partial;	<span style="color:#75715e">//存放部分空闲的slab块
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>......
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>};
+</span></span></code></pre></div><p><code>kmem_cache_alloc_node</code>会调用<code>slab_alloc_node</code>，流程如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Inlined fastpath so that allocation functions (kmalloc, kmem_cache_alloc)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * have the fastpath folded into their functions. So no function call
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * overhead for requests that can be satisfied on the fastpath.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * The fastpath works by first checking if the lockless freelist can be used.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * If not then __slab_alloc is called for slow processing.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Otherwise we can simply pick the next object from the lockless free list.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> __always_inline <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">slab_alloc_node</span>(<span style="color:#66d9ef">struct</span> kmem_cache <span style="color:#f92672">*</span>s,
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">gfp_t</span> gfpflags, <span style="color:#66d9ef">int</span> node, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> addr)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>object;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> kmem_cache_cpu <span style="color:#f92672">*</span>c;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> page <span style="color:#f92672">*</span>page;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> tid;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	tid <span style="color:#f92672">=</span> <span style="color:#a6e22e">this_cpu_read</span>(s<span style="color:#f92672">-&gt;</span>cpu_slab<span style="color:#f92672">-&gt;</span>tid);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//取出cpu slab缓存
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	c <span style="color:#f92672">=</span> <span style="color:#a6e22e">raw_cpu_ptr</span>(s<span style="color:#f92672">-&gt;</span>cpu_slab);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//取出freelist，这是第一个空闲的项
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	object <span style="color:#f92672">=</span> c<span style="color:#f92672">-&gt;</span>freelist;
+</span></span><span style="display:flex;"><span>	page <span style="color:#f92672">=</span> c<span style="color:#f92672">-&gt;</span>page;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">unlikely</span>(<span style="color:#f92672">!</span>object <span style="color:#f92672">||</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">node_match</span>(page, node))) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//若没有空闲的cpu slab，调用__slab_alloc进入普通通道。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		object <span style="color:#f92672">=</span> <span style="color:#a6e22e">__slab_alloc</span>(s, gfpflags, node, addr, c);
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">stat</span>(s, ALLOC_SLOWPATH);
+</span></span><span style="display:flex;"><span>	} 
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> object;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//__slab_alloc进入普通通道
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">___slab_alloc</span>(<span style="color:#66d9ef">struct</span> kmem_cache <span style="color:#f92672">*</span>s, <span style="color:#66d9ef">gfp_t</span> gfpflags, <span style="color:#66d9ef">int</span> node,
+</span></span><span style="display:flex;"><span>			  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> addr, <span style="color:#66d9ef">struct</span> kmem_cache_cpu <span style="color:#f92672">*</span>c)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>freelist;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> page <span style="color:#f92672">*</span>page;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>redo:
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* must check again c-&gt;freelist in case of cpu migration or IRQ */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//再次尝试cpu slab，万一有其他进程释放
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	freelist <span style="color:#f92672">=</span> c<span style="color:#f92672">-&gt;</span>freelist;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (freelist)
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">goto</span> load_freelist;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 	
+</span></span><span style="display:flex;"><span>	freelist <span style="color:#f92672">=</span> <span style="color:#a6e22e">get_freelist</span>(s, page);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>freelist) {
+</span></span><span style="display:flex;"><span>		c<span style="color:#f92672">-&gt;</span>page <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">stat</span>(s, DEACTIVATE_BYPASS);
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//如果还是没有，调用new_slab
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">goto</span> new_slab;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>load_freelist:
+</span></span><span style="display:flex;"><span>	c<span style="color:#f92672">-&gt;</span>freelist <span style="color:#f92672">=</span> <span style="color:#a6e22e">get_freepointer</span>(s, freelist);
+</span></span><span style="display:flex;"><span>	c<span style="color:#f92672">-&gt;</span>tid <span style="color:#f92672">=</span> <span style="color:#a6e22e">next_tid</span>(c<span style="color:#f92672">-&gt;</span>tid);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> freelist;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>new_slab:
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">slub_percpu_partial</span>(c)) {
+</span></span><span style="display:flex;"><span>		page <span style="color:#f92672">=</span> c<span style="color:#f92672">-&gt;</span>page <span style="color:#f92672">=</span> <span style="color:#a6e22e">slub_percpu_partial</span>(c);
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">slub_set_percpu_partial</span>(c, page);
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">stat</span>(s, CPU_PARTIAL_ALLOC);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">goto</span> redo;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 	<span style="color:#75715e">//调用new_slab_objects
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	freelist <span style="color:#f92672">=</span> <span style="color:#a6e22e">new_slab_objects</span>(s, gfpflags, node, <span style="color:#f92672">&amp;</span>c);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> freelist
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//创建slab块
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">inline</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">new_slab_objects</span>(<span style="color:#66d9ef">struct</span> kmem_cache <span style="color:#f92672">*</span>s, <span style="color:#66d9ef">gfp_t</span> flags,
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">int</span> node, <span style="color:#66d9ef">struct</span> kmem_cache_cpu <span style="color:#f92672">**</span>pc)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>freelist;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> kmem_cache_cpu <span style="color:#f92672">*</span>c <span style="color:#f92672">=</span> <span style="color:#f92672">*</span>pc;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> page <span style="color:#f92672">*</span>page;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 	<span style="color:#75715e">///根据node_id，找到对应的kmem_cache_node，然后调用get_partial_node
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	freelist <span style="color:#f92672">=</span> <span style="color:#a6e22e">get_partial</span>(s, flags, node, c);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (freelist)
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> freelist;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	page <span style="color:#f92672">=</span> <span style="color:#a6e22e">new_slab</span>(s, flags, node);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (page) {
+</span></span><span style="display:flex;"><span>		c <span style="color:#f92672">=</span> <span style="color:#a6e22e">raw_cpu_ptr</span>(s<span style="color:#f92672">-&gt;</span>cpu_slab);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (c<span style="color:#f92672">-&gt;</span>page)
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">flush_slab</span>(s, c);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>		freelist <span style="color:#f92672">=</span> page<span style="color:#f92672">-&gt;</span>freelist;
+</span></span><span style="display:flex;"><span>		page<span style="color:#f92672">-&gt;</span>freelist <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">stat</span>(s, ALLOC_SLAB);
+</span></span><span style="display:flex;"><span>		c<span style="color:#f92672">-&gt;</span>page <span style="color:#f92672">=</span> page;
+</span></span><span style="display:flex;"><span>		<span style="color:#f92672">*</span>pc <span style="color:#f92672">=</span> c;
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>		freelist <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> freelist
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Try to allocate a partial slab from a specific node.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">get_partial_node</span>(<span style="color:#66d9ef">struct</span> kmem_cache <span style="color:#f92672">*</span>s, <span style="color:#66d9ef">struct</span> kmem_cache_node <span style="color:#f92672">*</span>n,
+</span></span><span style="display:flex;"><span>				<span style="color:#66d9ef">struct</span> kmem_cache_cpu <span style="color:#f92672">*</span>c, <span style="color:#66d9ef">gfp_t</span> flags)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> page <span style="color:#f92672">*</span>page, <span style="color:#f92672">*</span>page2;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>object <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> available <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> objects;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">list_for_each_entry_safe</span>(page, page2, <span style="color:#f92672">&amp;</span>n<span style="color:#f92672">-&gt;</span>partial, lru) {
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>t;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 		<span style="color:#75715e">//acquire_slab从普通node的partial链表中取下一大块内存，并将freelist第一块空闲内存赋给t
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		t <span style="color:#f92672">=</span> <span style="color:#a6e22e">acquire_slab</span>(s, n, page, object <span style="color:#f92672">==</span> NULL, <span style="color:#f92672">&amp;</span>objects);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>t)
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>		available <span style="color:#f92672">+=</span> objects;
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>object) {
+</span></span><span style="display:flex;"><span>			c<span style="color:#f92672">-&gt;</span>page <span style="color:#f92672">=</span> page;
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">stat</span>(s, ALLOC_FROM_PARTIAL);
+</span></span><span style="display:flex;"><span>			object <span style="color:#f92672">=</span> t;
+</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">put_cpu_partial</span>(s, page, <span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">stat</span>(s, CPU_PARTIAL_NODE);
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span><span style="color:#a6e22e">kmem_cache_has_cpu_partial</span>(s)
+</span></span><span style="display:flex;"><span>			<span style="color:#f92672">||</span> available <span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">slub_cpu_partial</span>(s) <span style="color:#f92672">/</span> <span style="color:#ae81ff">2</span>)
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> object;
+</span></span></code></pre></div><h3 id="页面换出">页面换出</h3>
+<p>进程拥有的虚拟内存空间往往非常大，但是物理内存没有足够的空间，只有页面被使用时，才会放在物理内存中，如果一段时间不使用且用户进程没有释放，物理内存管理模块需要将这些页面换出到磁盘中，将空出的物理内存交给其他进程使用。</p>
+<p>例如，当分配内存时，发现没有足够的内存时，会试图进行回收，函数调用链为：<code>get_page_from_freelist-&gt;node_reclaim-&gt;__node_reclaim-&gt;shrink_node</code>。当然也有内核线程<strong>kswapd</strong>主动检查内存是否需要换出。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">kswapd</span>(<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>p)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> alloc_order, reclaim_order;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> classzone_idx <span style="color:#f92672">=</span> MAX_NR_ZONES <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">pg_data_t</span> <span style="color:#f92672">*</span>pgdat <span style="color:#f92672">=</span> (<span style="color:#66d9ef">pg_data_t</span><span style="color:#f92672">*</span>)p;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>tsk <span style="color:#f92672">=</span> current;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> ( ; ; ) {
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">kswapd_try_to_sleep</span>(pgdat, alloc_order, reclaim_order,
+</span></span><span style="display:flex;"><span>					classzone_idx);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>        reclaim_order <span style="color:#f92672">=</span> <span style="color:#a6e22e">balance_pgdat</span>(pgdat, alloc_order, classzone_idx);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>shrink_node</code>调用<code>shrink_node_memcg</code>：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * This is a basic per-node page freer.  Used by both kswapd and direct reclaim.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">shrink_node_memcg</span>(<span style="color:#66d9ef">struct</span> pglist_data <span style="color:#f92672">*</span>pgdat, <span style="color:#66d9ef">struct</span> mem_cgroup <span style="color:#f92672">*</span>memcg,
+</span></span><span style="display:flex;"><span>			      <span style="color:#66d9ef">struct</span> scan_control <span style="color:#f92672">*</span>sc, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> <span style="color:#f92672">*</span>lru_pages)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> nr[NR_LRU_LISTS];
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">enum</span> lru_list lru;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">while</span> (nr[LRU_INACTIVE_ANON] <span style="color:#f92672">||</span> nr[LRU_ACTIVE_FILE] <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>					nr[LRU_INACTIVE_FILE]) {
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> nr_anon, nr_file, percentage;
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> nr_scanned;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 		<span style="color:#75715e">//从LRU中检查
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">for_each_evictable_lru</span>(lru) {
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">if</span> (nr[lru]) {
+</span></span><span style="display:flex;"><span>				nr_to_scan <span style="color:#f92672">=</span> <span style="color:#a6e22e">min</span>(nr[lru], SWAP_CLUSTER_MAX);
+</span></span><span style="display:flex;"><span>				nr[lru] <span style="color:#f92672">-=</span> nr_to_scan;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>				nr_reclaimed <span style="color:#f92672">+=</span> <span style="color:#a6e22e">shrink_list</span>(lru, nr_to_scan,
+</span></span><span style="display:flex;"><span>							    lruvec, memcg, sc);
+</span></span><span style="display:flex;"><span>			}
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>......
+</span></span></code></pre></div><p>所有页面都挂在LRU列表上，页面划分为匿名页和内存映射页两种，并且都存在active和inactive两种状态的LRU列表，如果要换出内存，找出不活跃列表中最不活跃的，换出到硬盘。</p>
+<h2 id="mmap用户态内存映射">mmap用户态内存映射</h2>
+<p>mmap是一个系统调用，本质是一个用户态进程的虚拟内存映射方法，基本作用如下：</p>
+<ul>
+<li>将文件映射到进程的虚拟内存空间
+<ul>
+<li>可以通过文件实现进程间通信、IO优化（零拷贝）等</li>
+</ul>
+</li>
+<li>进程申请内存时，例如堆内存，mmap将内存空间映射到物理内存。</li>
+</ul>
+<p>mmap系统调用如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#a6e22e">SYSCALL_DEFINE6</span>(mmap, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, addr, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, len,
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, prot, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, flags,
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, fd, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, off)
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>        error <span style="color:#f92672">=</span> <span style="color:#a6e22e">sys_mmap_pgoff</span>(addr, len, prot, flags, fd, off <span style="color:#f92672">&gt;&gt;</span> PAGE_SHIFT);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">SYSCALL_DEFINE6</span>(mmap_pgoff, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, addr, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, len,
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, prot, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, flags,
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, fd, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, pgoff)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> file <span style="color:#f92672">*</span>file <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	file <span style="color:#f92672">=</span> <span style="color:#a6e22e">fget</span>(fd);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	retval <span style="color:#f92672">=</span> <span style="color:#a6e22e">vm_mmap_pgoff</span>(file, addr, len, prot, flags, pgoff);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> retval;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>如果映射到文件，fd传入一个文件描述符，通过<code>mmap_pgoff-&gt;fget</code>根据fd获取<code>struct_file</code>，接下来调用<code> vm_mmap_pgoff-&gt;do_mmap_pgoff-&gt;do_mmap</code>，这里主要调用了两个方法：</p>
+<ul>
+<li>get_unmapped_area：找到一个没有映射的内存区域</li>
+<li>mmap_region：映射到这个内存区域</li>
+</ul>
+<p><code>get_unmapped_area</code>流程如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">get_unmapped_area</span>(<span style="color:#66d9ef">struct</span> file <span style="color:#f92672">*</span>file, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> addr, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> len,
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> pgoff, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> flags)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> (<span style="color:#f92672">*</span>get_area)(<span style="color:#66d9ef">struct</span> file <span style="color:#f92672">*</span>, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>,
+</span></span><span style="display:flex;"><span>				  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span>);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//如果是匿名页，直接调用mm-&gt;get_unmapped_area找到vm_area_struct红黑树上对应的位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	get_area <span style="color:#f92672">=</span> current<span style="color:#f92672">-&gt;</span>mm<span style="color:#f92672">-&gt;</span>get_unmapped_area;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//如果是映射到文件，找到file_operations并调用get_unmapped_area
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> (file) {
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (file<span style="color:#f92672">-&gt;</span>f_op<span style="color:#f92672">-&gt;</span>get_unmapped_area)
+</span></span><span style="display:flex;"><span>			get_area <span style="color:#f92672">=</span> file<span style="color:#f92672">-&gt;</span>f_op<span style="color:#f92672">-&gt;</span>get_unmapped_area;
+</span></span><span style="display:flex;"><span>	} 
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>mmap_region</code>流程如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">mmap_region</span>(<span style="color:#66d9ef">struct</span> file <span style="color:#f92672">*</span>file, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> addr,
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> len, <span style="color:#66d9ef">vm_flags_t</span> vm_flags, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> pgoff,
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">struct</span> list_head <span style="color:#f92672">*</span>uf)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> mm_struct <span style="color:#f92672">*</span>mm <span style="color:#f92672">=</span> current<span style="color:#f92672">-&gt;</span>mm;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> vm_area_struct <span style="color:#f92672">*</span>vma, <span style="color:#f92672">*</span>prev;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> rb_node <span style="color:#f92672">**</span>rb_link, <span style="color:#f92672">*</span>rb_parent;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * Can we just expand an old mapping?
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//首先看是否能和前一个vm_area_struct合并
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	vma <span style="color:#f92672">=</span> <span style="color:#a6e22e">vma_merge</span>(mm, prev, addr, addr <span style="color:#f92672">+</span> len, vm_flags,
+</span></span><span style="display:flex;"><span>			NULL, file, pgoff, NULL, NULL_VM_UFFD_CTX);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (vma)
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">goto</span> out;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * Determine the object being mapped and call the appropriate
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * specific mapper. the address has already been validated, but
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 * not unmapped, but the maps are removed from the list.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//不能则调用kmem_cache_zalloc在slab里面创建一个vm_area_struct 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	vma <span style="color:#f92672">=</span> <span style="color:#a6e22e">kmem_cache_zalloc</span>(vm_area_cachep, GFP_KERNEL);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>vma) {
+</span></span><span style="display:flex;"><span>		error <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>ENOMEM;
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">goto</span> unacct_error;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	vma<span style="color:#f92672">-&gt;</span>vm_mm <span style="color:#f92672">=</span> mm;
+</span></span><span style="display:flex;"><span>	vma<span style="color:#f92672">-&gt;</span>vm_start <span style="color:#f92672">=</span> addr;
+</span></span><span style="display:flex;"><span>	vma<span style="color:#f92672">-&gt;</span>vm_end <span style="color:#f92672">=</span> addr <span style="color:#f92672">+</span> len;
+</span></span><span style="display:flex;"><span>	vma<span style="color:#f92672">-&gt;</span>vm_flags <span style="color:#f92672">=</span> vm_flags;
+</span></span><span style="display:flex;"><span>	vma<span style="color:#f92672">-&gt;</span>vm_page_prot <span style="color:#f92672">=</span> <span style="color:#a6e22e">vm_get_page_prot</span>(vm_flags);
+</span></span><span style="display:flex;"><span>	vma<span style="color:#f92672">-&gt;</span>vm_pgoff <span style="color:#f92672">=</span> pgoff;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">INIT_LIST_HEAD</span>(<span style="color:#f92672">&amp;</span>vma<span style="color:#f92672">-&gt;</span>anon_vma_chain);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 	<span style="color:#75715e">//如果是文件，则设置vm_file为目标文件，调用call_mmap
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> (file) {
+</span></span><span style="display:flex;"><span>		vma<span style="color:#f92672">-&gt;</span>vm_file <span style="color:#f92672">=</span> <span style="color:#a6e22e">get_file</span>(file);
+</span></span><span style="display:flex;"><span>		error <span style="color:#f92672">=</span> <span style="color:#a6e22e">call_mmap</span>(file, vma);
+</span></span><span style="display:flex;"><span>		addr <span style="color:#f92672">=</span> vma<span style="color:#f92672">-&gt;</span>vm_start;
+</span></span><span style="display:flex;"><span>		vm_flags <span style="color:#f92672">=</span> vma<span style="color:#f92672">-&gt;</span>vm_flags;
+</span></span><span style="display:flex;"><span>	} 
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//vma_link将创建的vm_area_struct存放在mm_struct里面的红黑树上面
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">vma_link将创建的</span>(mm, vma, prev, rb_link, rb_parent);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> addr;
+</span></span><span style="display:flex;"><span>.....
+</span></span></code></pre></div><p><code>vma_link</code>将内存到文件的映射关系建立后，文件到内存的映射通过<code>struct file</code>里面成员指向<code>struct address_space</code>，这个结构中有一个红黑树，内存区域<code>vm_area_struct</code>挂在这棵树上。</p>
+<h3 id="缺页异常">缺页异常</h3>
+<p>上述流程仍然在虚拟内存中进行操作，只有真正使用时，才回去分配物理内存，当进程开始访问虚拟内存中某个地址，如果没有找到对应的物理页，就会触发缺页中断，调用<code>do_page_fault</code>，页表存储在<code>mm_struct</code>中。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>dotraplinkage <span style="color:#66d9ef">void</span> notrace
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">do_page_fault</span>(<span style="color:#66d9ef">struct</span> pt_regs <span style="color:#f92672">*</span>regs, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> error_code)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> address <span style="color:#f92672">=</span> <span style="color:#a6e22e">read_cr2</span>(); <span style="color:#75715e">/* Get the faulting address */</span>
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">__do_page_fault</span>(regs, error_code, address);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * This routine handles page faults.  It determines the address,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * and the problem, and then passes it off to one of the appropriate
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * routines.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> noinline <span style="color:#66d9ef">void</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">__do_page_fault</span>(<span style="color:#66d9ef">struct</span> pt_regs <span style="color:#f92672">*</span>regs, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> error_code,
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> address)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> vm_area_struct <span style="color:#f92672">*</span>vma;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> task_struct <span style="color:#f92672">*</span>tsk;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> mm_struct <span style="color:#f92672">*</span>mm;
+</span></span><span style="display:flex;"><span>	tsk <span style="color:#f92672">=</span> current;
+</span></span><span style="display:flex;"><span>	mm <span style="color:#f92672">=</span> tsk<span style="color:#f92672">-&gt;</span>mm;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 	<span style="color:#75715e">//首先判断终端是否发生在内核中
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">unlikely</span>(<span style="color:#a6e22e">fault_in_kernel_space</span>(address))) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//内核中断调用vmalloc_fault
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">vmalloc_fault</span>(address) <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//若是用户态中断，查找地址所在的vm_area_struct
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	vma <span style="color:#f92672">=</span> <span style="color:#a6e22e">find_vma</span>(mm, address);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//调用handle_mm_fault完成映射
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	fault <span style="color:#f92672">=</span> <span style="color:#a6e22e">handle_mm_fault</span>(vma, address, flags);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">__handle_mm_fault</span>(<span style="color:#66d9ef">struct</span> vm_area_struct <span style="color:#f92672">*</span>vma, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> address,
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> flags)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> vm_fault vmf <span style="color:#f92672">=</span> {
+</span></span><span style="display:flex;"><span>		.vma <span style="color:#f92672">=</span> vma,
+</span></span><span style="display:flex;"><span>		.address <span style="color:#f92672">=</span> address <span style="color:#f92672">&amp;</span> PAGE_MASK,
+</span></span><span style="display:flex;"><span>		.flags <span style="color:#f92672">=</span> flags,
+</span></span><span style="display:flex;"><span>		.pgoff <span style="color:#f92672">=</span> <span style="color:#a6e22e">linear_page_index</span>(vma, address),
+</span></span><span style="display:flex;"><span>		.gfp_mask <span style="color:#f92672">=</span> <span style="color:#a6e22e">__get_fault_gfp_mask</span>(vma),
+</span></span><span style="display:flex;"><span>	};
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//设置四级页表
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">struct</span> mm_struct <span style="color:#f92672">*</span>mm <span style="color:#f92672">=</span> vma<span style="color:#f92672">-&gt;</span>vm_mm;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">pgd_t</span> <span style="color:#f92672">*</span>pgd;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">p4d_t</span> <span style="color:#f92672">*</span>p4d;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> ret;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	pgd <span style="color:#f92672">=</span> <span style="color:#a6e22e">pgd_offset</span>(mm, address);
+</span></span><span style="display:flex;"><span>	p4d <span style="color:#f92672">=</span> <span style="color:#a6e22e">p4d_alloc</span>(mm, pgd, address);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	vmf.pud <span style="color:#f92672">=</span> <span style="color:#a6e22e">pud_alloc</span>(mm, p4d, address);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	vmf.pmd <span style="color:#f92672">=</span> <span style="color:#a6e22e">pmd_alloc</span>(mm, vmf.pud, address);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">handle_pte_fault</span>(<span style="color:#f92672">&amp;</span>vmf);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">handle_pte_fault</span>(<span style="color:#66d9ef">struct</span> vm_fault <span style="color:#f92672">*</span>vmf)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">pte_t</span> entry;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	vmf<span style="color:#f92672">-&gt;</span>pte <span style="color:#f92672">=</span> <span style="color:#a6e22e">pte_offset_map</span>(vmf<span style="color:#f92672">-&gt;</span>pmd, vmf<span style="color:#f92672">-&gt;</span>address);
+</span></span><span style="display:flex;"><span>	vmf<span style="color:#f92672">-&gt;</span>orig_pte <span style="color:#f92672">=</span> <span style="color:#f92672">*</span>vmf<span style="color:#f92672">-&gt;</span>pte;
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>vmf<span style="color:#f92672">-&gt;</span>pte) {
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">vma_is_anonymous</span>(vmf<span style="color:#f92672">-&gt;</span>vma))
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">do_anonymous_page</span>(vmf);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">do_fault</span>(vmf);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span><span style="color:#a6e22e">pte_present</span>(vmf<span style="color:#f92672">-&gt;</span>orig_pte))
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">do_swap_page</span>(vmf);
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="总结">总结</h2>
+<p>内存管理的体系可以总结为：</p>
+<ul>
+<li>
+<p>物理内存根据NUMA架构分节点，节点内部再分区域，区域内再分页</p>
+</li>
+<li>
+<p>物理页面通过buddy system进行分配，物理页面可以映射到虚拟内存空间，内核进程kswapd根据物理页面使用情况，按照LRU等缓存算法对页面进行换入换出。</p>
+</li>
+<li>
+<p>内核态内存分配</p>
+<ul>
+<li><strong>大内存块的情况</strong>：kmalloc分配大内存时，以及vmalloc分配不连续物理页，直接用buddy system，分配后转为虚拟地址，访问时通过内核页表进行地址映射。
+<ul>
+<li>该部分会被换出，当访问发生缺页时，通过调用<code>dp_page_fault</code>处理缺页中断。</li>
+</ul>
+</li>
+<li><strong>小内存块的情况</strong>：对于 kmem_cache 以及 kmalloc 分配小内存时，使用slab分配器，当slab缓存块不足时，从buddy system申请大块内存，然后切分成小块进行分配。
+<ul>
+<li>该部分不会被换出，因为slab保存的是常用且关键的struct。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>用户态内存分配：调用mmap系统调用或brk系统调用，用户态内存都会被换出，缺页时使用中断调入内存。</p>
+<ul>
+<li>申请内存小于128k时，调用<code>brk()</code>完成，通过<code>sys_brk</code>系统调用实现。</li>
+<li>申请内存大于128k时，调用<code>mmap()</code>在堆栈之间的映射区分配。</li>
+</ul>
+</li>
+</ul>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/memory.png" alt="memory"></p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

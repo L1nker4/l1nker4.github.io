@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis%E6%8C%81%E4%B9%85%E5%8C%96%E6%9C%BA%E5%88%B6%E5%88%86%E6%9E%90/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis%E6%8C%81%E4%B9%85%E5%8C%96%E6%9C%BA%E5%88%B6%E5%88%86%E6%9E%90/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Redis持久化机制分析",
+      "headline" : "Redis持久化机制分析",
+      "description" : "简介 Redis数据保存在内存中，为了防止进程异常退出而导致数据丢失，可以考虑将数据保存到磁盘上。\nRedis提供的两种持久化方案：\nRDB：直接将数据库状态写到文件，既可以手动执行，也可以配置为定期执行。 AOF：将写命令append到AOF文件中。 RDB 两种方案：\nsave：直接执行 bgsave：fork一个子进程执行 rdbSave是save的具体实现函数，bgsave与其区别是通过fork子进程完成备份，并在完成后给父进程发送信号。\nint rdbSave(char *filename) { dictIterator *di = NULL; dictEntry *de; char tmpfile[256]; char magic[10]; int j; long long now = mstime(); FILE *fp; rio rdb; uint64_t cksum; \/\/ 创建临时文件 snprintf(tmpfile,256,\u0026#34;temp-%d.rdb\u0026#34;, (int) getpid()); fp = fopen(tmpfile,\u0026#34;w\u0026#34;); if (!fp) { redisLog(REDIS_WARNING, \u0026#34;Failed opening .rdb for saving: %s\u0026#34;, strerror(errno)); return REDIS_ERR; } \/\/ 初始化 I\/O rioInitWithFile(\u0026amp;rdb,fp); \/\/ 设置校验和函数 if (server.rdb_checksum) rdb.update_cksum = rioGenericUpdateChecksum; \/\/ 写入 RDB 版本号 snprintf(magic,sizeof(magic),\u0026#34;REDIS%04d\u0026#34;,REDIS_RDB_VERSION); if (rdbWriteRaw(\u0026amp;rdb,magic,9) == -1) goto werr; \/\/ 遍历所有数据库 for (j = 0; j \u0026lt; server.dbnum; j\u002b\u002b) { \/\/ 指向数据库 redisDb *db = server.db\u002bj; \/\/ 指向数据库键空间 dict *d = db-\u0026gt;dict; \/\/ 跳过空数据库 if (dictSize(d) == 0) continue; \/\/ 创建键空间迭代器 di = dictGetSafeIterator(d); if (!di) { fclose(fp); return REDIS_ERR; } \/* Write the SELECT DB opcode * * 写入 DB 选择器 *\/ if (rdbSaveType(\u0026amp;rdb,REDIS_RDB_OPCODE_SELECTDB) == -1) goto werr; if (rdbSaveLen(\u0026amp;rdb,j) == -1) goto werr; \/* Iterate this DB writing every entry * * 遍历数据库，并写入每个键值对的数据 *\/ while((de = dictNext(di)) != NULL) { sds keystr = dictGetKey(de); robj key, *o = dictGetVal(de); long long expire; \/\/ 根据 keystr ，在栈中创建一个 key 对象 initStaticStringObject(key,keystr); \/\/ 获取键的过期时间 expire = getExpire(db,\u0026amp;key); \/\/ 保存键值对数据 if (rdbSaveKeyValuePair(\u0026amp;rdb,\u0026amp;key,o,expire,now) == -1) goto werr; } dictReleaseIterator(di); } di = NULL; \/* So that we don\u0026#39;t release it again on error. *\/ \/* EOF opcode * * 写入 EOF 代码 *\/ if (rdbSaveType(\u0026amp;rdb,REDIS_RDB_OPCODE_EOF) == -1) goto werr; \/* CRC64 checksum. It will be zero if checksum computation is disabled, the * loading code skips the check in this case. * * CRC64 校验和。 * * 如果校验和功能已关闭，那么 rdb.cksum 将为 0 ， * 在这种情况下， RDB 载入时会跳过校验和检查。 *\/ cksum = rdb.cksum; memrev64ifbe(\u0026amp;cksum); rioWrite(\u0026amp;rdb,\u0026amp;cksum,8); \/* Make sure data will not remain on the OS\u0026#39;s output buffers *\/ \/\/ 冲洗缓存，确保数据已写入磁盘 if (fflush(fp) == EOF) goto werr; if (fsync(fileno(fp)) == -1) goto werr; if (fclose(fp) == EOF) goto werr; \/* Use RENAME to make sure the DB file is changed atomically only * if the generate DB file is ok. * * 使用 RENAME ，原子性地对临时文件进行改名，覆盖原来的 RDB 文件。 *\/ if (rename(tmpfile,filename) == -1) { redisLog(REDIS_WARNING,\u0026#34;Error moving temp DB file on the final destination: %s\u0026#34;, strerror(errno)); unlink(tmpfile); return REDIS_ERR; } \/\/ 写入完成，打印日志 redisLog(REDIS_NOTICE,\u0026#34;DB saved on disk\u0026#34;); \/\/ 清零数据库脏状态 server.dirty = 0; \/\/ 记录最后一次完成 SAVE 的时间 server.lastsave = time(NULL); \/\/ 记录最后一次执行 SAVE 的状态 server.lastbgsave_status = REDIS_OK; return REDIS_OK; werr: \/\/ 关闭文件 fclose(fp); \/\/ 删除文件 unlink(tmpfile); redisLog(REDIS_WARNING,\u0026#34;Write error saving DB on disk: %s\u0026#34;, strerror(errno)); if (di) dictReleaseIterator(di); return REDIS_ERR; } RDB载入还原 Redis对RDB文件的载入还原步骤如下：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-07-12 17:54:10 \u002b0000 UTC",
+      "dateModified" : "2020-07-12 17:54:10 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/redis\/redis%E6%8C%81%E4%B9%85%E5%8C%96%E6%9C%BA%E5%88%B6%E5%88%86%E6%9E%90\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Redis持久化机制分析</title>
+  <meta property="og:title" content="Redis持久化机制分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 Redis数据保存在内存中，为了防止进程异常退出而导致数据丢失，可以考虑将数据保存到磁盘上。
+Redis提供的两种持久化方案：
+RDB：直接将数据库状态写到文件，既可以手动执行，也可以配置为定期执行。 AOF：将写命令append到AOF文件中。 RDB 两种方案：
+save：直接执行 bgsave：fork一个子进程执行 rdbSave是save的具体实现函数，bgsave与其区别是通过fork子进程完成备份，并在完成后给父进程发送信号。
+int rdbSave(char *filename) { dictIterator *di = NULL; dictEntry *de; char tmpfile[256]; char magic[10]; int j; long long now = mstime(); FILE *fp; rio rdb; uint64_t cksum; // 创建临时文件 snprintf(tmpfile,256,&#34;temp-%d.rdb&#34;, (int) getpid()); fp = fopen(tmpfile,&#34;w&#34;); if (!fp) { redisLog(REDIS_WARNING, &#34;Failed opening .rdb for saving: %s&#34;, strerror(errno)); return REDIS_ERR; } // 初始化 I/O rioInitWithFile(&amp;rdb,fp); // 设置校验和函数 if (server.rdb_checksum) rdb.update_cksum = rioGenericUpdateChecksum; // 写入 RDB 版本号 snprintf(magic,sizeof(magic),&#34;REDIS%04d&#34;,REDIS_RDB_VERSION); if (rdbWriteRaw(&amp;rdb,magic,9) == -1) goto werr; // 遍历所有数据库 for (j = 0; j &lt; server.dbnum; j&#43;&#43;) { // 指向数据库 redisDb *db = server.db&#43;j; // 指向数据库键空间 dict *d = db-&gt;dict; // 跳过空数据库 if (dictSize(d) == 0) continue; // 创建键空间迭代器 di = dictGetSafeIterator(d); if (!di) { fclose(fp); return REDIS_ERR; } /* Write the SELECT DB opcode * * 写入 DB 选择器 */ if (rdbSaveType(&amp;rdb,REDIS_RDB_OPCODE_SELECTDB) == -1) goto werr; if (rdbSaveLen(&amp;rdb,j) == -1) goto werr; /* Iterate this DB writing every entry * * 遍历数据库，并写入每个键值对的数据 */ while((de = dictNext(di)) != NULL) { sds keystr = dictGetKey(de); robj key, *o = dictGetVal(de); long long expire; // 根据 keystr ，在栈中创建一个 key 对象 initStaticStringObject(key,keystr); // 获取键的过期时间 expire = getExpire(db,&amp;key); // 保存键值对数据 if (rdbSaveKeyValuePair(&amp;rdb,&amp;key,o,expire,now) == -1) goto werr; } dictReleaseIterator(di); } di = NULL; /* So that we don&#39;t release it again on error. */ /* EOF opcode * * 写入 EOF 代码 */ if (rdbSaveType(&amp;rdb,REDIS_RDB_OPCODE_EOF) == -1) goto werr; /* CRC64 checksum. It will be zero if checksum computation is disabled, the * loading code skips the check in this case. * * CRC64 校验和。 * * 如果校验和功能已关闭，那么 rdb.cksum 将为 0 ， * 在这种情况下， RDB 载入时会跳过校验和检查。 */ cksum = rdb.cksum; memrev64ifbe(&amp;cksum); rioWrite(&amp;rdb,&amp;cksum,8); /* Make sure data will not remain on the OS&#39;s output buffers */ // 冲洗缓存，确保数据已写入磁盘 if (fflush(fp) == EOF) goto werr; if (fsync(fileno(fp)) == -1) goto werr; if (fclose(fp) == EOF) goto werr; /* Use RENAME to make sure the DB file is changed atomically only * if the generate DB file is ok. * * 使用 RENAME ，原子性地对临时文件进行改名，覆盖原来的 RDB 文件。 */ if (rename(tmpfile,filename) == -1) { redisLog(REDIS_WARNING,&#34;Error moving temp DB file on the final destination: %s&#34;, strerror(errno)); unlink(tmpfile); return REDIS_ERR; } // 写入完成，打印日志 redisLog(REDIS_NOTICE,&#34;DB saved on disk&#34;); // 清零数据库脏状态 server.dirty = 0; // 记录最后一次完成 SAVE 的时间 server.lastsave = time(NULL); // 记录最后一次执行 SAVE 的状态 server.lastbgsave_status = REDIS_OK; return REDIS_OK; werr: // 关闭文件 fclose(fp); // 删除文件 unlink(tmpfile); redisLog(REDIS_WARNING,&#34;Write error saving DB on disk: %s&#34;, strerror(errno)); if (di) dictReleaseIterator(di); return REDIS_ERR; } RDB载入还原 Redis对RDB文件的载入还原步骤如下：
+" />
+  <meta name="description" content="简介 Redis数据保存在内存中，为了防止进程异常退出而导致数据丢失，可以考虑将数据保存到磁盘上。
+Redis提供的两种持久化方案：
+RDB：直接将数据库状态写到文件，既可以手动执行，也可以配置为定期执行。 AOF：将写命令append到AOF文件中。 RDB 两种方案：
+save：直接执行 bgsave：fork一个子进程执行 rdbSave是save的具体实现函数，bgsave与其区别是通过fork子进程完成备份，并在完成后给父进程发送信号。
+int rdbSave(char *filename) { dictIterator *di = NULL; dictEntry *de; char tmpfile[256]; char magic[10]; int j; long long now = mstime(); FILE *fp; rio rdb; uint64_t cksum; // 创建临时文件 snprintf(tmpfile,256,&#34;temp-%d.rdb&#34;, (int) getpid()); fp = fopen(tmpfile,&#34;w&#34;); if (!fp) { redisLog(REDIS_WARNING, &#34;Failed opening .rdb for saving: %s&#34;, strerror(errno)); return REDIS_ERR; } // 初始化 I/O rioInitWithFile(&amp;rdb,fp); // 设置校验和函数 if (server.rdb_checksum) rdb.update_cksum = rioGenericUpdateChecksum; // 写入 RDB 版本号 snprintf(magic,sizeof(magic),&#34;REDIS%04d&#34;,REDIS_RDB_VERSION); if (rdbWriteRaw(&amp;rdb,magic,9) == -1) goto werr; // 遍历所有数据库 for (j = 0; j &lt; server.dbnum; j&#43;&#43;) { // 指向数据库 redisDb *db = server.db&#43;j; // 指向数据库键空间 dict *d = db-&gt;dict; // 跳过空数据库 if (dictSize(d) == 0) continue; // 创建键空间迭代器 di = dictGetSafeIterator(d); if (!di) { fclose(fp); return REDIS_ERR; } /* Write the SELECT DB opcode * * 写入 DB 选择器 */ if (rdbSaveType(&amp;rdb,REDIS_RDB_OPCODE_SELECTDB) == -1) goto werr; if (rdbSaveLen(&amp;rdb,j) == -1) goto werr; /* Iterate this DB writing every entry * * 遍历数据库，并写入每个键值对的数据 */ while((de = dictNext(di)) != NULL) { sds keystr = dictGetKey(de); robj key, *o = dictGetVal(de); long long expire; // 根据 keystr ，在栈中创建一个 key 对象 initStaticStringObject(key,keystr); // 获取键的过期时间 expire = getExpire(db,&amp;key); // 保存键值对数据 if (rdbSaveKeyValuePair(&amp;rdb,&amp;key,o,expire,now) == -1) goto werr; } dictReleaseIterator(di); } di = NULL; /* So that we don&#39;t release it again on error. */ /* EOF opcode * * 写入 EOF 代码 */ if (rdbSaveType(&amp;rdb,REDIS_RDB_OPCODE_EOF) == -1) goto werr; /* CRC64 checksum. It will be zero if checksum computation is disabled, the * loading code skips the check in this case. * * CRC64 校验和。 * * 如果校验和功能已关闭，那么 rdb.cksum 将为 0 ， * 在这种情况下， RDB 载入时会跳过校验和检查。 */ cksum = rdb.cksum; memrev64ifbe(&amp;cksum); rioWrite(&amp;rdb,&amp;cksum,8); /* Make sure data will not remain on the OS&#39;s output buffers */ // 冲洗缓存，确保数据已写入磁盘 if (fflush(fp) == EOF) goto werr; if (fsync(fileno(fp)) == -1) goto werr; if (fclose(fp) == EOF) goto werr; /* Use RENAME to make sure the DB file is changed atomically only * if the generate DB file is ok. * * 使用 RENAME ，原子性地对临时文件进行改名，覆盖原来的 RDB 文件。 */ if (rename(tmpfile,filename) == -1) { redisLog(REDIS_WARNING,&#34;Error moving temp DB file on the final destination: %s&#34;, strerror(errno)); unlink(tmpfile); return REDIS_ERR; } // 写入完成，打印日志 redisLog(REDIS_NOTICE,&#34;DB saved on disk&#34;); // 清零数据库脏状态 server.dirty = 0; // 记录最后一次完成 SAVE 的时间 server.lastsave = time(NULL); // 记录最后一次执行 SAVE 的状态 server.lastbgsave_status = REDIS_OK; return REDIS_OK; werr: // 关闭文件 fclose(fp); // 删除文件 unlink(tmpfile); redisLog(REDIS_WARNING,&#34;Write error saving DB on disk: %s&#34;, strerror(errno)); if (di) dictReleaseIterator(di); return REDIS_ERR; } RDB载入还原 Redis对RDB文件的载入还原步骤如下：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Redis持久化机制分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-07-12 17:54:10 UTC">
+                12 Jul 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="简介">简介</h2>
+<p>Redis数据保存在内存中，为了防止进程异常退出而导致数据丢失，可以考虑将数据保存到磁盘上。</p>
+<p>Redis提供的两种持久化方案：</p>
+<ul>
+<li>RDB：直接将数据库状态写到文件，既可以手动执行，也可以配置为定期执行。</li>
+<li>AOF：将写命令append到AOF文件中。</li>
+</ul>
+<h2 id="rdb">RDB</h2>
+<p>两种方案：</p>
+<ul>
+<li>save：直接执行</li>
+<li>bgsave：fork一个子进程执行</li>
+</ul>
+<p><code>rdbSave</code>是save的具体实现函数，bgsave与其区别是通过fork子进程完成备份，并在完成后给父进程发送信号。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">rdbSave</span>(<span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>filename) {
+</span></span><span style="display:flex;"><span>    dictIterator <span style="color:#f92672">*</span>di <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>    dictEntry <span style="color:#f92672">*</span>de;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">char</span> tmpfile[<span style="color:#ae81ff">256</span>];
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">char</span> magic[<span style="color:#ae81ff">10</span>];
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> j;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> <span style="color:#66d9ef">long</span> now <span style="color:#f92672">=</span> <span style="color:#a6e22e">mstime</span>();
+</span></span><span style="display:flex;"><span>    FILE <span style="color:#f92672">*</span>fp;
+</span></span><span style="display:flex;"><span>    rio rdb;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">uint64_t</span> cksum;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 创建临时文件
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">snprintf</span>(tmpfile,<span style="color:#ae81ff">256</span>,<span style="color:#e6db74">&#34;temp-%d.rdb&#34;</span>, (<span style="color:#66d9ef">int</span>) <span style="color:#a6e22e">getpid</span>());
+</span></span><span style="display:flex;"><span>    fp <span style="color:#f92672">=</span> <span style="color:#a6e22e">fopen</span>(tmpfile,<span style="color:#e6db74">&#34;w&#34;</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>fp) {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">redisLog</span>(REDIS_WARNING, <span style="color:#e6db74">&#34;Failed opening .rdb for saving: %s&#34;</span>,
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">strerror</span>(errno));
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> REDIS_ERR;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 初始化 I/O
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">rioInitWithFile</span>(<span style="color:#f92672">&amp;</span>rdb,fp);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 设置校验和函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (server.rdb_checksum)
+</span></span><span style="display:flex;"><span>        rdb.update_cksum <span style="color:#f92672">=</span> rioGenericUpdateChecksum;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 写入 RDB 版本号
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">snprintf</span>(magic,<span style="color:#66d9ef">sizeof</span>(magic),<span style="color:#e6db74">&#34;REDIS%04d&#34;</span>,REDIS_RDB_VERSION);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">rdbWriteRaw</span>(<span style="color:#f92672">&amp;</span>rdb,magic,<span style="color:#ae81ff">9</span>) <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#66d9ef">goto</span> werr;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 遍历所有数据库
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> (j <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; j <span style="color:#f92672">&lt;</span> server.dbnum; j<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 指向数据库
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        redisDb <span style="color:#f92672">*</span>db <span style="color:#f92672">=</span> server.db<span style="color:#f92672">+</span>j;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 指向数据库键空间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        dict <span style="color:#f92672">*</span>d <span style="color:#f92672">=</span> db<span style="color:#f92672">-&gt;</span>dict;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 跳过空数据库
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">dictSize</span>(d) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) <span style="color:#66d9ef">continue</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 创建键空间迭代器
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        di <span style="color:#f92672">=</span> <span style="color:#a6e22e">dictGetSafeIterator</span>(d);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>di) {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">fclose</span>(fp);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> REDIS_ERR;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* Write the SELECT DB opcode 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * 写入 DB 选择器
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">rdbSaveType</span>(<span style="color:#f92672">&amp;</span>rdb,REDIS_RDB_OPCODE_SELECTDB) <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#66d9ef">goto</span> werr;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">rdbSaveLen</span>(<span style="color:#f92672">&amp;</span>rdb,j) <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#66d9ef">goto</span> werr;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* Iterate this DB writing every entry 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * 遍历数据库，并写入每个键值对的数据
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span>((de <span style="color:#f92672">=</span> <span style="color:#a6e22e">dictNext</span>(di)) <span style="color:#f92672">!=</span> NULL) {
+</span></span><span style="display:flex;"><span>            sds keystr <span style="color:#f92672">=</span> <span style="color:#a6e22e">dictGetKey</span>(de);
+</span></span><span style="display:flex;"><span>            robj key, <span style="color:#f92672">*</span>o <span style="color:#f92672">=</span> <span style="color:#a6e22e">dictGetVal</span>(de);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">long</span> <span style="color:#66d9ef">long</span> expire;
+</span></span><span style="display:flex;"><span>            
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 根据 keystr ，在栈中创建一个 key 对象
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#a6e22e">initStaticStringObject</span>(key,keystr);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 获取键的过期时间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            expire <span style="color:#f92672">=</span> <span style="color:#a6e22e">getExpire</span>(db,<span style="color:#f92672">&amp;</span>key);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 保存键值对数据
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">rdbSaveKeyValuePair</span>(<span style="color:#f92672">&amp;</span>rdb,<span style="color:#f92672">&amp;</span>key,o,expire,now) <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#66d9ef">goto</span> werr;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">dictReleaseIterator</span>(di);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    di <span style="color:#f92672">=</span> NULL; <span style="color:#75715e">/* So that we don&#39;t release it again on error. */</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* EOF opcode 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * 写入 EOF 代码
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">rdbSaveType</span>(<span style="color:#f92672">&amp;</span>rdb,REDIS_RDB_OPCODE_EOF) <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#66d9ef">goto</span> werr;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* CRC64 checksum. It will be zero if checksum computation is disabled, the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * loading code skips the check in this case. 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * CRC64 校验和。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * 如果校验和功能已关闭，那么 rdb.cksum 将为 0 ，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * 在这种情况下， RDB 载入时会跳过校验和检查。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    cksum <span style="color:#f92672">=</span> rdb.cksum;
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">memrev64ifbe</span>(<span style="color:#f92672">&amp;</span>cksum);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">rioWrite</span>(<span style="color:#f92672">&amp;</span>rdb,<span style="color:#f92672">&amp;</span>cksum,<span style="color:#ae81ff">8</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* Make sure data will not remain on the OS&#39;s output buffers */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 冲洗缓存，确保数据已写入磁盘
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">fflush</span>(fp) <span style="color:#f92672">==</span> EOF) <span style="color:#66d9ef">goto</span> werr;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">fsync</span>(<span style="color:#a6e22e">fileno</span>(fp)) <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#66d9ef">goto</span> werr;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">fclose</span>(fp) <span style="color:#f92672">==</span> EOF) <span style="color:#66d9ef">goto</span> werr;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* Use RENAME to make sure the DB file is changed atomically only
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * if the generate DB file is ok. 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * 使用 RENAME ，原子性地对临时文件进行改名，覆盖原来的 RDB 文件。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">rename</span>(tmpfile,filename) <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">redisLog</span>(REDIS_WARNING,<span style="color:#e6db74">&#34;Error moving temp DB file on the final destination: %s&#34;</span>, <span style="color:#a6e22e">strerror</span>(errno));
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">unlink</span>(tmpfile);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> REDIS_ERR;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 写入完成，打印日志
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">redisLog</span>(REDIS_NOTICE,<span style="color:#e6db74">&#34;DB saved on disk&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 清零数据库脏状态
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    server.dirty <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 记录最后一次完成 SAVE 的时间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    server.lastsave <span style="color:#f92672">=</span> <span style="color:#a6e22e">time</span>(NULL);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 记录最后一次执行 SAVE 的状态
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    server.lastbgsave_status <span style="color:#f92672">=</span> REDIS_OK;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> REDIS_OK;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>werr:
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 关闭文件
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fclose</span>(fp);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 删除文件
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">unlink</span>(tmpfile);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">redisLog</span>(REDIS_WARNING,<span style="color:#e6db74">&#34;Write error saving DB on disk: %s&#34;</span>, <span style="color:#a6e22e">strerror</span>(errno));
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (di) <span style="color:#a6e22e">dictReleaseIterator</span>(di);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> REDIS_ERR;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="rdb载入还原">RDB载入还原</h3>
+<p>Redis对RDB文件的载入还原步骤如下：</p>
+<ul>
+<li>判断是否开启AOF持久化功能，若开启载入AOF文件</li>
+<li>否则载入RDB文件</li>
+</ul>
+<p>之所以优先载入AOF文件，是因为：<strong>AOF更新频率比RDB更高</strong></p>
+<h3 id="定期执行">定期执行</h3>
+<p>Redis允许通过设置服务器配置项使server每隔一段时间自动执行一次BGSAVE命令。</p>
+<pre tabindex="0"><code>save &lt;seconds&gt; &lt;changes&gt; [&lt;seconds&gt; &lt;changes&gt; ...]
+save 900 1		//900s之内，进行了至少1次修改操作
+save 300 5		//300s之内，进行了至少10次修改操作
+save 60 2		//60s之内，进行了至少2次修改操作
+</code></pre><p>以上的配置项保存在<code>struct redisServer&gt;saveparams</code>字段中，这是一个数组，<code>saveparam</code>的结构如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// 服务器的保存条件（BGSAVE 自动执行的条件）
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">struct</span> saveparam {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 多少秒之内
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">time_t</span> seconds;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 发生多少次修改
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">int</span> changes;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>同时server状态还维持了两个相关的变量：</p>
+<ul>
+<li>dirty：修改计数器，记录距离上次执行save指令，服务器对数据库状态进行了多少次修改。</li>
+<li>lastsave：UNIX时间戳，记录上次成功执行SAVE的时间。</li>
+</ul>
+<p>Redis中的定时任务函数<code>serverCron</code>其中由于一项工作就是遍历<code>saveparams</code>选项的条件是否满足，满足的话则执行。</p>
+<h3 id="文件结构">文件结构</h3>
+<p>按照顺序结构如下：</p>
+<ul>
+<li>REDIS：5 bytes，为REDIS五个字符，快速检查载入的文件是否为RDB文件</li>
+<li>db_version：4 bytes，字符串表示的整数，记录RDB文件的版本号</li>
+<li>databases：包含多个数据库以及对应数据
+<ul>
+<li>每个非空数据库都可以保存SELECTDB、db_number、key_value_pairs。</li>
+</ul>
+</li>
+<li>EOF：1 byte，标志着正文内容的结束</li>
+<li>check_sum：8 bytes的无符号整数，是对前四个部分计算得出的，载入文件时会对比check_sum，以此检查文件是否出错。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>root<span style="color:#960050;background-color:#1e0010">@</span>pc:<span style="color:#f92672">/</span>opt<span style="color:#f92672">/</span>redis<span style="color:#960050;background-color:#1e0010">#</span> od <span style="color:#f92672">-</span>c dump.rdb 
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">0000000</span>   R   E   D   I   S   <span style="color:#ae81ff">0</span>   <span style="color:#ae81ff">0</span>   <span style="color:#ae81ff">1</span>   <span style="color:#ae81ff">0</span> <span style="color:#ae81ff">372</span>  <span style="color:#960050;background-color:#1e0010">\</span>t   r   e   d   i   s
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">0000020</span>   <span style="color:#f92672">-</span>   v   e   r  <span style="color:#960050;background-color:#1e0010">\</span>v   <span style="color:#ae81ff">2</span>   <span style="color:#ae81ff">5</span>   <span style="color:#ae81ff">5</span>   .   <span style="color:#ae81ff">2</span>   <span style="color:#ae81ff">5</span>   <span style="color:#ae81ff">5</span>   .   <span style="color:#ae81ff">2</span>   <span style="color:#ae81ff">5</span>   <span style="color:#ae81ff">5</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">0000040</span> <span style="color:#ae81ff">372</span>  <span style="color:#960050;background-color:#1e0010">\</span>n   r   e   d   i   s   <span style="color:#f92672">-</span>   b   i   t   s <span style="color:#ae81ff">300</span>   <span style="color:#960050;background-color:#1e0010">@</span> <span style="color:#ae81ff">372</span> <span style="color:#ae81ff">005</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">0000060</span>   c   t   i   m   e <span style="color:#ae81ff">302</span> <span style="color:#ae81ff">314</span> <span style="color:#ae81ff">213</span> <span style="color:#ae81ff">354</span>   b <span style="color:#ae81ff">372</span>  <span style="color:#960050;background-color:#1e0010">\</span>b   u   s   e   d
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">0000100</span>   <span style="color:#f92672">-</span>   m   e   m <span style="color:#ae81ff">302</span>   <span style="color:#960050;background-color:#1e0010">@</span> <span style="color:#ae81ff">032</span> <span style="color:#ae81ff">020</span>  <span style="color:#960050;background-color:#1e0010">\</span><span style="color:#ae81ff">0</span> <span style="color:#ae81ff">372</span>  <span style="color:#960050;background-color:#1e0010">\</span>b   a   o   f   <span style="color:#f92672">-</span>   b
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">0000120</span>   a   s   e <span style="color:#ae81ff">300</span>  <span style="color:#960050;background-color:#1e0010">\</span><span style="color:#ae81ff">0</span> <span style="color:#ae81ff">376</span>  <span style="color:#960050;background-color:#1e0010">\</span><span style="color:#ae81ff">0</span> <span style="color:#ae81ff">373</span> <span style="color:#ae81ff">001</span>  <span style="color:#960050;background-color:#1e0010">\</span><span style="color:#ae81ff">0</span>  <span style="color:#960050;background-color:#1e0010">\</span><span style="color:#ae81ff">0</span> <span style="color:#ae81ff">005</span>   h   e   l   l
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">0000140</span>   o <span style="color:#ae81ff">005</span>   v   a   l   u   e <span style="color:#ae81ff">377</span>   <span style="color:#f92672">+</span> <span style="color:#ae81ff">361</span>   .   <span style="color:#960050;background-color:#1e0010">&#39;</span> <span style="color:#ae81ff">337</span> <span style="color:#ae81ff">354</span>  <span style="color:#960050;background-color:#1e0010">\</span>n   <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">0000160</span>
+</span></span></code></pre></div><h2 id="aof">AOF</h2>
+<p>AOF是Redis的另一种持久化方案，这是通过保存写命令来记录数据库的状态，恢复时从前到后执行一次即可恢复数据。所有的命令都是以Redis的命令请求协议的格式来保存的。</p>
+<h3 id="配置项">配置项</h3>
+<pre tabindex="0"><code># 是否开启AOF，默认关闭（no）
+appendonly yes
+
+# 指定 AOF 文件名
+appendfilename appendonly.aof
+
+# Redis支持三种不同的刷盘模式：
+# appendfsync always #每次发生数据变化立即写入到磁盘中
+# appendfsync no  #sync由OS控制
+appendfsync everysec #每秒钟写入磁盘一次
+
+#设置为yes表示rewrite期间对新写操作不fsync,暂时存在内存中,等rewrite完成后再写入，默认为no
+no-appendfsync-on-rewrite no 
+
+#当前AOF文件大小是上次日志重写得到AOF文件大小的二倍时，自动启动新的日志重写过程。
+auto-aof-rewrite-percentage 100
+
+#当前AOF文件启动新的日志重写过程的最小值，避免刚刚启动Reids时由于文件尺寸较小导致频繁的重写。
+auto-aof-rewrite-min-size 64mb
+</code></pre><h3 id="aof实现">AOF实现</h3>
+<p>AOF的实现可以分为以下三个步骤：</p>
+<ul>
+<li>append：每次写命令执行完成后，会以协议格式将命令追加到<code>struct redisServer-&gt;aof_buf</code>中</li>
+<li>write和sync：<code>serverCron</code>中会判断<code>appendfsync</code>的值来选择<code>flushAppendOnlyFile</code>的具体策略。
+<ul>
+<li>always：将<code>aof_buf</code>中的所有内容write并sync到AOF文件</li>
+<li>everysec：将<code>aof_buf</code>中的所有内容write到AOF文件，如果上次sync时间距离现在超过一秒钟，会fork一个进程再次对AOF文件进行sync。</li>
+<li>no：将<code>aof_buf</code>中的所有内容同步写入到AOF文件，sync动作由OS决定。</li>
+</ul>
+</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>	<span style="color:#75715e">// 根据 AOF 政策，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 考虑是否需要将 AOF 缓冲区中的内容写入到 AOF 文件中
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">/* AOF postponed flush: Try at every cron cycle if the slow fsync
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * completed. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (server.aof_flush_postponed_start) <span style="color:#a6e22e">flushAppendOnlyFile</span>(<span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* AOF write errors: in this case we have a buffer to flush as well and
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * clear the AOF error in case of success to make the DB writable again,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * however to try every second is enough in case of &#39;hz&#39; is set to
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * an higher frequency. */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">run_with_period</span>(<span style="color:#ae81ff">1000</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (server.aof_last_write_status <span style="color:#f92672">==</span> REDIS_ERR)
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">flushAppendOnlyFile</span>(<span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="aof载入还原">AOF载入还原</h3>
+<p>Redis对AOF文件的载入还原步骤如下：</p>
+<ul>
+<li>创建一个不带网络连接的fake client。</li>
+<li>从AOF文件中分析并读取一条写命令，使用fake client执行，直至所有写命令全部执行完成。</li>
+</ul>
+<h3 id="aof重写">AOF重写</h3>
+<p>为了解决AOF文件大小膨胀的问题，Redis提供了AOF重写功能：Redis服务器可以创建一个新的AOF文件来替代现有的AOF文件。新文件不会包含冗余命令，类似于Bitcask模型的merge操作，会对冗余指令进行合并，重写由<strong>子进程</strong>执行，并不会阻塞主线程。</p>
+<p>为了防止重写期间，服务器继续处理写命令请求而导致数据不一致的问题，设置了一个重写缓冲区，server端接收到命令后，会将写命令同时发送给AOF缓冲区和重写缓冲区。</p>
+<p>子进程完成AOF重写后，会给父进程发送一个信号，父进程的信号处理函数执行如下逻辑：</p>
+<ol>
+<li>将重写缓冲区中所有内容写入新的AOF文件中，保证数据一致性。</li>
+<li>对新的AOF文件改名，原子地覆盖原文件。</li>
+</ol>
+<h2 id="rdb和aof的对比">RDB和AOF的对比</h2>
+<ul>
+<li>启动优先级：RDB低，AOF高</li>
+<li>体积：RDB小，AOF大</li>
+<li>恢复速度：RDB快</li>
+<li>数据安全性：RDB丢数据，AOF根据策略决定</li>
+<li>轻重：RDB较重</li>
+</ul>
+<p>Redis4.0提出了<strong>混合使用</strong>AOF和RDB的方法，RDB以一定频率执行，两次RDB执行期间，使用AOF记录两次之间的所有命令操作，第二次只需要将AOF中修改的数据进行更新即可。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

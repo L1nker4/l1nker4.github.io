@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/java%E9%9B%86%E5%90%88/java-arraylist/" />
+  <link rel="canonical" href="http://localhost:59500/posts/java%E9%9B%86%E5%90%88/java-arraylist/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "ArrayList源码分析",
+      "headline" : "ArrayList源码分析",
+      "description" : "简介 ArrayList是List接口的实现类，其底层通过数组实现。当空间不够会通过内部的扩容机制进行扩容。时间复杂度与数组类似，ArrayList是非线程安全的集合，在并发环境下使用会产生错误。\npublic class ArrayList\u0026lt;E\u0026gt; extends AbstractList\u0026lt;E\u0026gt; implements List\u0026lt;E\u0026gt;, RandomAccess, Cloneable, java.io.Serializable ArrayList继承了AbstractList，实现了List接口，提供了添加、删除、修改、遍历等功能\nArrayList实现了RandomAccess接口，实现该接口表明ArrayList支持快速随机访问。\nArrayList实现了Serializable接口，表明ArrayList支持序列化。\nArrayList实现了Cloneable接口，能被克隆。\n成员变量 \/\/默认初始化大小 private static final int DEFAULT_CAPACITY = 10; \/\/传入initialCapacity为0时，elementData指向该变量 private static final Object[] EMPTY_ELEMENTDATA = {}; \/\/不传initialCapacity时，elementData指向该变量 private static final Object[] DEFAULTCAPACITY_EMPTY_ELEMENTDATA = {}; \/\/存放数据的数组 transient Object[] elementData; \/\/list大小 private int size; 构造方法 ArrayList共有三个构造方法。注释如下：\n\/\/传递了长度的构造方法 public ArrayList(int initialCapacity) { \/\/边界检查 if (initialCapacity \u0026gt; 0) { this.elementData = new Object[initialCapacity]; } else if (initialCapacity == 0) { this.elementData = EMPTY_ELEMENTDATA; } else { throw new IllegalArgumentException(\u0026#34;Illegal Capacity: \u0026#34;\u002b initialCapacity); } } \/\/无参构造 public ArrayList() { this.elementData = DEFAULTCAPACITY_EMPTY_ELEMENTDATA; } \/\/传递集合 public ArrayList(Collection\u0026lt;? extends E\u0026gt; c) { \/\/获取初始值数组 elementData = c.toArray(); \/\/如果传入的为非空集合 if ((size = elementData.length) != 0) { \/\/ c.toArray可能返回的不是Object[]类型 if (elementData.getClass() != Object[].class) elementData = Arrays.copyOf(elementData, size, Object[].class); } else { \/\/传递空集合，将elementData指向空数组 this.elementData = EMPTY_ELEMENTDATA; } } API get 获取对应下标的元素，时间复杂度O(1)\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-07-30 17:59:58 \u002b0000 UTC",
+      "dateModified" : "2020-07-30 17:59:58 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/java%E9%9B%86%E5%90%88\/java-arraylist\/",
+      "keywords" : [ "Java","数据结构", ]
+  }
+</script>
+<title>ArrayList源码分析</title>
+  <meta property="og:title" content="ArrayList源码分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 ArrayList是List接口的实现类，其底层通过数组实现。当空间不够会通过内部的扩容机制进行扩容。时间复杂度与数组类似，ArrayList是非线程安全的集合，在并发环境下使用会产生错误。
+public class ArrayList&lt;E&gt; extends AbstractList&lt;E&gt; implements List&lt;E&gt;, RandomAccess, Cloneable, java.io.Serializable ArrayList继承了AbstractList，实现了List接口，提供了添加、删除、修改、遍历等功能
+ArrayList实现了RandomAccess接口，实现该接口表明ArrayList支持快速随机访问。
+ArrayList实现了Serializable接口，表明ArrayList支持序列化。
+ArrayList实现了Cloneable接口，能被克隆。
+成员变量 //默认初始化大小 private static final int DEFAULT_CAPACITY = 10; //传入initialCapacity为0时，elementData指向该变量 private static final Object[] EMPTY_ELEMENTDATA = {}; //不传initialCapacity时，elementData指向该变量 private static final Object[] DEFAULTCAPACITY_EMPTY_ELEMENTDATA = {}; //存放数据的数组 transient Object[] elementData; //list大小 private int size; 构造方法 ArrayList共有三个构造方法。注释如下：
+//传递了长度的构造方法 public ArrayList(int initialCapacity) { //边界检查 if (initialCapacity &gt; 0) { this.elementData = new Object[initialCapacity]; } else if (initialCapacity == 0) { this.elementData = EMPTY_ELEMENTDATA; } else { throw new IllegalArgumentException(&#34;Illegal Capacity: &#34;&#43; initialCapacity); } } //无参构造 public ArrayList() { this.elementData = DEFAULTCAPACITY_EMPTY_ELEMENTDATA; } //传递集合 public ArrayList(Collection&lt;? extends E&gt; c) { //获取初始值数组 elementData = c.toArray(); //如果传入的为非空集合 if ((size = elementData.length) != 0) { // c.toArray可能返回的不是Object[]类型 if (elementData.getClass() != Object[].class) elementData = Arrays.copyOf(elementData, size, Object[].class); } else { //传递空集合，将elementData指向空数组 this.elementData = EMPTY_ELEMENTDATA; } } API get 获取对应下标的元素，时间复杂度O(1)
+" />
+  <meta name="description" content="简介 ArrayList是List接口的实现类，其底层通过数组实现。当空间不够会通过内部的扩容机制进行扩容。时间复杂度与数组类似，ArrayList是非线程安全的集合，在并发环境下使用会产生错误。
+public class ArrayList&lt;E&gt; extends AbstractList&lt;E&gt; implements List&lt;E&gt;, RandomAccess, Cloneable, java.io.Serializable ArrayList继承了AbstractList，实现了List接口，提供了添加、删除、修改、遍历等功能
+ArrayList实现了RandomAccess接口，实现该接口表明ArrayList支持快速随机访问。
+ArrayList实现了Serializable接口，表明ArrayList支持序列化。
+ArrayList实现了Cloneable接口，能被克隆。
+成员变量 //默认初始化大小 private static final int DEFAULT_CAPACITY = 10; //传入initialCapacity为0时，elementData指向该变量 private static final Object[] EMPTY_ELEMENTDATA = {}; //不传initialCapacity时，elementData指向该变量 private static final Object[] DEFAULTCAPACITY_EMPTY_ELEMENTDATA = {}; //存放数据的数组 transient Object[] elementData; //list大小 private int size; 构造方法 ArrayList共有三个构造方法。注释如下：
+//传递了长度的构造方法 public ArrayList(int initialCapacity) { //边界检查 if (initialCapacity &gt; 0) { this.elementData = new Object[initialCapacity]; } else if (initialCapacity == 0) { this.elementData = EMPTY_ELEMENTDATA; } else { throw new IllegalArgumentException(&#34;Illegal Capacity: &#34;&#43; initialCapacity); } } //无参构造 public ArrayList() { this.elementData = DEFAULTCAPACITY_EMPTY_ELEMENTDATA; } //传递集合 public ArrayList(Collection&lt;? extends E&gt; c) { //获取初始值数组 elementData = c.toArray(); //如果传入的为非空集合 if ((size = elementData.length) != 0) { // c.toArray可能返回的不是Object[]类型 if (elementData.getClass() != Object[].class) elementData = Arrays.copyOf(elementData, size, Object[].class); } else { //传递空集合，将elementData指向空数组 this.elementData = EMPTY_ELEMENTDATA; } } API get 获取对应下标的元素，时间复杂度O(1)
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">ArrayList源码分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-07-30 17:59:58 UTC">
+                30 Jul 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="简介">简介</h2>
+<p><code>ArrayList</code>是<code>List</code>接口的实现类，其底层通过数组实现。当空间不够会通过内部的扩容机制进行扩容。时间复杂度与数组类似，<code>ArrayList</code>是非线程安全的集合，在并发环境下使用会产生错误。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ArrayList</span><span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">extends</span> AbstractList<span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">implements</span> List<span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span>, RandomAccess, Cloneable, java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">Serializable</span>
+</span></span></code></pre></div><p><code>ArrayList</code>继承了<code>AbstractList</code>，实现了<code>List</code>接口，提供了添加、删除、修改、遍历等功能</p>
+<p><code>ArrayList</code>实现了<code>RandomAccess</code>接口，实现该接口表明<code>ArrayList</code>支持快速随机访问。</p>
+<p><code>ArrayList</code>实现了<code>Serializable</code>接口，表明<code>ArrayList</code>支持序列化。</p>
+<p><code>ArrayList</code>实现了<code>Cloneable</code>接口，能被克隆。</p>
+<h2 id="成员变量">成员变量</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>	<span style="color:#75715e">//默认初始化大小</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> DEFAULT_CAPACITY <span style="color:#f92672">=</span> 10;
+</span></span><span style="display:flex;"><span>	
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//传入initialCapacity为0时，elementData指向该变量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> Object<span style="color:#f92672">[]</span> EMPTY_ELEMENTDATA <span style="color:#f92672">=</span> {};
+</span></span><span style="display:flex;"><span>	
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//不传initialCapacity时，elementData指向该变量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> Object<span style="color:#f92672">[]</span> DEFAULTCAPACITY_EMPTY_ELEMENTDATA <span style="color:#f92672">=</span> {};
+</span></span><span style="display:flex;"><span>	
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//存放数据的数组</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">transient</span> Object<span style="color:#f92672">[]</span> elementData;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//list大小</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> size;
+</span></span></code></pre></div><h2 id="构造方法">构造方法</h2>
+<p><code>ArrayList</code>共有三个构造方法。注释如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//传递了长度的构造方法</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#a6e22e">ArrayList</span>(<span style="color:#66d9ef">int</span> initialCapacity) {
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//边界检查</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (initialCapacity <span style="color:#f92672">&gt;</span> 0) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">elementData</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Object<span style="color:#f92672">[</span>initialCapacity<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (initialCapacity <span style="color:#f92672">==</span> 0) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">elementData</span> <span style="color:#f92672">=</span> EMPTY_ELEMENTDATA;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(<span style="color:#e6db74">&#34;Illegal Capacity: &#34;</span><span style="color:#f92672">+</span>
+</span></span><span style="display:flex;"><span>                                               initialCapacity);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//无参构造</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">ArrayList</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">elementData</span> <span style="color:#f92672">=</span> DEFAULTCAPACITY_EMPTY_ELEMENTDATA;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//传递集合</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">ArrayList</span>(Collection<span style="color:#f92672">&lt;?</span> <span style="color:#66d9ef">extends</span> E<span style="color:#f92672">&gt;</span> c) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//获取初始值数组</span>
+</span></span><span style="display:flex;"><span>        elementData <span style="color:#f92672">=</span> c.<span style="color:#a6e22e">toArray</span>();
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//如果传入的为非空集合</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> ((size <span style="color:#f92672">=</span> elementData.<span style="color:#a6e22e">length</span>) <span style="color:#f92672">!=</span> 0) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// c.toArray可能返回的不是Object[]类型</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (elementData.<span style="color:#a6e22e">getClass</span>() <span style="color:#f92672">!=</span> Object<span style="color:#f92672">[]</span>.<span style="color:#a6e22e">class</span>)
+</span></span><span style="display:flex;"><span>                elementData <span style="color:#f92672">=</span> Arrays.<span style="color:#a6e22e">copyOf</span>(elementData, size, Object<span style="color:#f92672">[]</span>.<span style="color:#a6e22e">class</span>);
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//传递空集合，将elementData指向空数组</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">elementData</span> <span style="color:#f92672">=</span> EMPTY_ELEMENTDATA;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="api">API</h2>
+<h3 id="get">get</h3>
+<p>获取对应下标的元素，时间复杂度<code>O(1)</code></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> E <span style="color:#a6e22e">get</span>(<span style="color:#66d9ef">int</span> index) {
+</span></span><span style="display:flex;"><span>        rangeCheck(index);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> elementData(index);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>E <span style="color:#a6e22e">elementData</span>(<span style="color:#66d9ef">int</span> index) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> (E) elementData<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="rangecheck">rangeCheck</h3>
+<p>检查传入下标是否合法。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">rangeCheck</span>(<span style="color:#66d9ef">int</span> index) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (index <span style="color:#f92672">&gt;=</span> size)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IndexOutOfBoundsException(outOfBoundsMsg(index));
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="set">set</h3>
+<p>设置对应下标的元素，返回原来的元素。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> E <span style="color:#a6e22e">set</span>(<span style="color:#66d9ef">int</span> index, E element) {
+</span></span><span style="display:flex;"><span>        rangeCheck(index);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        E oldValue <span style="color:#f92672">=</span> elementData(index);
+</span></span><span style="display:flex;"><span>        elementData<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> element;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> oldValue;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="add">add</h3>
+<p>add有两种方式，一种是尾插，一种是指定位置插入。</p>
+<p>插入中，首先需要检查容量是否足够，不够会进行扩容，扩容机制会在后续介绍。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">add</span>(E e) {
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//判断是否需要扩容</span>
+</span></span><span style="display:flex;"><span>        ensureCapacityInternal(size <span style="color:#f92672">+</span> 1);  <span style="color:#75715e">// Increments modCount!!</span>
+</span></span><span style="display:flex;"><span>        elementData<span style="color:#f92672">[</span>size<span style="color:#f92672">++]</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">add</span>(<span style="color:#66d9ef">int</span> index, E element) {
+</span></span><span style="display:flex;"><span>        rangeCheckForAdd(index);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        ensureCapacityInternal(size <span style="color:#f92672">+</span> 1);  <span style="color:#75715e">// Increments modCount!!</span>
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//从index开始到末尾，逐个向后移动1位，相当于index处空出一个位置。</span>
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">arraycopy</span>(elementData, index, elementData, index <span style="color:#f92672">+</span> 1,
+</span></span><span style="display:flex;"><span>                         size <span style="color:#f92672">-</span> index);
+</span></span><span style="display:flex;"><span>        elementData<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> element;
+</span></span><span style="display:flex;"><span>        size<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="remove">remove</h3>
+<p>remove有两种删除方式：一种是根据下标删除，一种是根据对象删除。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> E <span style="color:#a6e22e">remove</span>(<span style="color:#66d9ef">int</span> index) {
+</span></span><span style="display:flex;"><span>        rangeCheck(index);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        modCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>        E oldValue <span style="color:#f92672">=</span> elementData(index);
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">//找到index后一位</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> numMoved <span style="color:#f92672">=</span> size <span style="color:#f92672">-</span> index <span style="color:#f92672">-</span> 1;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (numMoved <span style="color:#f92672">&gt;</span> 0)
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//将numMoved开始到结尾向前移动一位</span>
+</span></span><span style="display:flex;"><span>            System.<span style="color:#a6e22e">arraycopy</span>(elementData, index<span style="color:#f92672">+</span>1, elementData, index,
+</span></span><span style="display:flex;"><span>                             numMoved);
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//置空，让其被GC</span>
+</span></span><span style="display:flex;"><span>        elementData<span style="color:#f92672">[--</span>size<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>; <span style="color:#75715e">// clear to let GC do its work</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> oldValue;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">remove</span>(Object o) {
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//检查</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (o <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> index <span style="color:#f92672">=</span> 0; index <span style="color:#f92672">&lt;</span> size; index<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//判断空元素</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (elementData<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//fastRemove不检查边界值，不返回删除元素值</span>
+</span></span><span style="display:flex;"><span>                    fastRemove(index);
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> index <span style="color:#f92672">=</span> 0; index <span style="color:#f92672">&lt;</span> size; index<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//调用equals检查对象是否符合要求</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (o.<span style="color:#a6e22e">equals</span>(elementData<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span>)) {
+</span></span><span style="display:flex;"><span>                    fastRemove(index);
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="fastremove">fastRemove</h3>
+<p>不检查边界值，并且不返回删除元素的方式进行删除指定下标的数据。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">fastRemove</span>(<span style="color:#66d9ef">int</span> index) {
+</span></span><span style="display:flex;"><span>        modCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> numMoved <span style="color:#f92672">=</span> size <span style="color:#f92672">-</span> index <span style="color:#f92672">-</span> 1;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (numMoved <span style="color:#f92672">&gt;</span> 0)
+</span></span><span style="display:flex;"><span>            System.<span style="color:#a6e22e">arraycopy</span>(elementData, index<span style="color:#f92672">+</span>1, elementData, index,
+</span></span><span style="display:flex;"><span>                             numMoved);
+</span></span><span style="display:flex;"><span>        elementData<span style="color:#f92672">[--</span>size<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>; <span style="color:#75715e">// clear to let GC do its work</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="clear">clear</h3>
+<p>清空列表。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">clear</span>() {
+</span></span><span style="display:flex;"><span>        modCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 将每个元素置空，方便GC回收</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> size; i<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>            elementData<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">//长度置为0</span>
+</span></span><span style="display:flex;"><span>        size <span style="color:#f92672">=</span> 0;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="addall">addAll</h3>
+<p>将集合添加进列表中。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">addAll</span>(Collection<span style="color:#f92672">&lt;?</span> <span style="color:#66d9ef">extends</span> E<span style="color:#f92672">&gt;</span> c) {
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//将集合转为Object数组</span>
+</span></span><span style="display:flex;"><span>        Object<span style="color:#f92672">[]</span> a <span style="color:#f92672">=</span> c.<span style="color:#a6e22e">toArray</span>();
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> numNew <span style="color:#f92672">=</span> a.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//确保容量足够</span>
+</span></span><span style="display:flex;"><span>        ensureCapacityInternal(size <span style="color:#f92672">+</span> numNew);  <span style="color:#75715e">// Increments modCount</span>
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//将数组copy到elementData中</span>
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">arraycopy</span>(a, 0, elementData, size, numNew);
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//更新长度</span>
+</span></span><span style="display:flex;"><span>        size <span style="color:#f92672">+=</span> numNew;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> numNew <span style="color:#f92672">!=</span> 0;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="indexof">indexOf</h3>
+<p>返回元素在列表中第一个匹配的下标。不存在返回-1。<code>lastIndexOf</code>同理，找到最后匹配的下标。实现原理为<code>for</code>从前往后扫描。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">indexOf</span>(Object o) {
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//如果传入元素为空</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (o <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//找到列表中第一个为空的下标，返回</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> size; i<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (elementData<span style="color:#f92672">[</span>i<span style="color:#f92672">]==</span><span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> i;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//equals找到第一个匹配对象，并返回</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> size; i<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (o.<span style="color:#a6e22e">equals</span>(elementData<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span>))
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> i;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span>1;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="removerange">removeRange</h3>
+<p>删除指定区间的元素。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">removeRange</span>(<span style="color:#66d9ef">int</span> fromIndex, <span style="color:#66d9ef">int</span> toIndex) {
+</span></span><span style="display:flex;"><span>        modCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//将指定区间的元素覆盖掉</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> numMoved <span style="color:#f92672">=</span> size <span style="color:#f92672">-</span> toIndex;
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">arraycopy</span>(elementData, toIndex, elementData, fromIndex,
+</span></span><span style="display:flex;"><span>                         numMoved);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//将指定区间的元素置空，方便GC</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> newSize <span style="color:#f92672">=</span> size <span style="color:#f92672">-</span> (toIndex<span style="color:#f92672">-</span>fromIndex);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> newSize; i <span style="color:#f92672">&lt;</span> size; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>            elementData<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        size <span style="color:#f92672">=</span> newSize;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="retainall">retainAll</h3>
+<p>retainAll返回该集合与传入集合的交集，并且将非交集元素删除。通过调用<code>batchRemove</code>进行元素删除。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">retainAll</span>(Collection<span style="color:#f92672">&lt;?&gt;</span> c) {
+</span></span><span style="display:flex;"><span>        Objects.<span style="color:#a6e22e">requireNonNull</span>(c);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> batchRemove(c, <span style="color:#66d9ef">true</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//删除非交集元素</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">batchRemove</span>(Collection<span style="color:#f92672">&lt;?&gt;</span> c, <span style="color:#66d9ef">boolean</span> complement) {
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//获取到当前List的数组</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> Object<span style="color:#f92672">[]</span> elementData <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">elementData</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> r <span style="color:#f92672">=</span> 0, w <span style="color:#f92672">=</span> 0;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">boolean</span> modified <span style="color:#f92672">=</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//for找出相同的，并将相同的逐个放在elementData</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (; r <span style="color:#f92672">&lt;</span> size; r<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (c.<span style="color:#a6e22e">contains</span>(elementData<span style="color:#f92672">[</span>r<span style="color:#f92672">]</span>) <span style="color:#f92672">==</span> complement)
+</span></span><span style="display:flex;"><span>                    elementData<span style="color:#f92672">[</span>w<span style="color:#f92672">++]</span> <span style="color:#f92672">=</span> elementData<span style="color:#f92672">[</span>r<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">finally</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果 c.contains()抛出异常</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (r <span style="color:#f92672">!=</span> size) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//复制剩余的元素</span>
+</span></span><span style="display:flex;"><span>                System.<span style="color:#a6e22e">arraycopy</span>(elementData, r,
+</span></span><span style="display:flex;"><span>                                 elementData, w,
+</span></span><span style="display:flex;"><span>                                 size <span style="color:#f92672">-</span> r);
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//w为当前List的length</span>
+</span></span><span style="display:flex;"><span>                w <span style="color:#f92672">+=</span> size <span style="color:#f92672">-</span> r;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果交集长度与原来长度不匹配</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (w <span style="color:#f92672">!=</span> size) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// 删除多余的元素</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> w; i <span style="color:#f92672">&lt;</span> size; i<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>                    elementData<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>                modCount <span style="color:#f92672">+=</span> size <span style="color:#f92672">-</span> w;
+</span></span><span style="display:flex;"><span>                size <span style="color:#f92672">=</span> w;
+</span></span><span style="display:flex;"><span>                modified <span style="color:#f92672">=</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> modified;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="trimtosize">trimToSize</h3>
+<p>手动缩容，将list的elementData没使用的空间删除。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">trimToSize</span>() {
+</span></span><span style="display:flex;"><span>        modCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (size <span style="color:#f92672">&lt;</span> elementData.<span style="color:#a6e22e">length</span>) {
+</span></span><span style="display:flex;"><span>            elementData <span style="color:#f92672">=</span> (size <span style="color:#f92672">==</span> 0)
+</span></span><span style="display:flex;"><span>              <span style="color:#f92672">?</span> EMPTY_ELEMENTDATA
+</span></span><span style="display:flex;"><span>              : Arrays.<span style="color:#a6e22e">copyOf</span>(elementData, size);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="扩容机制">扩容机制</h2>
+<p><code>ensureCapacityInternal</code>提供内部调用，<code>ensureCapacity</code>可提供外部调用。</p>
+<ul>
+<li>扩容时机：<code>size + 1 - elementData.length &gt; 0</code>，即list实际大小超出elementData长度时，进行扩容</li>
+<li>扩容倍数：原容量的1.5倍（向下取整）</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">ensureCapacityInternal</span>(<span style="color:#66d9ef">int</span> minCapacity) {
+</span></span><span style="display:flex;"><span>        ensureExplicitCapacity(calculateCapacity(elementData, minCapacity));
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">ensureExplicitCapacity</span>(<span style="color:#66d9ef">int</span> minCapacity) {
+</span></span><span style="display:flex;"><span>        modCount<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 边界检查</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (minCapacity <span style="color:#f92672">-</span> elementData.<span style="color:#a6e22e">length</span> <span style="color:#f92672">&gt;</span> 0)
+</span></span><span style="display:flex;"><span>            grow(minCapacity);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">calculateCapacity</span>(Object<span style="color:#f92672">[]</span> elementData, <span style="color:#66d9ef">int</span> minCapacity) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (elementData <span style="color:#f92672">==</span> DEFAULTCAPACITY_EMPTY_ELEMENTDATA) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> Math.<span style="color:#a6e22e">max</span>(DEFAULT_CAPACITY, minCapacity);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> minCapacity;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">ensureCapacity</span>(<span style="color:#66d9ef">int</span> minCapacity) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> minExpand <span style="color:#f92672">=</span> (elementData <span style="color:#f92672">!=</span> DEFAULTCAPACITY_EMPTY_ELEMENTDATA)
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// any size if not default element table</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">?</span> 0
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// larger than default for default empty table. It&#39;s already</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// supposed to be at default size.</span>
+</span></span><span style="display:flex;"><span>            : DEFAULT_CAPACITY;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (minCapacity <span style="color:#f92672">&gt;</span> minExpand) {
+</span></span><span style="display:flex;"><span>            ensureExplicitCapacity(minCapacity);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> MAX_ARRAY_SIZE <span style="color:#f92672">=</span> Integer.<span style="color:#a6e22e">MAX_VALUE</span> <span style="color:#f92672">-</span> 8;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">grow</span>(<span style="color:#66d9ef">int</span> minCapacity) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 原容量</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> oldCapacity <span style="color:#f92672">=</span> elementData.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//新容量为原容量的1.5倍</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> newCapacity <span style="color:#f92672">=</span> oldCapacity <span style="color:#f92672">+</span> (oldCapacity <span style="color:#f92672">&gt;&gt;</span> 1);
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//判断新容量是否大于需要的最小容量</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (newCapacity <span style="color:#f92672">-</span> minCapacity <span style="color:#f92672">&lt;</span> 0)
+</span></span><span style="display:flex;"><span>            newCapacity <span style="color:#f92672">=</span> minCapacity;
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//比最大容量还大</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (newCapacity <span style="color:#f92672">-</span> MAX_ARRAY_SIZE <span style="color:#f92672">&gt;</span> 0)
+</span></span><span style="display:flex;"><span>            newCapacity <span style="color:#f92672">=</span> hugeCapacity(minCapacity);
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//copy</span>
+</span></span><span style="display:flex;"><span>        elementData <span style="color:#f92672">=</span> Arrays.<span style="color:#a6e22e">copyOf</span>(elementData, newCapacity);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">hugeCapacity</span>(<span style="color:#66d9ef">int</span> minCapacity) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (minCapacity <span style="color:#f92672">&lt;</span> 0) <span style="color:#75715e">// overflow</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> OutOfMemoryError();
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//若minCapacity &gt; MAX_ARRAY_SIZE,将Integer.MAX_VALUE作为新数组大小</span>
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//否则MAX_ARRAY_SIZE作为新数组大小</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> (minCapacity <span style="color:#f92672">&gt;</span> MAX_ARRAY_SIZE) <span style="color:#f92672">?</span>
+</span></span><span style="display:flex;"><span>            Integer.<span style="color:#a6e22e">MAX_VALUE</span> :
+</span></span><span style="display:flex;"><span>            MAX_ARRAY_SIZE;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="modcount">modCount</h2>
+<p>在对List的结构进行修改时，都会进行<code>modCount++</code>，该变量记录集合的修改次数。其中包括：</p>
+<ul>
+<li>trimToSize</li>
+<li>ensureExplicitCapacity</li>
+<li>remove</li>
+<li>clear</li>
+<li>removeIf</li>
+<li>replaceAll</li>
+<li>sort</li>
+</ul>
+<p>在使用迭代器遍历集合的时候同时修改结构时，<code>modCount</code>值会改变，而迭代器中<code>checkForComodification</code>方法是在迭代中检查集合是否发生修改。其原理是比较创建迭代器的时候的<code>modCount</code>与当前modCount是否相同。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">final</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">checkForComodification</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (modCount <span style="color:#f92672">!=</span> expectedModCount)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> ConcurrentModificationException();
+</span></span><span style="display:flex;"><span>        }
+</span></span></code></pre></div><h2 id="迭代器">迭代器</h2>
+<p><code>next</code>方法会调用<code>checkForComodification</code>方法来判断<code>List</code>迭代过程中是否发生结构上的修改，原理已在上文阐述。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * An optimized version of AbstractList.Itr
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Itr</span> <span style="color:#66d9ef">implements</span> Iterator<span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> cursor;       <span style="color:#75715e">// index of next element to return</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> lastRet <span style="color:#f92672">=</span> <span style="color:#f92672">-</span>1; <span style="color:#75715e">// index of last element returned; -1 if no such</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> expectedModCount <span style="color:#f92672">=</span> modCount;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        Itr() {}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">hasNext</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> cursor <span style="color:#f92672">!=</span> size;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">@SuppressWarnings</span>(<span style="color:#e6db74">&#34;unchecked&#34;</span>)
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//通过i = cursor自增，逐个获取元素</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">public</span> E <span style="color:#a6e22e">next</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//判断List是否在迭代器创建后发生过修改</span>
+</span></span><span style="display:flex;"><span>            checkForComodification();
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> cursor;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (i <span style="color:#f92672">&gt;=</span> size)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> NoSuchElementException();
+</span></span><span style="display:flex;"><span>            Object<span style="color:#f92672">[]</span> elementData <span style="color:#f92672">=</span> ArrayList.<span style="color:#a6e22e">this</span>.<span style="color:#a6e22e">elementData</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (i <span style="color:#f92672">&gt;=</span> elementData.<span style="color:#a6e22e">length</span>)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> ConcurrentModificationException();
+</span></span><span style="display:flex;"><span>            cursor <span style="color:#f92672">=</span> i <span style="color:#f92672">+</span> 1;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> (E) elementData<span style="color:#f92672">[</span>lastRet <span style="color:#f92672">=</span> i<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>       ......
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">@SuppressWarnings</span>(<span style="color:#e6db74">&#34;unchecked&#34;</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">forEachRemaining</span>(Consumer<span style="color:#f92672">&lt;?</span> <span style="color:#66d9ef">super</span> E<span style="color:#f92672">&gt;</span> consumer) {
+</span></span><span style="display:flex;"><span>            Objects.<span style="color:#a6e22e">requireNonNull</span>(consumer);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> size <span style="color:#f92672">=</span> ArrayList.<span style="color:#a6e22e">this</span>.<span style="color:#a6e22e">size</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> cursor;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (i <span style="color:#f92672">&gt;=</span> size) {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span>;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">final</span> Object<span style="color:#f92672">[]</span> elementData <span style="color:#f92672">=</span> ArrayList.<span style="color:#a6e22e">this</span>.<span style="color:#a6e22e">elementData</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (i <span style="color:#f92672">&gt;=</span> elementData.<span style="color:#a6e22e">length</span>) {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> ConcurrentModificationException();
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">while</span> (i <span style="color:#f92672">!=</span> size <span style="color:#f92672">&amp;&amp;</span> modCount <span style="color:#f92672">==</span> expectedModCount) {
+</span></span><span style="display:flex;"><span>                consumer.<span style="color:#a6e22e">accept</span>((E) elementData<span style="color:#f92672">[</span>i<span style="color:#f92672">++]</span>);
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// update once at end of iteration to reduce heap write traffic</span>
+</span></span><span style="display:flex;"><span>            cursor <span style="color:#f92672">=</span> i;
+</span></span><span style="display:flex;"><span>            lastRet <span style="color:#f92672">=</span> i <span style="color:#f92672">-</span> 1;
+</span></span><span style="display:flex;"><span>            checkForComodification();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">checkForComodification</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (modCount <span style="color:#f92672">!=</span> expectedModCount)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> ConcurrentModificationException();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h4 id="遍历时删除">遍历时删除</h4>
+<p>如果在遍历时删除，foreach在编译成字节码时会转成迭代器遍历的方式。运行时会在上述<code>checkForComodification</code>方法中抛出<code>ConcurrentModificationException</code>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>        ArrayList<span style="color:#f92672">&lt;</span>Integer<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>();
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">add</span>(2);
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">add</span>(1);
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">add</span>(3);
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">add</span>(1);
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(list);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (Integer item : list) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (item.<span style="color:#a6e22e">equals</span>(1)){
+</span></span><span style="display:flex;"><span>                list.<span style="color:#a6e22e">remove</span>(item);
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(list);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>上述机制称为<code>fail-fast</code>机制，这种机制在Java集合类中十分常见，简而言之就是操作前先考虑异常情况，如果发生异常，立即停止操作。</p>
+<p>根据阿里的Java规范，正确的方式如下：</p>
+<blockquote>
+<p>【强制】不要在 foreach 循环里进行元素的 remove/add 操作。remove 元素请使用 Iterator
+方式，如果并发操作，需要对 Iterator 对象加锁。</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>Iterator<span style="color:#f92672">&lt;</span>Integer<span style="color:#f92672">&gt;</span> it <span style="color:#f92672">=</span> list.<span style="color:#a6e22e">iterator</span>();
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (it.<span style="color:#a6e22e">hasNext</span>())
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            Integer s <span style="color:#f92672">=</span> it.<span style="color:#a6e22e">next</span>();
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (s.<span style="color:#a6e22e">equals</span>(1))
+</span></span><span style="display:flex;"><span>            {
+</span></span><span style="display:flex;"><span>                it.<span style="color:#a6e22e">remove</span>();
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(list);
+</span></span></code></pre></div><h2 id="序列化">序列化</h2>
+<p><code>ArrayList</code>的<code>elementData </code>添加了<code>transient</code>关键字，所以在序列化的时候<code>elementData </code>并不是序列化的一部分。而<code>ArrayList</code>通过内部更为细致的方法进行了序列化控制。内部序列化方法只保存非空元素，从而达到节约空间的目的。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span> <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">writeObject</span>(java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">ObjectOutputStream</span> s)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throws</span> java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">IOException</span>{
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Write out element count, and any hidden stuff</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> expectedModCount <span style="color:#f92672">=</span> modCount;
+</span></span><span style="display:flex;"><span>        s.<span style="color:#a6e22e">defaultWriteObject</span>();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Write out size as capacity for behavioural compatibility with clone()</span>
+</span></span><span style="display:flex;"><span>        s.<span style="color:#a6e22e">writeInt</span>(size);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Write out all elements in the proper order.</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i<span style="color:#f92672">=</span>0; i<span style="color:#f92672">&lt;</span>size; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>            s.<span style="color:#a6e22e">writeObject</span>(elementData<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (modCount <span style="color:#f92672">!=</span> expectedModCount) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> ConcurrentModificationException();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Reconstitute the &lt;tt&gt;ArrayList&lt;/tt&gt; instance from a stream (that is,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * deserialize it).
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">readObject</span>(java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">ObjectInputStream</span> s)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throws</span> java.<span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">IOException</span>, ClassNotFoundException {
+</span></span><span style="display:flex;"><span>        elementData <span style="color:#f92672">=</span> EMPTY_ELEMENTDATA;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Read in size, and any hidden stuff</span>
+</span></span><span style="display:flex;"><span>        s.<span style="color:#a6e22e">defaultReadObject</span>();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Read in capacity</span>
+</span></span><span style="display:flex;"><span>        s.<span style="color:#a6e22e">readInt</span>(); <span style="color:#75715e">// ignored</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (size <span style="color:#f92672">&gt;</span> 0) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// be like clone(), allocate array based upon size not capacity</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">int</span> capacity <span style="color:#f92672">=</span> calculateCapacity(elementData, size);
+</span></span><span style="display:flex;"><span>            SharedSecrets.<span style="color:#a6e22e">getJavaOISAccess</span>().<span style="color:#a6e22e">checkArray</span>(s, Object<span style="color:#f92672">[]</span>.<span style="color:#a6e22e">class</span>, capacity);
+</span></span><span style="display:flex;"><span>            ensureCapacityInternal(size);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            Object<span style="color:#f92672">[]</span> a <span style="color:#f92672">=</span> elementData;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// Read in all elements in the proper order.</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i<span style="color:#f92672">=</span>0; i<span style="color:#f92672">&lt;</span>size; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>                a<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> s.<span style="color:#a6e22e">readObject</span>();
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="子列表">子列表</h2>
+<p><code>subList</code>返回<code>List</code>指定区间的数据，可以看到<code>subList</code>中的操作会影响到父列表。</p>
+<p>其次需要注意的是，<code>subList</code>的返回结果不可强转成<code>ArrayList</code>，否则会抛出<code>ClassCastException</code>，因为<code>subList</code>返回的是<code>ArrayList</code>的内部类<code>SubList</code>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> List<span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">subList</span>(<span style="color:#66d9ef">int</span> fromIndex, <span style="color:#66d9ef">int</span> toIndex) {
+</span></span><span style="display:flex;"><span>            subListRangeCheck(fromIndex, toIndex, size);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> SubList(<span style="color:#66d9ef">this</span>, offset, fromIndex, toIndex);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">SubList</span> <span style="color:#66d9ef">extends</span> AbstractList<span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">implements</span> RandomAccess {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> AbstractList<span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span> parent;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> parentOffset;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> offset;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> size;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        SubList(AbstractList<span style="color:#f92672">&lt;</span>E<span style="color:#f92672">&gt;</span> parent,
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">int</span> offset, <span style="color:#66d9ef">int</span> fromIndex, <span style="color:#66d9ef">int</span> toIndex) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">parent</span> <span style="color:#f92672">=</span> parent;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">parentOffset</span> <span style="color:#f92672">=</span> fromIndex;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">offset</span> <span style="color:#f92672">=</span> offset <span style="color:#f92672">+</span> fromIndex;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">size</span> <span style="color:#f92672">=</span> toIndex <span style="color:#f92672">-</span> fromIndex;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">modCount</span> <span style="color:#f92672">=</span> ArrayList.<span style="color:#a6e22e">this</span>.<span style="color:#a6e22e">modCount</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">public</span> E <span style="color:#a6e22e">set</span>(<span style="color:#66d9ef">int</span> index, E e) {
+</span></span><span style="display:flex;"><span>            rangeCheck(index);
+</span></span><span style="display:flex;"><span>            checkForComodification();
+</span></span><span style="display:flex;"><span>            E oldValue <span style="color:#f92672">=</span> ArrayList.<span style="color:#a6e22e">this</span>.<span style="color:#a6e22e">elementData</span>(offset <span style="color:#f92672">+</span> index);
+</span></span><span style="display:flex;"><span>            ArrayList.<span style="color:#a6e22e">this</span>.<span style="color:#a6e22e">elementData</span><span style="color:#f92672">[</span>offset <span style="color:#f92672">+</span> index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> oldValue;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">public</span> E <span style="color:#a6e22e">get</span>(<span style="color:#66d9ef">int</span> index) {
+</span></span><span style="display:flex;"><span>            rangeCheck(index);
+</span></span><span style="display:flex;"><span>            checkForComodification();
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> ArrayList.<span style="color:#a6e22e">this</span>.<span style="color:#a6e22e">elementData</span>(offset <span style="color:#f92672">+</span> index);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="arraysaslist">Arrays.asList</h2>
+<p>该方法通常用于将一个数组转换成一个List集合，但是需要注意不能使用其修改集合的相关方法，add/remove/clear会抛出<code>UnsupportedOperationException</code>，因为该方法返回的<code>ArrayList</code>是<code>Arrays</code>的一个内部类。其内部没有实现集合的修改方法。</p>
+<p>其次传递的数组必须是对象数组，而不能是基本类型，如果传入基本类型数组，该方法得到的就是数组对象本身，而不是元素。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#a6e22e">@SafeVarargs</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@SuppressWarnings</span>(<span style="color:#e6db74">&#34;varargs&#34;</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span> List<span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">asList</span>(T... a) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>(a);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p>演示：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>        List<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> list <span style="color:#f92672">=</span> Arrays.<span style="color:#a6e22e">asList</span>(<span style="color:#e6db74">&#34;hello&#34;</span>, <span style="color:#e6db74">&#34;world&#34;</span>);
+</span></span><span style="display:flex;"><span>        list.<span style="color:#a6e22e">add</span>(<span style="color:#e6db74">&#34;yes&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span><span style="color:#f92672">[]</span> arr <span style="color:#f92672">=</span> {1,2,3,4,5};
+</span></span><span style="display:flex;"><span>        List<span style="color:#f92672">&lt;</span><span style="color:#66d9ef">int</span><span style="color:#f92672">[]&gt;</span> list1 <span style="color:#f92672">=</span> Arrays.<span style="color:#a6e22e">asList</span>(arr);
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(list1.<span style="color:#a6e22e">get</span>(2));
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="总结">总结</h2>
+<p>本文对<code>ArrayList</code>的成员变量，构造方法，API，扩容机制与其它细节做了简单介绍。并对日常开发中会使用到的一些细节做了简要描述，可以减少在日常开发过程中犯错误的几率。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/">
+                数据结构
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-stream/">Redis底层数据结构-Stream源码分析</a></li>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-quicklist/">Redis底层数据结构-Quicklist源码分析</a></li>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-intset/">Redis底层数据结构-Intset源码分析</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

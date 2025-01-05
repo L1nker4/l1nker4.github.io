@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/os/ostep-persistence/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/os/ostep-persistence/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "OSTEP阅读笔记-Persistence（三）",
+      "headline" : "OSTEP阅读笔记-Persistence（三）",
+      "description" : "Chapter I\/O设备 Q：如何将I\/O集成进计算机系统中？\n36.1 系统架构 典型的系统架构如图所示：CPU通过memory bus连接到系统内存。显卡或者其它高速I\/O设备通过常规的IO总线（I\/O bus，例如PCI）连接到系统。最后是外围总线（peripheral bus，例如SCSI、SATA、USB），他们将最慢的设备连接到系统，包括磁盘、鼠标等。\n36.2 标准设备 标准设备包括两部分，分别是：\n向系统其他部分展现的硬件\/软件接口 内部结构，包括设备相关的特定实现，负责具体实现设备展现给系统的抽象接口。 36.3 标准协议 一个简化的设备接口包括三个寄存器：\n一个状态（status）寄存器：读取并查看设备的当前状态 一个命令（command）寄存器：用于通知设备执行某个具体任务。 一个数据（data）寄存器：将数据传给设备或从设备接收数据。 通过读写这些寄存器，OS可以控制设备的行为。\n因此可以将操作步骤设置为如下：\nOS反复读取状态寄存器，等待设备进入可以接受命令的就绪状态。（轮询） OS将数据发送到数据寄存器。 OS将命令写入命令寄存器。 OS再次通过不断轮询设备，等待并判断设备是否执行完成命令。 Q：如何减少频繁轮询，从而降低管理设备的CPU的开销？\n36.4 利用中断减少CPU开销 设备可以抛出一个硬件中断，引发CPU跳转执行OS预先定义好的中断服务例程（ISR）或者更为简单的中断处理程序（interrupt handler）。\n使用中断并非是最佳方案，假如有一个高性能的设备，在CPU第一次轮询时就可以返回结果，那么使用中断反而效率更低。如果设备的速度未知，可以考虑混合策略，先尝试轮询一小段事件，如果设备没有完成操作，此时再使用中断。\n如果是网络环境中，那么不要使用中断，因为每个数据包都会发生一次中断，那么可能导致OS发生活锁（一直处理中断程序而不处理用户的请求）。\n另一个基于中断的优化就是合并（coalescing），设备在抛出中断之前往往会等待一小段时间，在此期间如果有其他请求的中断，会将多次中断合并为一次中断抛出。从而降低处理中断的代价。\n36.5 DMA方式 Q：如何减少Programming IO的开销？\n使用DMA（Direct Memory Access）：DMA引擎是一种特殊设备，它可以协调完成内存和设备间的数据传递，不需要CPU介入。\n工作过程如下：为了能够将数据传送给设备，OS通过programming告诉DMA引擎数据在内存的位置，要拷贝的大小以及拷贝到哪个设备。在此之后，OS就可以处理其他请求了。当DMA的任务完成后，DMA控制器会抛出一个中断来告诉OS自己完成了数据传输。\n36.6 设备交互的方法 Q：如何与设备通信？\n使用明确的I\/O指令。 内存映射I\/O（memory-mapped I\/O） 通过这种方式，硬件将设备寄存器映射到指定的内存地址中。 36.7 纳入OS：设备驱动程序 每个设备都有非常具体的接口，如何将它们纳入OS，而我们希望OS尽可能通用。\nQ：如何实现一个设备无关的OS？\n操作系统将与IO设备交互的软件称为设备驱动程序。（封装，向上层展现接口即可）\n36.8 IDE磁盘驱动程序 基本逻辑如下：\n等待驱动就绪：当驱动READY，读取状态寄存器（0x1F7） 向命令寄存器写入参数：写入扇区数，待访问扇区对应的逻辑块地址（LBA），并将驱动编号（master= 0x00，slave = 0x10，因为IDE允许接入两个硬盘）写入命令寄存器（0x1F2- 0x1F6）。 开启I\/O：发送读写命令到命令寄存器。向命令寄存器（0x1F7）中写入READ-WRITE命令。 数据传送（针对写请求）：等待直到驱动状态为READY和DRQ（驱动请求数据），向数据端口写入数据。 中断处理：每个扇区的数据传送结束后都会触发一次中断处理程序，可以合并中断。 错误处理：每次操作之后读取状态寄存器，如果ERROR位被置位。可以读取错误寄存器来获取详细信息。 ",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-12-22 19:49:48 \u002b0000 UTC",
+      "dateModified" : "2020-12-22 19:49:48 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80\/os\/ostep-persistence\/",
+      "keywords" : [ "操作系统", ]
+  }
+</script>
+<title>OSTEP阅读笔记-Persistence（三）</title>
+  <meta property="og:title" content="OSTEP阅读笔记-Persistence（三）" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="Chapter I/O设备 Q：如何将I/O集成进计算机系统中？
+36.1 系统架构 典型的系统架构如图所示：CPU通过memory bus连接到系统内存。显卡或者其它高速I/O设备通过常规的IO总线（I/O bus，例如PCI）连接到系统。最后是外围总线（peripheral bus，例如SCSI、SATA、USB），他们将最慢的设备连接到系统，包括磁盘、鼠标等。
+36.2 标准设备 标准设备包括两部分，分别是：
+向系统其他部分展现的硬件/软件接口 内部结构，包括设备相关的特定实现，负责具体实现设备展现给系统的抽象接口。 36.3 标准协议 一个简化的设备接口包括三个寄存器：
+一个状态（status）寄存器：读取并查看设备的当前状态 一个命令（command）寄存器：用于通知设备执行某个具体任务。 一个数据（data）寄存器：将数据传给设备或从设备接收数据。 通过读写这些寄存器，OS可以控制设备的行为。
+因此可以将操作步骤设置为如下：
+OS反复读取状态寄存器，等待设备进入可以接受命令的就绪状态。（轮询） OS将数据发送到数据寄存器。 OS将命令写入命令寄存器。 OS再次通过不断轮询设备，等待并判断设备是否执行完成命令。 Q：如何减少频繁轮询，从而降低管理设备的CPU的开销？
+36.4 利用中断减少CPU开销 设备可以抛出一个硬件中断，引发CPU跳转执行OS预先定义好的中断服务例程（ISR）或者更为简单的中断处理程序（interrupt handler）。
+使用中断并非是最佳方案，假如有一个高性能的设备，在CPU第一次轮询时就可以返回结果，那么使用中断反而效率更低。如果设备的速度未知，可以考虑混合策略，先尝试轮询一小段事件，如果设备没有完成操作，此时再使用中断。
+如果是网络环境中，那么不要使用中断，因为每个数据包都会发生一次中断，那么可能导致OS发生活锁（一直处理中断程序而不处理用户的请求）。
+另一个基于中断的优化就是合并（coalescing），设备在抛出中断之前往往会等待一小段时间，在此期间如果有其他请求的中断，会将多次中断合并为一次中断抛出。从而降低处理中断的代价。
+36.5 DMA方式 Q：如何减少Programming IO的开销？
+使用DMA（Direct Memory Access）：DMA引擎是一种特殊设备，它可以协调完成内存和设备间的数据传递，不需要CPU介入。
+工作过程如下：为了能够将数据传送给设备，OS通过programming告诉DMA引擎数据在内存的位置，要拷贝的大小以及拷贝到哪个设备。在此之后，OS就可以处理其他请求了。当DMA的任务完成后，DMA控制器会抛出一个中断来告诉OS自己完成了数据传输。
+36.6 设备交互的方法 Q：如何与设备通信？
+使用明确的I/O指令。 内存映射I/O（memory-mapped I/O） 通过这种方式，硬件将设备寄存器映射到指定的内存地址中。 36.7 纳入OS：设备驱动程序 每个设备都有非常具体的接口，如何将它们纳入OS，而我们希望OS尽可能通用。
+Q：如何实现一个设备无关的OS？
+操作系统将与IO设备交互的软件称为设备驱动程序。（封装，向上层展现接口即可）
+36.8 IDE磁盘驱动程序 基本逻辑如下：
+等待驱动就绪：当驱动READY，读取状态寄存器（0x1F7） 向命令寄存器写入参数：写入扇区数，待访问扇区对应的逻辑块地址（LBA），并将驱动编号（master= 0x00，slave = 0x10，因为IDE允许接入两个硬盘）写入命令寄存器（0x1F2- 0x1F6）。 开启I/O：发送读写命令到命令寄存器。向命令寄存器（0x1F7）中写入READ-WRITE命令。 数据传送（针对写请求）：等待直到驱动状态为READY和DRQ（驱动请求数据），向数据端口写入数据。 中断处理：每个扇区的数据传送结束后都会触发一次中断处理程序，可以合并中断。 错误处理：每次操作之后读取状态寄存器，如果ERROR位被置位。可以读取错误寄存器来获取详细信息。 " />
+  <meta name="description" content="Chapter I/O设备 Q：如何将I/O集成进计算机系统中？
+36.1 系统架构 典型的系统架构如图所示：CPU通过memory bus连接到系统内存。显卡或者其它高速I/O设备通过常规的IO总线（I/O bus，例如PCI）连接到系统。最后是外围总线（peripheral bus，例如SCSI、SATA、USB），他们将最慢的设备连接到系统，包括磁盘、鼠标等。
+36.2 标准设备 标准设备包括两部分，分别是：
+向系统其他部分展现的硬件/软件接口 内部结构，包括设备相关的特定实现，负责具体实现设备展现给系统的抽象接口。 36.3 标准协议 一个简化的设备接口包括三个寄存器：
+一个状态（status）寄存器：读取并查看设备的当前状态 一个命令（command）寄存器：用于通知设备执行某个具体任务。 一个数据（data）寄存器：将数据传给设备或从设备接收数据。 通过读写这些寄存器，OS可以控制设备的行为。
+因此可以将操作步骤设置为如下：
+OS反复读取状态寄存器，等待设备进入可以接受命令的就绪状态。（轮询） OS将数据发送到数据寄存器。 OS将命令写入命令寄存器。 OS再次通过不断轮询设备，等待并判断设备是否执行完成命令。 Q：如何减少频繁轮询，从而降低管理设备的CPU的开销？
+36.4 利用中断减少CPU开销 设备可以抛出一个硬件中断，引发CPU跳转执行OS预先定义好的中断服务例程（ISR）或者更为简单的中断处理程序（interrupt handler）。
+使用中断并非是最佳方案，假如有一个高性能的设备，在CPU第一次轮询时就可以返回结果，那么使用中断反而效率更低。如果设备的速度未知，可以考虑混合策略，先尝试轮询一小段事件，如果设备没有完成操作，此时再使用中断。
+如果是网络环境中，那么不要使用中断，因为每个数据包都会发生一次中断，那么可能导致OS发生活锁（一直处理中断程序而不处理用户的请求）。
+另一个基于中断的优化就是合并（coalescing），设备在抛出中断之前往往会等待一小段时间，在此期间如果有其他请求的中断，会将多次中断合并为一次中断抛出。从而降低处理中断的代价。
+36.5 DMA方式 Q：如何减少Programming IO的开销？
+使用DMA（Direct Memory Access）：DMA引擎是一种特殊设备，它可以协调完成内存和设备间的数据传递，不需要CPU介入。
+工作过程如下：为了能够将数据传送给设备，OS通过programming告诉DMA引擎数据在内存的位置，要拷贝的大小以及拷贝到哪个设备。在此之后，OS就可以处理其他请求了。当DMA的任务完成后，DMA控制器会抛出一个中断来告诉OS自己完成了数据传输。
+36.6 设备交互的方法 Q：如何与设备通信？
+使用明确的I/O指令。 内存映射I/O（memory-mapped I/O） 通过这种方式，硬件将设备寄存器映射到指定的内存地址中。 36.7 纳入OS：设备驱动程序 每个设备都有非常具体的接口，如何将它们纳入OS，而我们希望OS尽可能通用。
+Q：如何实现一个设备无关的OS？
+操作系统将与IO设备交互的软件称为设备驱动程序。（封装，向上层展现接口即可）
+36.8 IDE磁盘驱动程序 基本逻辑如下：
+等待驱动就绪：当驱动READY，读取状态寄存器（0x1F7） 向命令寄存器写入参数：写入扇区数，待访问扇区对应的逻辑块地址（LBA），并将驱动编号（master= 0x00，slave = 0x10，因为IDE允许接入两个硬盘）写入命令寄存器（0x1F2- 0x1F6）。 开启I/O：发送读写命令到命令寄存器。向命令寄存器（0x1F7）中写入READ-WRITE命令。 数据传送（针对写请求）：等待直到驱动状态为READY和DRQ（驱动请求数据），向数据端口写入数据。 中断处理：每个扇区的数据传送结束后都会触发一次中断处理程序，可以合并中断。 错误处理：每次操作之后读取状态寄存器，如果ERROR位被置位。可以读取错误寄存器来获取详细信息。 " />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">OSTEP阅读笔记-Persistence（三）</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-12-22 19:49:48 UTC">
+                22 Dec 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="chapter-io设备">Chapter I/O设备</h2>
+<blockquote>
+<p>Q：如何将I/O集成进计算机系统中？</p>
+</blockquote>
+<h3 id="361-系统架构">36.1 系统架构</h3>
+<p>典型的系统架构如图所示：CPU通过<strong>memory bus</strong>连接到系统内存。显卡或者其它高速I/O设备通过常规的IO总线（I/O bus，例如PCI）连接到系统。最后是外围总线（peripheral bus，例如SCSI、SATA、USB），他们将最慢的设备连接到系统，包括磁盘、鼠标等。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-36/36.1.jpg" alt=""></p>
+<h3 id="362-标准设备">36.2 标准设备</h3>
+<p>标准设备包括两部分，分别是：</p>
+<ul>
+<li>向系统其他部分展现的硬件/软件接口</li>
+<li>内部结构，包括设备相关的特定实现，负责具体实现设备展现给系统的抽象接口。</li>
+</ul>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-36/36.2.jpg" alt=""></p>
+<h3 id="363-标准协议">36.3 标准协议</h3>
+<p>一个简化的设备接口包括三个寄存器：</p>
+<ul>
+<li>一个状态（<strong>status</strong>）寄存器：读取并查看设备的当前状态</li>
+<li>一个命令（<strong>command</strong>）寄存器：用于通知设备执行某个具体任务。</li>
+<li>一个数据（<strong>data</strong>）寄存器：将数据传给设备或从设备接收数据。</li>
+</ul>
+<p>通过读写这些寄存器，OS可以控制设备的行为。</p>
+<p>因此可以将操作步骤设置为如下：</p>
+<ol>
+<li>OS反复读取状态寄存器，等待设备进入可以接受命令的就绪状态。（轮询）</li>
+<li>OS将数据发送到数据寄存器。</li>
+<li>OS将命令写入命令寄存器。</li>
+<li>OS再次通过不断轮询设备，等待并判断设备是否执行完成命令。</li>
+</ol>
+<blockquote>
+<p>Q：如何减少频繁轮询，从而降低管理设备的CPU的开销？</p>
+</blockquote>
+<h3 id="364-利用中断减少cpu开销">36.4 利用中断减少CPU开销</h3>
+<p>设备可以抛出一个硬件中断，引发CPU跳转执行OS预先定义好的中断服务例程（ISR）或者更为简单的中断处理程序（interrupt handler）。</p>
+<p>使用中断并非是最佳方案，假如有一个高性能的设备，在CPU第一次轮询时就可以返回结果，那么使用中断反而效率更低。如果设备的速度未知，可以考虑混合策略，先尝试轮询一小段事件，如果设备没有完成操作，此时再使用中断。</p>
+<p>如果是网络环境中，那么不要使用中断，因为每个数据包都会发生一次中断，那么可能导致OS发生活锁（一直处理中断程序而不处理用户的请求）。</p>
+<p>另一个基于中断的优化就是合并（coalescing），设备在抛出中断之前往往会等待一小段时间，在此期间如果有其他请求的中断，会将多次中断合并为一次中断抛出。从而降低处理中断的代价。</p>
+<h3 id="365-dma方式">36.5 DMA方式</h3>
+<blockquote>
+<p>Q：如何减少Programming IO的开销？</p>
+</blockquote>
+<p>使用DMA（<strong>Direct Memory Access</strong>）：DMA引擎是一种特殊设备，它可以协调完成内存和设备间的数据传递，不需要CPU介入。</p>
+<p>工作过程如下：为了能够将数据传送给设备，OS通过programming告诉DMA引擎数据在内存的位置，要拷贝的大小以及拷贝到哪个设备。在此之后，OS就可以处理其他请求了。当DMA的任务完成后，DMA控制器会抛出一个中断来告诉OS自己完成了数据传输。</p>
+<h3 id="366-设备交互的方法">36.6 设备交互的方法</h3>
+<blockquote>
+<p>Q：如何与设备通信？</p>
+</blockquote>
+<ul>
+<li>使用明确的I/O指令。</li>
+<li>内存映射I/O（memory-mapped I/O）
+<ul>
+<li>通过这种方式，硬件将设备寄存器映射到指定的内存地址中。</li>
+</ul>
+</li>
+</ul>
+<h3 id="367-纳入os设备驱动程序">36.7 纳入OS：设备驱动程序</h3>
+<p>每个设备都有非常具体的接口，如何将它们纳入OS，而我们希望OS尽可能通用。</p>
+<blockquote>
+<p>Q：如何实现一个设备无关的OS？</p>
+</blockquote>
+<p>操作系统将与IO设备交互的软件称为设备驱动程序。（封装，向上层展现接口即可）</p>
+<h3 id="368-ide磁盘驱动程序">36.8 IDE磁盘驱动程序</h3>
+<p>基本逻辑如下：</p>
+<ol>
+<li><strong>等待驱动就绪</strong>：当驱动READY，读取状态寄存器（0x1F7）</li>
+<li><strong>向命令寄存器写入参数</strong>：写入扇区数，待访问扇区对应的逻辑块地址（LBA），并将驱动编号（master= 0x00，slave = 0x10，因为IDE允许接入两个硬盘）写入命令寄存器（0x1F2- 0x1F6）。</li>
+<li><strong>开启I/O</strong>：发送读写命令到命令寄存器。向命令寄存器（0x1F7）中写入<code>READ-WRITE</code>命令。</li>
+<li><strong>数据传送</strong>（针对写请求）：等待直到驱动状态为<code>READY</code>和<code>DRQ</code>（驱动请求数据），向数据端口写入数据。</li>
+<li><strong>中断处理</strong>：每个扇区的数据传送结束后都会触发一次中断处理程序，可以合并中断。</li>
+<li><strong>错误处理</strong>：每次操作之后读取状态寄存器，如果ERROR位被置位。可以读取错误寄存器来获取详细信息。</li>
+</ol>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-36/36.5.jpg" alt=""></p>
+<p>四个主要函数：</p>
+<ul>
+<li><strong>ide_rw()</strong>：将一个请求加入队列，或者直接将请求发送到磁盘（通过<code>ide_start_request()</code>）</li>
+<li><strong>ide_start_request()</strong>：将请求发送到磁盘</li>
+<li><strong>ide_wait_ready()</strong>：确保驱动处于就绪状态</li>
+<li><strong>ide_intr()</strong>：发生中断时，该函数会被调用，会从设备中读取数据，并且结束后唤醒等待的进程。如果队列中还有未处理的请求，会调用第二个函数接着处理下一个IO请求。</li>
+</ul>
+<h2 id="chapter-37-磁盘驱动器">Chapter 37 磁盘驱动器</h2>
+<blockquote>
+<p>Q：现代磁盘驱动器如何存储数据？接口是什么？数据是如何存储和访问的？磁盘调度如何提高性能？</p>
+</blockquote>
+<h3 id="371-接口">37.1 接口</h3>
+<p>现代驱动器的基本接口非常简单，驱动器由大量扇区组成，可以进行多扇区操作，但是写入操作只能保证单扇区是原子性的。无法在断电情况下保证完整写入。</p>
+<h3 id="372-基本几何形状">37.2 基本几何形状</h3>
+<ul>
+<li><strong>盘片（platter）</strong>：磁盘有一个或多个盘片，每个盘片有两面，都称为表面（surface），盘片由一些硬质材料制成，然后涂上薄薄的磁性层，从而持久存储数据位。</li>
+<li><strong>主轴（spindle）</strong>：所有盘片围绕主轴连接在一起，主轴连接到电机，以一个恒定的速度旋转盘片，旋转速度以每分钟转数（Rotations Per Minute, RPM）来测量。</li>
+<li><strong>扇区（sector）</strong>：将磁道划分成若干个弧段，每个弧段称为一个扇区。</li>
+<li><strong>磁道（track）</strong>：一个表面由磁道构成，是同心圆的结构。</li>
+<li><strong>磁头（disk head）</strong>：要从表面进行读写操作，需要一种机制，能感应磁盘上的磁性数据，读写操作由磁头完成。</li>
+<li><strong>磁盘臂（disk arm）</strong>：每个表面都有一个磁头，磁头连接到单个磁盘臂，磁盘臂在表面移动，将磁头定位到期望的磁道上。</li>
+</ul>
+<h3 id="373-简单的磁盘驱动器">37.3 简单的磁盘驱动器</h3>
+<h4 id="单磁道延迟旋转延迟">单磁道延迟：旋转延迟</h4>
+<p>旋转延迟（<strong>rotation delay</strong>）：磁头移动的时间</p>
+<h4 id="寻道时间">寻道时间</h4>
+<p>寻道时间包括以下阶段：</p>
+<ol>
+<li>磁盘臂移动时的加速阶段</li>
+<li>随着磁盘臂全速移动而惯性移动</li>
+<li>随着磁盘臂减速，最后磁道在正确的磁道上停下来，停放时间通常不小，例如<code>0.5 ~ 2ms</code>。</li>
+</ol>
+<h4 id="其他细节">其他细节</h4>
+<ul>
+<li>
+<p>磁道偏斜（track skew）：确保即使在跨越磁道边界时，顺序读取也能方便地服务。</p>
+</li>
+<li>
+<p>多区域（multi-zoned）：外圈磁道比内圈磁道具有更多扇区，磁盘被组织成多个区域，区域是表面上连续的一组磁道。每个区域每个磁道具有相同的扇区数量。</p>
+</li>
+<li>
+<p>磁道缓冲区（track buffer）：少量的内存空间，通常大小位8MB或16MB。例如：从磁盘读取扇区时，驱动器可能决定读取该磁道上的所有扇区并将其缓存在其驱动器上，这样可以让驱动器快速响应所有后续的同一磁道的请求。</p>
+</li>
+</ul>
+<p>写入操作分为以下几种：</p>
+<ul>
+<li>后写（write back）：将数据放入内存中，在一段时间后写入。</li>
+<li>直写（write through）：直接写入磁盘。</li>
+</ul>
+<h3 id="374-io时间">37.4 I/O时间</h3>
+<p>$$T_{I/O} = T_{寻道} + T_{旋转}$ + T_{传输}$$</p>
+<h3 id="375-磁盘调度">37.5 磁盘调度</h3>
+<h4 id="sstf最短寻道时间优先">SSTF：最短寻道时间优先</h4>
+<p>会导致饥饿问题，距离长的始终无法调度。</p>
+<h4 id="scan电梯算法">SCAN电梯算法</h4>
+<h4 id="sptf最短定位时间优先">SPTF：最短定位时间优先</h4>
+<h2 id="chapter-38-raid">Chapter 38 RAID</h2>
+<blockquote>
+<p>Q：如何构建大型、快速、可靠的存储系统？</p>
+</blockquote>
+<p>RAID（Redundant Array of Inexpensive Disks）：廉价冗余磁盘阵列。</p>
+<p>从外部看：RAID看起来像一个磁盘：一组可以读取或写入的块。</p>
+<p>在内部：RAID是由多个磁盘、内存以及多个处理器来管理系统，更像一个计算机系统，专门管理一组磁盘。</p>
+<p>RAID优点：</p>
+<ul>
+<li>性能高：并行使用多个磁盘可以大大加快I/O时间</li>
+<li>容量大</li>
+<li>可靠性：RAID通过redundancy，可以增加数据可靠性。</li>
+<li>透明部署：向系统添加新功能时，不需要对其余部分进行修改</li>
+</ul>
+<h3 id="381-接口和raid内部">38.1 接口和RAID内部</h3>
+<p>提供接口给上层调用。</p>
+<p>RAID内部包括一个微控制器，运行固件以指导RAID的操作。某些情况下，还包括非易失性存储器，安全地缓冲写入。</p>
+<h3 id="382-故障模型">38.2 故障模型</h3>
+<ul>
+<li><strong>fail-stop</strong>：故障停止模型，在这种模式下，磁盘可以处于两种状态之一：工作状态或故障状态，使用工作状态的磁盘时，所有块都可以读写，相反，磁盘出现故障时，将不提供服务。</li>
+</ul>
+<h3 id="383-如何评估raid">38.3 如何评估RAID</h3>
+<p>三个方面：</p>
+<ol>
+<li>容量</li>
+<li>可靠性</li>
+<li>性能</li>
+</ol>
+<h3 id="384-raid-0条带化">38.4 RAID 0：条带化</h3>
+<p>实际上不是RAID级别，因为没有冗余。</p>
+<p>基本思想：以轮转方式将磁盘阵列的块分布在磁盘上。目的是对数组的连续块请求时，从阵列中获得最大的并行性。将同一行中的块称为条带。</p>
+<p>RAID映射问题：给定一个逻辑块地址A，RAID如何确定物理磁盘和偏移量？</p>
+<p>使用一些映射关系进行计算。</p>
+<h4 id="大块大小">大块大小</h4>
+<p>大块大小影响针列地性能，大小较小的大块意味着许多文件将多个磁盘进行条带化，从而增加了对单个文件的读取和写入的并行性。但是，跨多个磁盘访问块的定位时间会增加。因为整个请求的定位时间由所有驱动器上请求的最大定位时间决定。</p>
+<h3 id="385-raid-1镜像">38.5 RAID 1：镜像</h3>
+<p>只需要生成系统中每个块的多个副本。</p>
+<p>一致性更新问题：可以通过预写日志解决，首先记录RAID简要执行的操作，采用这种办法，可以在发生崩溃时，通过运行恢复程序，将数据恢复到最新状态。</p>
+<h3 id="386-raid-4通过奇偶校验节省空间">38.6 RAID 4：通过奇偶校验节省空间</h3>
+<p>对于每一条数据，都添加一个奇偶校验（parity）块，用于存储该条块的冗余信息。</p>
+<p>为了计算奇偶性，需要使用一个数学函数，可以使用XOR。</p>
+<p>存在小写入问题（small-write problem），导致性能下降。</p>
+<h3 id="387-raid-5旋转奇偶校验">38.7 RAID 5：旋转奇偶校验</h3>
+<p>为了解决小写入问题，推出了RAID-5。RAID-5的工作原理与RAID-4几乎完全相同，只是RAID-5将奇偶校验块跨驱动器旋转。</p>
+<h2 id="chapter-39-文件和目录">Chapter 39 文件和目录</h2>
+<blockquote>
+<p>Q：OS如何管理持久设备？</p>
+</blockquote>
+<h3 id="391-文件和目录">39.1 文件和目录</h3>
+<p>存储虚拟化形成了两个关键的抽象：</p>
+<ul>
+<li>文件：线性字节数组，每个文件都有一个<strong>low-level name</strong>。通常这个name被称为inode number。</li>
+<li>目录：也存在inode number，包括一个<code>(用户可读名字,low-level name)</code>键值对列表</li>
+</ul>
+<h3 id="392-文件系统接口">39.2 文件系统接口</h3>
+<h4 id="创建文件">创建文件</h4>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> fd <span style="color:#f92672">=</span> <span style="color:#a6e22e">open</span>(<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span> pathname, <span style="color:#66d9ef">int</span> flags);
+</span></span></code></pre></div><p>flags部分含义如下：</p>
+<ul>
+<li>O_CREAT：创建文件</li>
+<li>O_WRONLY：以只读方式打开文件</li>
+<li>O_WRONLY：以只写方式打开文件</li>
+</ul>
+<h3 id="394-读写文件">39.4 读写文件</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">ssize_t</span> <span style="color:#a6e22e">write</span> (<span style="color:#66d9ef">int</span> fd, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span> buf, <span style="color:#66d9ef">size_t</span> count);
+</span></span></code></pre></div><p>write()会把buf所指的内存写入count个字节到参数fd所指的文件内. 当然, 文件读写位置也会随之移动。</p>
+<p>返回值：如果顺利write()会返回实际写入的字节数. 当有错误发生时则返回-1, 错误代码存入errno中.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">ssize_t</span> <span style="color:#a6e22e">read</span>(<span style="color:#66d9ef">int</span> fd, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span> buf, <span style="color:#66d9ef">size_t</span> count);
+</span></span></code></pre></div><p>read()会把参数fd 所指的文件传送count 个字节到buf 指针所指的内存中. 若参数count 为0, 则read()不会有作用并返回0. 返回值为实际读取到的字节数, 如果返回0, 表示已到达文件尾或是无可读取的数据,此外文件读写位置会随读取到的字节移动。</p>
+<h3 id="396-fsync">39.6 fsync()</h3>
+<p>当程序调用<code>write()</code>时，只是将数据写入内存缓冲区中，等过一段时间写入存储设备。可以调用<code>fsync()</code>以确保立即强制写入磁盘。</p>
+<h3 id="397-文件重命名">39.7 文件重命名</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">rename</span>(<span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span> oldname, <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span> newname);
+</span></span></code></pre></div><h3 id="398-获取文件信息">39.8 获取文件信息</h3>
+<p>这些信息通常称为metadata，通过<code>stat()</code>或<code>fstat()</code>系统调用完成。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">stat</span>(<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span> file_name, <span style="color:#66d9ef">struct</span> stat <span style="color:#f92672">*</span>buf);
+</span></span></code></pre></div><p>stat结构体如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> stat
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">dev_t</span> st_dev; <span style="color:#75715e">//device 文件的设备编号
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">ino_t</span> st_ino; <span style="color:#75715e">//inode 文件的i-node
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">mode_t</span> st_mode; <span style="color:#75715e">//protection 文件的类型和存取的权限
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">nlink_t</span> st_nlink; <span style="color:#75715e">//number of hard links 连到该文件的硬连接数目, 刚建立的文件值为1.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">uid_t</span> st_uid; <span style="color:#75715e">//user ID of owner 文件所有者的用户识别码
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">gid_t</span> st_gid; <span style="color:#75715e">//group ID of owner 文件所有者的组识别码
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">dev_t</span> st_rdev; <span style="color:#75715e">//device type 若此文件为装置设备文件, 则为其设备编号
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">off_t</span> st_size; <span style="color:#75715e">//total size, in bytes 文件大小, 以字节计算
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> st_blksize; <span style="color:#75715e">//blocksize for filesystem I/O 文件系统的I/O 缓冲区大小.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> st_blocks; <span style="color:#75715e">//number of blocks allocated 占用文件区块的个数, 每一区块大小为512 个字节.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">time_t</span> st_atime; <span style="color:#75715e">//time of lastaccess 文件最近一次被存取或被执行的时间, 一般只有在用mknod、utime、read、write 与tructate 时改变.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">time_t</span> st_mtime; <span style="color:#75715e">//time of last modification 文件最后一次被修改的时间, 一般只有在用mknod、utime 和write 时才会改变
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">time_t</span> st_ctime; <span style="color:#75715e">//time of last change i-node 最近一次被更改的时间, 此参数会在文件所有者、组、权限被更改时更新
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>};
+</span></span></code></pre></div><h3 id="399-删除文件">39.9 删除文件</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">unlink</span>(<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span> pathname);
+</span></span></code></pre></div><h3 id="3910-创建目录">39.10 创建目录</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">mkdir</span>(<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>pathname, <span style="color:#66d9ef">mode_t</span> mode);
+</span></span></code></pre></div><h3 id="3913-硬链接">39.13 硬链接</h3>
+<p>link()系统调用，在创建链接的目录中创建了另一个名称，并将其指向原有的文件的inode number。</p>
+<h3 id="3914-符号链接">39.14 符号链接</h3>
+<p>也称为软链接，硬链接有些局限：不能创建目录的硬链接（担心会在目录树中创建一个环），不能硬链接到其他磁盘分区中的文件（inode在文件系统中唯一，不能跨文件系统）</p>
+<p>符号链接实际上与硬链接完全不同，其本身实际上是一个不同类型的文件。符号链接指向文件的路径作为链接文件的数据。</p>
+<h2 id="chapter-40-文件系统实现">Chapter 40 文件系统实现</h2>
+<blockquote>
+<p>Q：如何构建一个简单的文件系统？磁盘上需要什么结构？</p>
+</blockquote>
+<h3 id="401-思考方式">40.1 思考方式</h3>
+<ul>
+<li>文件系统的结构：文件系统在磁盘上使用哪些类型的结构来组织数据和元数据。</li>
+<li>访问方法：如何将进程发出的调用映射到它的结构上。</li>
+</ul>
+<h3 id="402-整体组织">40.2 整体组织</h3>
+<p>首先将磁盘分成一系列的块，每块大小4KB，在N个4KB的块中，分出大部分空间存储用户数据，这部分被称为<strong>data region</strong>。还有一部分磁盘空间需要存放元数据，这部分被称为<strong>inode table</strong>。</p>
+<p>还需要一些空间记录inode或者数据块是空闲还是已分配。可以使用空闲列表（free list），或者使用位图（bitmap）。</p>
+<p>还需要一块留给superblock，其中包含一些特定的文件系统信息，包括文件系统中有多少个inode和数据块、inode表的开始位置。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-40/disk-structure.jpg" alt=""></p>
+<h3 id="403-文件组织inode">40.3 文件组织：inode</h3>
+<p><code>inode</code>用于保存元数据结构，例如其长度、权限以及其组成块的位置。每个<code>inode</code>都由一个数字隐式引用。</p>
+<p><code>inode</code>表大小为20KB，由80个<code>inode</code>组成。每个<code>inode</code>大小为<code>256 bytes</code>。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/os/ostep/chapter-40/inode-table.jpg" alt=""></p>
+<p>要读取<code>inode 32</code>，文件系统首先计算inode区域的偏移量（32 * inode大小 = 8192），将其加商inode表的起始地址（inodeStartAddr = 12KB） ，从而可以得到希望的inode块的正确地址。</p>
+<p>inode块的扇区地址<code>iaddr</code>可以计算如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C" data-lang="C"><span style="display:flex;"><span>blk <span style="color:#f92672">=</span> (inumber <span style="color:#f92672">*</span> <span style="color:#66d9ef">sizeof</span>(<span style="color:#66d9ef">inode_t</span>)) <span style="color:#f92672">/</span> blockSize;
+</span></span><span style="display:flex;"><span>sector <span style="color:#f92672">=</span> ((blk <span style="color:#f92672">*</span> blockSize) <span style="color:#f92672">+</span> inodeStartAddr) <span style="color:#f92672">/</span> sectorSize;
+</span></span></code></pre></div><h4 id="多级索引">多级索引</h4>
+<p>为了支持更大的文件，文件系统的设计者必须在inode中引入不同的结构，一种常见的思路是用一个称为间接指针，它指向包含更多指针的块，每个指针再指向用户数据。</p>
+<h3 id="404-目录组织">40.4 目录组织</h3>
+<p>目录基本上只包含一个二元组<code>(条目名称, inode号)</code>。但是线性存储不是存储这些信息的唯一方法，任何数据结构都可以，XFS使用B树存储目录。</p>
+<h3 id="405-空闲空间管理">40.5 空闲空间管理</h3>
+<p>文件系统需要记录哪些inode和数据块是空闲的，哪些不是。当创建一个文件时，需要为该文件分配一个inode，文件系统将通过位图搜索一个空闲的内容，将其分配给文件，文件系统将inode标记为已使用。</p>
+<h3 id="406-访问路径读取和写入">40.6 访问路径：读取和写入</h3>
+<h4 id="从磁盘读取文件">从磁盘读取文件</h4>
+<p>发出<code>open(&quot;/foo/bar&quot;, O_RDONLY)</code>调用时，文件系统首先需要找到文件bar的inode，从而获得文件的基本信息，通过遍历路径名查找。从根目录开始遍历。找到inode后，读取包含foo的inode以及目录数据的块，最后找到bar的inode号，通过<code>open()</code>系统调用将该inode读入内存。打开后，通过<code>read()</code>系统调用，从文件中读取。</p>
+<h4 id="写入磁盘">写入磁盘</h4>
+<p>写入文件是一个类似的过程，首先文件必须打开，然后通过<code>write()</code>系统调用以新内容更新文件，最后关闭文件。</p>
+<p>写入文件可能会分配一个块，当写入一个新文件时，不仅需要将数据写入磁盘，还需要决定将哪个块分配给文件，从而相应地更新磁盘的其他结构。每次更新会导致五个I/O，分别是：</p>
+<ul>
+<li>读取数据位图，然后更新以标记新分配的块被使用</li>
+<li>一个写入位图（将新状态存入磁盘）</li>
+<li>两次读取，然后写入inode</li>
+<li>最后一次写入真正的数据块本身</li>
+</ul>
+<blockquote>
+<p>Q：如何降低文件系统I/O成本？</p>
+</blockquote>
+<h3 id="407-缓存和缓冲">40.7 缓存和缓冲</h3>
+<p>大多数文件系统使用DRAM来缓存重要的块。</p>
+<p>早期文件系统引入一个固定大小的缓存来保存常用的块。然而静态的内存划分可能导致浪费。</p>
+<p>现代系统采用动态划分方法，具体来说，许多现代操作系统将虚拟内存页面和文件系统集成到统一页面缓存中（unified page cache）通过这种方式，可以在虚拟内存和文件系统中更灵活的分配内存。</p>
+<h2 id="chapter-44-数据完整性和保护">Chapter 44 数据完整性和保护</h2>
+<blockquote>
+<p>Q：系统如何确保数据完整性？</p>
+</blockquote>
+<h3 id="441-磁盘故障模式">44.1 磁盘故障模式</h3>
+<p>分为两种类型：</p>
+<ul>
+<li>潜在扇区错误（latent-sector errors , LSE）</li>
+<li>块讹误（block corruption）</li>
+</ul>
+<p>当扇区以某种方式发生block corruption时，会出现LSE。例如磁头由于某种原因接触到表面（磁头碰撞，head crash），则会使得数据位不可读。</p>
+<p>驱动器会使用<strong>Error Correcting Code</strong>来确定磁盘位是否良好，会修复错误位。</p>
+<h3 id="442-处理潜在的扇区错误">44.2 处理潜在的扇区错误</h3>
+<blockquote>
+<p>Q：如何处理潜在的扇区错误？</p>
+</blockquote>
+<p>如果存储系统尝试访问块，并且磁盘块返回错误时，需要用它的冗余机制来返回正确数据。</p>
+<p>但是，LSE的增长影响了RAID的设计。当全盘故障核LSE接连发生时，RAID-4/5会尝试读取奇偶校验组中的所有磁盘，并重新计算缺失值，来重建磁盘。</p>
+<h3 id="443-检查讹误校验和">44.3 检查讹误：校验和</h3>
+<blockquote>
+<p>Q：如何检测出现了讹误？</p>
+</blockquote>
+<p>现代存储系统用于保持数据完整性的主要机制称为校验和（checksum），校验和是一个函数的结果。该函数以一块数据作为输入，输出数据内容的概要（4字节或8字节），此摘要称为校验和。</p>
+<p>通过将数据和校验和一起存储，然后再访问时确定数据是否被破坏或改变。</p>
+<h3 id="445-错误的写入">44.5 错误的写入</h3>
+<p>错误位置的写入（misdirected write）：写入位置出错。</p>
+<blockquote>
+<p>Q：如何解决错误的写入？</p>
+</blockquote>
+<p>在每个校验和中添加更多的信息，例如：添加物理ID。</p>
+<h3 id="446-丢失的写入">44.6 丢失的写入</h3>
+<p>丢失写入（lost write）：实际上没写入。</p>
+<blockquote>
+<p>Q：如何处理丢失写入？</p>
+</blockquote>
+<p>执行写入验证（write verify），或者写入后读取验证（read-after-write）。</p>
+<h3 id="447-擦净">44.7 擦净</h3>
+<blockquote>
+<p>校验和何时得到实际检查？</p>
+</blockquote>
+<p>大多数数据很少访问，因此将保持未检查状态。未检查的数据对于可靠的存储系统是一个问题，因为数据位衰减最终可能影响特定数据的副本。</p>
+<p>为了解决这个问题，许多系统利用各种形式的磁盘擦净（disk scrubbing），定期去读取系统的每个块，并检查校验和是否有效。</p>
+<h3 id="448-校验和的开销">44.8 校验和的开销</h3>
+<p>空间开销：</p>
+<ul>
+<li>磁盘本身需要存储校验和</li>
+</ul>
+<p>时间开销：</p>
+<ul>
+<li>CPU需要计算每个块的校验和，存储/访问时都需要计算。</li>
+</ul>
+<h2 id="chapter-47-分布式系统">Chapter 47 分布式系统</h2>
+<blockquote>
+<p>Q：如何构建在出现故障时仍能工作的系统？</p>
+</blockquote>
+<p>其他问题：</p>
+<ul>
+<li>系统性能</li>
+<li>安全</li>
+</ul>
+<h3 id="471-通信基础">47.1 通信基础</h3>
+<p>丢包是网络的基本现象。问题：如何处理丢包？</p>
+<h3 id="475-rpc">47.5 RPC</h3>
+<p>RPC是分布式系统中的通信方式。</p>
+<p>RPC系统分成两部分：</p>
+<ul>
+<li>stub generator/protocol compiler
+<ul>
+<li>通过自动化，简化将函数参数和结果打包成消息的过程。</li>
+<li>优化代码，提高性能。</li>
+</ul>
+</li>
+<li>runtime library</li>
+</ul>
+<pre tabindex="0"><code>interface {
+	int func1(int arg1);
+	int func2(int arg1, int arg2);
+}
+</code></pre><h4 id="stub-generator">stub generator</h4>
+<p>stub generator接收接口，并生成不同的代码片段，对于client，生成client stub，其中包含接口中的每个函数。希望使用此RPC服务的客户端程序将链接此client stub，调用它进行RPC。</p>
+<p>在内部，client stub中每个函数都执行RPC的核心业务代码。主要分为以下步骤：</p>
+<ol>
+<li><strong>创建消息缓冲区</strong>。</li>
+<li>**将所需信息打包到消息缓冲区中。**包括函数名，参数。也称为消息的序列化。</li>
+<li><strong>将消息发送到目标RPC服务器。</strong>，与RPC服务器的通信，由RPC的runtime library处理。</li>
+<li><strong>等待回复。</strong></li>
+<li>**解包返回代码和其他参数。**也称为反序列化。</li>
+<li><strong>返回给调用者。</strong></li>
+</ol>
+<p>其它问题：</p>
+<ul>
+<li>复杂参数如何封装</li>
+<li>并发编程</li>
+</ul>
+<h4 id="runtime-library">runtime library</h4>
+<p>首要挑战：如何找到远程服务？</p>
+<p>建立命名系统，存储对应的RPC服务名称和主机IP地址、端口等。</p>
+<p>下一个问题：选择TCP/UDP传输协议？</p>
+<p>根据系统功能做抉择。</p>
+<h4 id="其他问题">其他问题</h4>
+<ul>
+<li>超时机制</li>
+<li>大参数的过程调用</li>
+<li>字节序，有些机器使用大端序，有些机器使用小端序。</li>
+<li>异步同步问题</li>
+</ul>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/">
+                操作系统
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/os/ostep-concurrency/">OSTEP阅读笔记- Concurrency（二）</a></li>
+    
+    <li><a href="/posts/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%9F%BA%E7%A1%80/os/ostep-virtualization/">OSTEP阅读笔记-Virtuallization（一）</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

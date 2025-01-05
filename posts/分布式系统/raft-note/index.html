@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/raft-note/" />
+  <link rel="canonical" href="http://localhost:59500/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/raft-note/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Raft论文阅读笔记",
+      "headline" : "Raft论文阅读笔记",
+      "description" : "介绍 Paxos算法较为复杂，并且不易于应用到工业界，因此诞生了Raft算法，其首要目标是可理解性，Raft算法主要分解为几个部分：领导者选举、日志复制、安全性、成员变更等。Raft算法有一些独特的特性：\n强领导者：日志entry只从领导者发送给其他服务器 领导者选举：Raft算法采用一个随即计时器来选举领导人 成员关系调整：Raft算法采用一种共同一致的方法来处理集群成员变换的问题，此时集群依然可以工作。 属性解释 状态\n所有服务器上的持久性状态 (在响应 RPC 请求之前，已经更新到了稳定的存储设备)\n参数 解释 currentTerm 服务器已知最新的任期（在服务器首次启动时初始化为0，单调递增） votedFor 当前任期内收到选票的 candidateId，如果没有投给任何候选人 则为空 log[] 日志条目；每个条目包含了用于状态机的命令，以及领导人接收到该条目时的任期（初始索引为1） 所有服务器上的易失性状态 参数 解释 commitIndex 已知已提交的最高的日志条目的索引（初始值为0，单调递增） lastApplied 已经被应用到状态机的最高的日志条目的索引（初始值为0，单调递增） 领导人（服务器）上的易失性状态 (选举后已经重新初始化)\n参数 解释 nextIndex[] 对于每一台服务器，发送到该服务器的下一个日志条目的索引（初始值为领导人最后的日志条目的索引\u002b1） matchIndex[] 对于每一台服务器，已知的已经复制到该服务器的最高日志条目的索引（初始值为0，单调递增） 追加条目（AppendEntries）RPC： 由leader调用，用于日志条目的复制，同时也被当做心跳使用\n参数 解释 term 领导人的任期 leaderId 领导人 ID 因此跟随者可以对客户端进行重定向（译者注：跟随者根据领导人 ID 把客户端的请求重定向到领导人，比如有时客户端把请求发给了跟随者而不是领导人） prevLogIndex 紧邻新日志条目之前的那个日志条目的索引 prevLogTerm 紧邻新日志条目之前的那个日志条目的任期 entries[] 需要被保存的日志条目（被当做心跳使用时，则日志条目内容为空；为了提高效率可能一次性发送多个） leaderCommit 领导人的已知已提交的最高的日志条目的索引 返回值 解释 term 当前任期，对于领导人而言 它会更新自己的任期 success 如果跟随者所含有的条目和 prevLogIndex 以及 prevLogTerm 匹配上了，则为 true receiver的实现 如果term \u0026lt; currentTerm， return false 在接收者日志中 如果能找到一个和 prevLogIndex 以及 prevLogTerm 一样的索引和任期的日志条目 则继续执行下面的步骤 否则return false 如果一个已经存在的条目和新条目发生了冲突，那么就删除这个已经存在的条目以及它之后的所有条目 追加的条目暂未存在日志中 如果leaderCommit \u0026gt; commitIndex，设置commitIndex = min(leaderCommit, index of last new entry) 请求投票（RequestVote）RPC： 由候选人负责调用用来征集选票（5.2 节）\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2022",
+      "datePublished": "2022-01-31 14:19:03 \u002b0000 UTC",
+      "dateModified" : "2022-01-31 14:19:03 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F\/raft-note\/",
+      "keywords" : [ "一致性算法", ]
+  }
+</script>
+<title>Raft论文阅读笔记</title>
+  <meta property="og:title" content="Raft论文阅读笔记" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="介绍 Paxos算法较为复杂，并且不易于应用到工业界，因此诞生了Raft算法，其首要目标是可理解性，Raft算法主要分解为几个部分：领导者选举、日志复制、安全性、成员变更等。Raft算法有一些独特的特性：
+强领导者：日志entry只从领导者发送给其他服务器 领导者选举：Raft算法采用一个随即计时器来选举领导人 成员关系调整：Raft算法采用一种共同一致的方法来处理集群成员变换的问题，此时集群依然可以工作。 属性解释 状态
+所有服务器上的持久性状态 (在响应 RPC 请求之前，已经更新到了稳定的存储设备)
+参数 解释 currentTerm 服务器已知最新的任期（在服务器首次启动时初始化为0，单调递增） votedFor 当前任期内收到选票的 candidateId，如果没有投给任何候选人 则为空 log[] 日志条目；每个条目包含了用于状态机的命令，以及领导人接收到该条目时的任期（初始索引为1） 所有服务器上的易失性状态 参数 解释 commitIndex 已知已提交的最高的日志条目的索引（初始值为0，单调递增） lastApplied 已经被应用到状态机的最高的日志条目的索引（初始值为0，单调递增） 领导人（服务器）上的易失性状态 (选举后已经重新初始化)
+参数 解释 nextIndex[] 对于每一台服务器，发送到该服务器的下一个日志条目的索引（初始值为领导人最后的日志条目的索引&#43;1） matchIndex[] 对于每一台服务器，已知的已经复制到该服务器的最高日志条目的索引（初始值为0，单调递增） 追加条目（AppendEntries）RPC： 由leader调用，用于日志条目的复制，同时也被当做心跳使用
+参数 解释 term 领导人的任期 leaderId 领导人 ID 因此跟随者可以对客户端进行重定向（译者注：跟随者根据领导人 ID 把客户端的请求重定向到领导人，比如有时客户端把请求发给了跟随者而不是领导人） prevLogIndex 紧邻新日志条目之前的那个日志条目的索引 prevLogTerm 紧邻新日志条目之前的那个日志条目的任期 entries[] 需要被保存的日志条目（被当做心跳使用时，则日志条目内容为空；为了提高效率可能一次性发送多个） leaderCommit 领导人的已知已提交的最高的日志条目的索引 返回值 解释 term 当前任期，对于领导人而言 它会更新自己的任期 success 如果跟随者所含有的条目和 prevLogIndex 以及 prevLogTerm 匹配上了，则为 true receiver的实现 如果term &lt; currentTerm， return false 在接收者日志中 如果能找到一个和 prevLogIndex 以及 prevLogTerm 一样的索引和任期的日志条目 则继续执行下面的步骤 否则return false 如果一个已经存在的条目和新条目发生了冲突，那么就删除这个已经存在的条目以及它之后的所有条目 追加的条目暂未存在日志中 如果leaderCommit &gt; commitIndex，设置commitIndex = min(leaderCommit, index of last new entry) 请求投票（RequestVote）RPC： 由候选人负责调用用来征集选票（5.2 节）
+" />
+  <meta name="description" content="介绍 Paxos算法较为复杂，并且不易于应用到工业界，因此诞生了Raft算法，其首要目标是可理解性，Raft算法主要分解为几个部分：领导者选举、日志复制、安全性、成员变更等。Raft算法有一些独特的特性：
+强领导者：日志entry只从领导者发送给其他服务器 领导者选举：Raft算法采用一个随即计时器来选举领导人 成员关系调整：Raft算法采用一种共同一致的方法来处理集群成员变换的问题，此时集群依然可以工作。 属性解释 状态
+所有服务器上的持久性状态 (在响应 RPC 请求之前，已经更新到了稳定的存储设备)
+参数 解释 currentTerm 服务器已知最新的任期（在服务器首次启动时初始化为0，单调递增） votedFor 当前任期内收到选票的 candidateId，如果没有投给任何候选人 则为空 log[] 日志条目；每个条目包含了用于状态机的命令，以及领导人接收到该条目时的任期（初始索引为1） 所有服务器上的易失性状态 参数 解释 commitIndex 已知已提交的最高的日志条目的索引（初始值为0，单调递增） lastApplied 已经被应用到状态机的最高的日志条目的索引（初始值为0，单调递增） 领导人（服务器）上的易失性状态 (选举后已经重新初始化)
+参数 解释 nextIndex[] 对于每一台服务器，发送到该服务器的下一个日志条目的索引（初始值为领导人最后的日志条目的索引&#43;1） matchIndex[] 对于每一台服务器，已知的已经复制到该服务器的最高日志条目的索引（初始值为0，单调递增） 追加条目（AppendEntries）RPC： 由leader调用，用于日志条目的复制，同时也被当做心跳使用
+参数 解释 term 领导人的任期 leaderId 领导人 ID 因此跟随者可以对客户端进行重定向（译者注：跟随者根据领导人 ID 把客户端的请求重定向到领导人，比如有时客户端把请求发给了跟随者而不是领导人） prevLogIndex 紧邻新日志条目之前的那个日志条目的索引 prevLogTerm 紧邻新日志条目之前的那个日志条目的任期 entries[] 需要被保存的日志条目（被当做心跳使用时，则日志条目内容为空；为了提高效率可能一次性发送多个） leaderCommit 领导人的已知已提交的最高的日志条目的索引 返回值 解释 term 当前任期，对于领导人而言 它会更新自己的任期 success 如果跟随者所含有的条目和 prevLogIndex 以及 prevLogTerm 匹配上了，则为 true receiver的实现 如果term &lt; currentTerm， return false 在接收者日志中 如果能找到一个和 prevLogIndex 以及 prevLogTerm 一样的索引和任期的日志条目 则继续执行下面的步骤 否则return false 如果一个已经存在的条目和新条目发生了冲突，那么就删除这个已经存在的条目以及它之后的所有条目 追加的条目暂未存在日志中 如果leaderCommit &gt; commitIndex，设置commitIndex = min(leaderCommit, index of last new entry) 请求投票（RequestVote）RPC： 由候选人负责调用用来征集选票（5.2 节）
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Raft论文阅读笔记</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2022-01-31 14:19:03 UTC">
+                31 Jan 2022
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="介绍">介绍</h2>
+<p>Paxos算法较为复杂，并且不易于应用到工业界，因此诞生了Raft算法，其首要目标是可理解性，Raft算法主要分解为几个部分：领导者选举、日志复制、安全性、成员变更等。Raft算法有一些独特的特性：</p>
+<ul>
+<li>强领导者：日志entry只从领导者发送给其他服务器</li>
+<li>领导者选举：Raft算法采用一个随即计时器来选举领导人</li>
+<li>成员关系调整：Raft算法采用一种共同一致的方法来处理集群成员变换的问题，此时集群依然可以工作。</li>
+</ul>
+<h3 id="属性解释">属性解释</h3>
+<p><strong>状态</strong></p>
+<h4 id="所有服务器上的持久性状态">所有服务器上的持久性状态</h4>
+<p>(在响应 RPC 请求之前，已经更新到了稳定的存储设备)</p>
+<table>
+  <thead>
+      <tr>
+          <th>参数</th>
+          <th>解释</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>currentTerm</td>
+          <td>服务器已知最新的任期（在服务器首次启动时初始化为0，单调递增）</td>
+      </tr>
+      <tr>
+          <td>votedFor</td>
+          <td>当前任期内收到选票的 candidateId，如果没有投给任何候选人 则为空</td>
+      </tr>
+      <tr>
+          <td>log[]</td>
+          <td>日志条目；每个条目包含了用于状态机的命令，以及领导人接收到该条目时的任期（初始索引为1）</td>
+      </tr>
+  </tbody>
+</table>
+<h4 id="所有服务器上的易失性状态">所有服务器上的易失性状态</h4>
+<table>
+  <thead>
+      <tr>
+          <th>参数</th>
+          <th>解释</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>commitIndex</td>
+          <td>已知已提交的最高的日志条目的索引（初始值为0，单调递增）</td>
+      </tr>
+      <tr>
+          <td>lastApplied</td>
+          <td>已经被应用到状态机的最高的日志条目的索引（初始值为0，单调递增）</td>
+      </tr>
+  </tbody>
+</table>
+<h4 id="领导人服务器上的易失性状态">领导人（服务器）上的易失性状态</h4>
+<p>(选举后已经重新初始化)</p>
+<table>
+  <thead>
+      <tr>
+          <th>参数</th>
+          <th>解释</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>nextIndex[]</td>
+          <td>对于每一台服务器，发送到该服务器的下一个日志条目的索引（初始值为领导人最后的日志条目的索引+1）</td>
+      </tr>
+      <tr>
+          <td>matchIndex[]</td>
+          <td>对于每一台服务器，已知的已经复制到该服务器的最高日志条目的索引（初始值为0，单调递增）</td>
+      </tr>
+  </tbody>
+</table>
+<h4 id="追加条目appendentriesrpc"><strong>追加条目（AppendEntries）RPC</strong>：</h4>
+<p>由leader调用，用于日志条目的复制，同时也被当做心跳使用</p>
+<table>
+  <thead>
+      <tr>
+          <th>参数</th>
+          <th>解释</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>term</td>
+          <td>领导人的任期</td>
+      </tr>
+      <tr>
+          <td>leaderId</td>
+          <td>领导人 ID 因此跟随者可以对客户端进行重定向（译者注：跟随者根据领导人 ID 把客户端的请求重定向到领导人，比如有时客户端把请求发给了跟随者而不是领导人）</td>
+      </tr>
+      <tr>
+          <td>prevLogIndex</td>
+          <td>紧邻新日志条目之前的那个日志条目的索引</td>
+      </tr>
+      <tr>
+          <td>prevLogTerm</td>
+          <td>紧邻新日志条目之前的那个日志条目的任期</td>
+      </tr>
+      <tr>
+          <td>entries[]</td>
+          <td>需要被保存的日志条目（被当做心跳使用时，则日志条目内容为空；为了提高效率可能一次性发送多个）</td>
+      </tr>
+      <tr>
+          <td>leaderCommit</td>
+          <td>领导人的已知已提交的最高的日志条目的索引</td>
+      </tr>
+  </tbody>
+</table>
+<table>
+  <thead>
+      <tr>
+          <th>返回值</th>
+          <th>解释</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>term</td>
+          <td>当前任期，对于领导人而言 它会更新自己的任期</td>
+      </tr>
+      <tr>
+          <td>success</td>
+          <td>如果跟随者所含有的条目和 prevLogIndex 以及 prevLogTerm 匹配上了，则为 true</td>
+      </tr>
+  </tbody>
+</table>
+<h5 id="receiver的实现">receiver的实现</h5>
+<ul>
+<li>如果<code>term &lt; currentTerm</code>， return false</li>
+<li>在接收者日志中 如果能找到一个和 prevLogIndex 以及 prevLogTerm 一样的索引和任期的日志条目 则继续执行下面的步骤 否则return false</li>
+<li>如果一个已经存在的条目和新条目发生了冲突，那么就删除这个已经存在的条目以及它之后的所有条目</li>
+<li>追加的条目暂未存在日志中</li>
+<li>如果<code>leaderCommit &gt; commitIndex</code>，设置commitIndex = min(leaderCommit, index of last new entry)</li>
+</ul>
+<h4 id="请求投票requestvoterpc"><strong>请求投票（RequestVote）RPC</strong>：</h4>
+<p>由候选人负责调用用来征集选票（5.2 节）</p>
+<table>
+  <thead>
+      <tr>
+          <th>参数</th>
+          <th>解释</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>term</td>
+          <td>候选人的任期号</td>
+      </tr>
+      <tr>
+          <td>candidateId</td>
+          <td>请求选票的候选人的 ID</td>
+      </tr>
+      <tr>
+          <td>lastLogIndex</td>
+          <td>候选人的最后日志条目的索引值</td>
+      </tr>
+      <tr>
+          <td>lastLogTerm</td>
+          <td>候选人最后日志条目的任期号</td>
+      </tr>
+  </tbody>
+</table>
+<table>
+  <thead>
+      <tr>
+          <th>返回值</th>
+          <th>解释</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>term</td>
+          <td>当前任期号，以便于候选人去更新自己的任期号</td>
+      </tr>
+      <tr>
+          <td>voteGranted</td>
+          <td>候选人赢得了此张选票时为真</td>
+      </tr>
+  </tbody>
+</table>
+<h5 id="receiver的实现-1">receiver的实现</h5>
+<ul>
+<li>如果<code>term &lt; currentTerm</code>， return false</li>
+<li>如果 votedFor 为空或者为 candidateId，并且候选人的日志至少和自己一样新，那么就投票给他</li>
+</ul>
+<h4 id="服务器规则">服务器规则</h4>
+<h5 id="所有服务器">所有服务器</h5>
+<ul>
+<li>如果<code>commitIndex &gt; lastApplied</code>，则 lastApplied 递增，并将<code>log[lastApplied]</code>应用到状态机中</li>
+<li>如果接收到的 RPC 请求或响应中，任期号<code>T &gt; currentTerm</code>，则令 <code>currentTerm = T</code>，并切换为跟随者状态</li>
+</ul>
+<h5 id="跟随者">跟随者</h5>
+<ul>
+<li>响应来自候选人和领导人的请求</li>
+<li>如果在超过选举超时时间的情况之前没有收到<strong>当前领导人</strong>（即该领导人的任期需与这个跟随者的当前任期相同）的心跳/附加日志，或者是给某个候选人投了票，就自己变成候选人</li>
+</ul>
+<h5 id="候选者">候选者</h5>
+<ul>
+<li>在转变成候选人后就立即开始选举过程
+<ul>
+<li>自增当前的任期号（currentTerm）</li>
+<li>给自己投票</li>
+<li>重置选举超时计时器</li>
+<li>发送请求投票的 RPC 给其他所有服务器</li>
+</ul>
+</li>
+<li>如果接收到大多数服务器的选票，那么就变成领导人</li>
+<li>如果接收到来自新的领导人的附加日志（AppendEntries）RPC，则转变成跟随者</li>
+<li>如果选举过程超时，则再次发起一轮选举</li>
+</ul>
+<h5 id="领导者">领导者</h5>
+<ul>
+<li>一旦成为领导者，发送空的AppendEntries RPC给其他所有服务器，在一定的空余时间之后不停的重复发送，以防止跟随者超时。</li>
+<li>如果接收到来自客户端的请求：附加条目到本地日志中，在条目被应用到状态机后响应客户端</li>
+<li>对于一个跟随者，最后日志条目的索引值大于等于 nextIndex（<code>lastLogIndex ≥ nextIndex</code>），则发送从 nextIndex 开始的所有日志条目：
+<ul>
+<li>如果成功，更新相应跟随者的nextIndex和matchIndex</li>
+<li>如果因为日志不一致而失败，则nextIndex递减并重试</li>
+</ul>
+</li>
+<li>假设存在 N 满足<code>N &gt; commitIndex</code>，使得大多数的 <code>matchIndex[i] ≥ N</code>以及<code>log[N].term == currentTerm</code> 成立，则令 <code>commitIndex = N</code></li>
+</ul>
+<h2 id="服务器节点状态">服务器节点状态</h2>
+<p>Raft集群中只有三种角色：领导者、候选者、跟随者。Raft算法中每一段任期只有一个领导者节点，每一段任期从一次选举开始，一个或多个候选者参加选举，赢得选举将在接下来的任期充当领导者。跟随者只响应其他服务器的请求。下图为三种状态的转换关系：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/raft/raft-%E5%9B%BE4.png" alt="Raft节点状态变更关系"></p>
+<h2 id="领导者选举">领导者选举</h2>
+<p>Raft 使用一种心跳机制来触发领导人选举。领导者节点会定期向其他节点发送心跳包，如果一个跟随者在一段时间没有接收到信息，这被称为选举超时，此时认为集群中没有可用领导者，并且该节点会发出选举。</p>
+<h3 id="选举过程">选举过程</h3>
+<p>跟随者增加自己的当前任期并且切换到候选者状态，然后他会并行的向集群中的其他服务器节点发送请求投票的 RPCs 来给自己投票。候选者会继续保持此状态直到出现以下三种事件：</p>
+<ol>
+<li>此候选者赢得了本次选举</li>
+<li>其他服务器节点赢得本次选举</li>
+<li>无节点赢得选举</li>
+</ol>
+<h3 id="选举规则">选举规则</h3>
+<ul>
+<li>每个服务器最多会对一个任期号投出一次选票，按照先来先服务的原则，但是要求大多数的选票规则确保最多只有一个候选者赢得选举。</li>
+<li>在等待投票的时候，候选者可能会从其他服务器接收到声明它为领导者的AppendEntries RPC，如果这个节点的任期号大于当前候选者的任期号，那么候选者承认领导者合法并回到跟随者状态，如果，否则拒绝本次RPC，并且保持候选者状态。</li>
+<li>如果出现候选者票数一样，则增加当前任期号来开始一轮新的选举。（Raft 算法使用随机选举超时时间的方法来确保很少会发生选票瓜分的情况）</li>
+</ul>
+<h2 id="日志复制">日志复制</h2>
+<p>客户端的每一个请求，领导者节点都需要将该请求封装成一个entry，并且附加到日志中去，然后发起AppendEntries RPC给其他节点，让他们复制这个entry，复制完成后，领导者会将这个entry应用到它的状态机中，然后将执行结果返回给客户端。如果跟随者因为自身原因未完成，领导者会不断尝试发送RPC，直至所有跟随者存储了该entry。</p>
+<p>每个entry由任期号和请求组成，任期号用于检查是否出现不一致的情况。如下图所示：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/raft/raft-%E5%9B%BE6.png" alt=""></p>
+<p>领导者节点对每一个跟随者维护了一个 <strong>nextIndex</strong>参数，这表示下一个要发送给跟随者的日志entry的index值，当一个候选者成为领导者节点时，它将初始化所有的 <strong>nextIndex</strong>值为自己的最后一条entry的index + 1。当领导者一致性检查失败后，领导者就会减小 nextIndex 值并进行重试。最终 nextIndex 会在某个位置使得领导者和跟随者的日志达成一致。</p>
+<blockquote>
+<p>优化：算法可以通过减少被拒绝的附加日志 RPCs 的次数来优化。例如，当附加日志 RPC 的请求被拒绝的时候，跟随者可以(返回)冲突条目的任期号和该任期号对应的最小索引地址。借助这些信息，领导人可以减小 nextIndex 一次性越过该冲突任期的所有日志条目；这样就变成每个任期需要一次附加条目 RPC 而不是每个条目一次。</p>
+</blockquote>
+<h2 id="安全性">安全性</h2>
+<h3 id="选举限制">选举限制</h3>
+<p>Raft算法要求选举产生的新领导者拥有最全的日志entry，RequestVote RPC中包含了候选者的日志信息，通过相应的策略选择最全entry的候选者。</p>
+<h3 id="时间">时间</h3>
+<p>集群需要满足以下条件：</p>
+<blockquote>
+<p>广播时间（broadcastTime）  &laquo;  选举超时时间（electionTimeout） &laquo;  平均故障间隔时间（MTBF）</p>
+</blockquote>
+<ul>
+<li>广播时间：从一个服务器并行的发送RPC给集群中的其他服务器并接受响应的平均时间</li>
+<li>选举超时时间：一次选举活动允许的最大时间</li>
+<li>平均故障间隔时间：两次故障之间的平均时间</li>
+</ul>
+<h2 id="日志压缩">日志压缩</h2>
+<p>几个方法：</p>
+<ul>
+<li>快照：将整个系统的状态以快照的形式写入到持久化存储中。然后到那个时间点之前的日志全部丢弃，快照技术被使用在 Chubby 和 ZooKeeper 中。</li>
+<li>增量压缩：每次只对一小部分数据进行操作</li>
+</ul>
+<p><strong>安装快照 RPC</strong>：</p>
+<p>由领导人调用以将快照的分块发送给跟随者。领导人总是按顺序发送分块。</p>
+<table>
+  <thead>
+      <tr>
+          <th>参数</th>
+          <th>解释</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>term</td>
+          <td>领导人的任期号</td>
+      </tr>
+      <tr>
+          <td>leaderId</td>
+          <td>领导人的 ID，以便于跟随者重定向请求</td>
+      </tr>
+      <tr>
+          <td>lastIncludedIndex</td>
+          <td>快照中包含的最后日志条目的索引值</td>
+      </tr>
+      <tr>
+          <td>lastIncludedTerm</td>
+          <td>快照中包含的最后日志条目的任期号</td>
+      </tr>
+      <tr>
+          <td>offset</td>
+          <td>分块在快照中的字节偏移量</td>
+      </tr>
+      <tr>
+          <td>data[]</td>
+          <td>从偏移量开始的快照分块的原始字节</td>
+      </tr>
+      <tr>
+          <td>done</td>
+          <td>如果这是最后一个分块则为 true</td>
+      </tr>
+  </tbody>
+</table>
+<table>
+  <thead>
+      <tr>
+          <th>结果</th>
+          <th>解释</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>term</td>
+          <td>当前任期号（currentTerm），便于领导人更新自己</td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>接收者实现</strong>：</p>
+<ol>
+<li>如果<code>term &lt; currentTerm</code>就立即回复</li>
+<li>如果是第一个分块（offset 为 0）就创建一个新的快照</li>
+<li>在指定偏移量写入数据</li>
+<li>如果 done 是 false，则继续等待更多的数据</li>
+<li>保存快照文件，丢弃具有较小索引的任何现有或部分快照</li>
+<li>如果现存的日志条目与快照中最后包含的日志条目具有相同的索引值和任期号，则保留其后的日志条目并进行回复</li>
+<li>丢弃整个日志</li>
+<li>使用快照重置状态机（并加载快照的集群配置）</li>
+</ol>
+<h2 id="客户端交互">客户端交互</h2>
+<p>所有请求全部发送给领导者节点，如果请求的不是领导者节点，那么该节点会拒绝客户端请求，并且提供他最近接收到的领导者信息，如果领导者节点崩溃，那么客户端请求则超时，客户端之后重新挑选服务器。</p>
+<p>其中只读的操作直接处理而不需要记录日志，需要几个措施防止脏读：</p>
+<ul>
+<li>领导者在任期开始的时候，需要在它的任期里提交一次entry，以保证自己的日志是最新的。</li>
+<li>领导者节点在处理只读请求前需要检查自己是否被解除领导者身份。</li>
+</ul>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7%E7%AE%97%E6%B3%95/">
+                一致性算法
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

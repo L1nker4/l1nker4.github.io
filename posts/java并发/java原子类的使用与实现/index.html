@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/java%E5%8E%9F%E5%AD%90%E7%B1%BB%E7%9A%84%E4%BD%BF%E7%94%A8%E4%B8%8E%E5%AE%9E%E7%8E%B0/" />
+  <link rel="canonical" href="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/java%E5%8E%9F%E5%AD%90%E7%B1%BB%E7%9A%84%E4%BD%BF%E7%94%A8%E4%B8%8E%E5%AE%9E%E7%8E%B0/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Java原子类的使用与实现",
+      "headline" : "Java原子类的使用与实现",
+      "description" : "简介 通常情况下，在Java中，\u002b\u002bi这类自增\/自减运算符在并发环境中不能保证并发安全。需要通过加锁才能解决并发环境下的原子性问题。Atomic原子类通过CAS方式来解决线程安全问题，CAS是一种无锁算法（乐观锁），乐观锁多用于“读多写少“的环境，避免频繁加锁影响性能；而悲观锁多用于”写多读少“的环境，避免频繁失败和重试影响性能。\nAtomic原子类分为以下几类：\n基本类型：AtomicInteger，AtomicLong，AtomicBoolean 数组类型：AtomicIntegerArray，AtomicLongArray，AtomicReferenceArray 引用类型：AtomicReference，AtomicStampedRerence，AtomicMarkableReference 更新字段类：AtomicIntegerFieldUpdater、AtomicLongFieldUpdater、AtomicReferenceFieldUpdater Java8 新增类：DoubleAccumulator，DoubleAdder，LongAccumulator，LongAdder 使用 原子基本类型 使用原子的方式更新基本类型。\nAtomicBoolean: 原子布尔类型。 AtomicInteger: 原子整型。 AtomicLong: 原子长整型。 以下以AtomInteger举例：\n\/\/以原子方式将给定值与当前值相加，线程安全的i = i \u002b delta int addAndGet(int delta); \/\/如果当前值== except，则以原子方式将当前值设置为update，成功返回true boolean compareAndSet(int expect, int update); \/\/以原子方式将当前值减1，相当于线程安全的i-- int decrementAndGet(); \/\/以原子方式将当前值加1，相当于线程安全的i\u002b\u002b int incrementAndGet() private static final Unsafe unsafe = Unsafe.getUnsafe(); private static final long valueOffset; static { try { valueOffset = unsafe.objectFieldOffset (AtomicInteger.class.getDeclaredField(\u0026#34;value\u0026#34;)); } catch (Exception ex) { throw new Error(ex); } } private volatile int value; \/** * Atomically increments by one the current value. * * @return the updated value *\/ public final int incrementAndGet() { return unsafe.getAndAddInt(this, valueOffset, 1) \u002b 1; } \/** * Atomically decrements by one the current value. * * @return the updated value *\/ public final int decrementAndGet() { return unsafe.getAndAddInt(this, valueOffset, -1) - 1; } 从上面代码可以看出，AtomicInteger底层使用volatile关键字和CAS来保证线程安全。其中：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-10-29 19:39:23 \u002b0000 UTC",
+      "dateModified" : "2020-10-29 19:39:23 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/java%E5%B9%B6%E5%8F%91\/java%E5%8E%9F%E5%AD%90%E7%B1%BB%E7%9A%84%E4%BD%BF%E7%94%A8%E4%B8%8E%E5%AE%9E%E7%8E%B0\/",
+      "keywords" : [ "Java","并发", ]
+  }
+</script>
+<title>Java原子类的使用与实现</title>
+  <meta property="og:title" content="Java原子类的使用与实现" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 通常情况下，在Java中，&#43;&#43;i这类自增/自减运算符在并发环境中不能保证并发安全。需要通过加锁才能解决并发环境下的原子性问题。Atomic原子类通过CAS方式来解决线程安全问题，CAS是一种无锁算法（乐观锁），乐观锁多用于“读多写少“的环境，避免频繁加锁影响性能；而悲观锁多用于”写多读少“的环境，避免频繁失败和重试影响性能。
+Atomic原子类分为以下几类：
+基本类型：AtomicInteger，AtomicLong，AtomicBoolean 数组类型：AtomicIntegerArray，AtomicLongArray，AtomicReferenceArray 引用类型：AtomicReference，AtomicStampedRerence，AtomicMarkableReference 更新字段类：AtomicIntegerFieldUpdater、AtomicLongFieldUpdater、AtomicReferenceFieldUpdater Java8 新增类：DoubleAccumulator，DoubleAdder，LongAccumulator，LongAdder 使用 原子基本类型 使用原子的方式更新基本类型。
+AtomicBoolean: 原子布尔类型。 AtomicInteger: 原子整型。 AtomicLong: 原子长整型。 以下以AtomInteger举例：
+//以原子方式将给定值与当前值相加，线程安全的i = i &#43; delta int addAndGet(int delta); //如果当前值== except，则以原子方式将当前值设置为update，成功返回true boolean compareAndSet(int expect, int update); //以原子方式将当前值减1，相当于线程安全的i-- int decrementAndGet(); //以原子方式将当前值加1，相当于线程安全的i&#43;&#43; int incrementAndGet() private static final Unsafe unsafe = Unsafe.getUnsafe(); private static final long valueOffset; static { try { valueOffset = unsafe.objectFieldOffset (AtomicInteger.class.getDeclaredField(&#34;value&#34;)); } catch (Exception ex) { throw new Error(ex); } } private volatile int value; /** * Atomically increments by one the current value. * * @return the updated value */ public final int incrementAndGet() { return unsafe.getAndAddInt(this, valueOffset, 1) &#43; 1; } /** * Atomically decrements by one the current value. * * @return the updated value */ public final int decrementAndGet() { return unsafe.getAndAddInt(this, valueOffset, -1) - 1; } 从上面代码可以看出，AtomicInteger底层使用volatile关键字和CAS来保证线程安全。其中：
+" />
+  <meta name="description" content="简介 通常情况下，在Java中，&#43;&#43;i这类自增/自减运算符在并发环境中不能保证并发安全。需要通过加锁才能解决并发环境下的原子性问题。Atomic原子类通过CAS方式来解决线程安全问题，CAS是一种无锁算法（乐观锁），乐观锁多用于“读多写少“的环境，避免频繁加锁影响性能；而悲观锁多用于”写多读少“的环境，避免频繁失败和重试影响性能。
+Atomic原子类分为以下几类：
+基本类型：AtomicInteger，AtomicLong，AtomicBoolean 数组类型：AtomicIntegerArray，AtomicLongArray，AtomicReferenceArray 引用类型：AtomicReference，AtomicStampedRerence，AtomicMarkableReference 更新字段类：AtomicIntegerFieldUpdater、AtomicLongFieldUpdater、AtomicReferenceFieldUpdater Java8 新增类：DoubleAccumulator，DoubleAdder，LongAccumulator，LongAdder 使用 原子基本类型 使用原子的方式更新基本类型。
+AtomicBoolean: 原子布尔类型。 AtomicInteger: 原子整型。 AtomicLong: 原子长整型。 以下以AtomInteger举例：
+//以原子方式将给定值与当前值相加，线程安全的i = i &#43; delta int addAndGet(int delta); //如果当前值== except，则以原子方式将当前值设置为update，成功返回true boolean compareAndSet(int expect, int update); //以原子方式将当前值减1，相当于线程安全的i-- int decrementAndGet(); //以原子方式将当前值加1，相当于线程安全的i&#43;&#43; int incrementAndGet() private static final Unsafe unsafe = Unsafe.getUnsafe(); private static final long valueOffset; static { try { valueOffset = unsafe.objectFieldOffset (AtomicInteger.class.getDeclaredField(&#34;value&#34;)); } catch (Exception ex) { throw new Error(ex); } } private volatile int value; /** * Atomically increments by one the current value. * * @return the updated value */ public final int incrementAndGet() { return unsafe.getAndAddInt(this, valueOffset, 1) &#43; 1; } /** * Atomically decrements by one the current value. * * @return the updated value */ public final int decrementAndGet() { return unsafe.getAndAddInt(this, valueOffset, -1) - 1; } 从上面代码可以看出，AtomicInteger底层使用volatile关键字和CAS来保证线程安全。其中：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Java原子类的使用与实现</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-10-29 19:39:23 UTC">
+                29 Oct 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="简介">简介</h2>
+<p>通常情况下，在Java中，<code>++i</code>这类自增/自减运算符在并发环境中不能保证并发安全。需要通过加锁才能解决并发环境下的原子性问题。Atomic原子类通过CAS方式来解决线程安全问题，CAS是一种无锁算法（乐观锁），乐观锁多用于“读多写少“的环境，避免频繁加锁影响性能；而悲观锁多用于”写多读少“的环境，避免频繁失败和重试影响性能。</p>
+<p>Atomic原子类分为以下几类：</p>
+<ul>
+<li>基本类型：AtomicInteger，AtomicLong，AtomicBoolean</li>
+<li>数组类型：AtomicIntegerArray，AtomicLongArray，AtomicReferenceArray</li>
+<li>引用类型：AtomicReference，AtomicStampedRerence，AtomicMarkableReference</li>
+<li>更新字段类：AtomicIntegerFieldUpdater、AtomicLongFieldUpdater、AtomicReferenceFieldUpdater</li>
+<li>Java8 新增类：DoubleAccumulator，DoubleAdder，LongAccumulator，LongAdder</li>
+</ul>
+<h2 id="使用">使用</h2>
+<h3 id="原子基本类型">原子基本类型</h3>
+<p>使用原子的方式更新基本类型。</p>
+<ul>
+<li>AtomicBoolean: 原子布尔类型。</li>
+<li>AtomicInteger: 原子整型。</li>
+<li>AtomicLong: 原子长整型。</li>
+</ul>
+<p>以下以<code>AtomInteger</code>举例：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//以原子方式将给定值与当前值相加，线程安全的i = i + delta</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">addAndGet</span>(<span style="color:#66d9ef">int</span> delta);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//如果当前值== except，则以原子方式将当前值设置为update，成功返回true</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">compareAndSet</span>(<span style="color:#66d9ef">int</span> expect, <span style="color:#66d9ef">int</span> update);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//以原子方式将当前值减1，相当于线程安全的i--</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">decrementAndGet</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//以原子方式将当前值加1，相当于线程安全的i++</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">incrementAndGet</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> Unsafe unsafe <span style="color:#f92672">=</span> Unsafe.<span style="color:#a6e22e">getUnsafe</span>();
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> valueOffset;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> {
+</span></span><span style="display:flex;"><span>            valueOffset <span style="color:#f92672">=</span> unsafe.<span style="color:#a6e22e">objectFieldOffset</span>
+</span></span><span style="display:flex;"><span>                (AtomicInteger.<span style="color:#a6e22e">class</span>.<span style="color:#a6e22e">getDeclaredField</span>(<span style="color:#e6db74">&#34;value&#34;</span>));
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">catch</span> (Exception ex) { <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> Error(ex); }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">volatile</span> <span style="color:#66d9ef">int</span> value;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Atomically increments by one the current value.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * @return the updated value
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">incrementAndGet</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> unsafe.<span style="color:#a6e22e">getAndAddInt</span>(<span style="color:#66d9ef">this</span>, valueOffset, 1) <span style="color:#f92672">+</span> 1;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Atomically decrements by one the current value.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * @return the updated value
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">decrementAndGet</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> unsafe.<span style="color:#a6e22e">getAndAddInt</span>(<span style="color:#66d9ef">this</span>, valueOffset, <span style="color:#f92672">-</span>1) <span style="color:#f92672">-</span> 1;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p>从上面代码可以看出，AtomicInteger底层使用<code>volatile</code>关键字和CAS来保证线程安全。其中：</p>
+<ul>
+<li>volatile保证线程的可见性，让每次读取的变量都是最新值</li>
+<li>CAS保证原子性</li>
+</ul>
+<h3 id="原子数组">原子数组</h3>
+<p>以原子方式更新数组中的某个元素。</p>
+<ul>
+<li>AtomicIntegerArray: 原子更新整型数组里的元素。</li>
+<li>AtomicLongArray: 原子更新长整型数组里的元素。</li>
+<li>AtomicReferenceArray: 原子更新引用类型数组里的元素。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) <span style="color:#66d9ef">throws</span> InterruptedException {
+</span></span><span style="display:flex;"><span>        AtomicIntegerArray array <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> AtomicIntegerArray(<span style="color:#66d9ef">new</span> <span style="color:#66d9ef">int</span><span style="color:#f92672">[]</span> { 0, 0 });
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(array);
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(array.<span style="color:#a6e22e">getAndAdd</span>(1, 2));
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(array);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="原子引用类型">原子引用类型</h3>
+<ul>
+<li>AtomicReference：原子更新引用类型。</li>
+<li>AtomicStampedReference： 原子更新引用类型,内部使用Pair来存储元素值及其版本号。</li>
+<li>AtomicMarkableReferce：原子更新带有标记位的引用类型，标记是否被改过。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">// 创建两个Person对象，它们的id分别是101和102。</span>
+</span></span><span style="display:flex;"><span>Person p1 <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Person(101);
+</span></span><span style="display:flex;"><span>Person p2 <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Person(102);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 新建AtomicReference对象，初始化它的值为p1对象</span>
+</span></span><span style="display:flex;"><span>AtomicReference ar <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> AtomicReference(p1);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 通过CAS设置ar。如果ar的值为p1的话，则将其设置为p2。</span>
+</span></span><span style="display:flex;"><span>ar.<span style="color:#a6e22e">compareAndSet</span>(p1, p2);
+</span></span><span style="display:flex;"><span>Person p3 <span style="color:#f92672">=</span> (Person)ar.<span style="color:#a6e22e">get</span>();
+</span></span><span style="display:flex;"><span>System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;p3 is &#34;</span><span style="color:#f92672">+</span>p3);
+</span></span><span style="display:flex;"><span>System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;p3.equals(p1)=&#34;</span><span style="color:#f92672">+</span>p3.<span style="color:#a6e22e">equals</span>(p1));
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//output</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>p3 is id:102
+</span></span><span style="display:flex;"><span>p3.<span style="color:#a6e22e">equals</span>(p1)<span style="color:#f92672">=</span><span style="color:#66d9ef">false</span>
+</span></span></code></pre></div><h3 id="原子字段类">原子字段类</h3>
+<ul>
+<li>AtomicIntegerFieldUpdater：原子更新Integer的字段的更新器。</li>
+<li>AtomicLongFieldUpdater：原子更新Long字段的更新器。</li>
+<li>AtomicStampedFieldUpdater： 原子更新带有版本号的引用类型。</li>
+<li>AtomicReferenceFieldUpdater： 原子更新引用的更新器。</li>
+</ul>
+<p>这四个类通过反射更新字段的值，使用字段类如下：</p>
+<ol>
+<li>使用静态方法<code>newUpdater()</code>创建一个更新器，并需要设置想要更新的类和属性。</li>
+<li>更新类的字段必须使用public volatile修饰。</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">AtomicIntegerFieldUpdaterTest</span> {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> Class<span style="color:#f92672">&lt;</span>Person<span style="color:#f92672">&gt;</span> cls;
+</span></span><span style="display:flex;"><span>     
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>        AtomicIntegerFieldUpdater<span style="color:#f92672">&lt;</span>Person<span style="color:#f92672">&gt;</span> mAtoLong <span style="color:#f92672">=</span> AtomicIntegerFieldUpdater.<span style="color:#a6e22e">newUpdater</span>(Person.<span style="color:#a6e22e">class</span>, <span style="color:#e6db74">&#34;id&#34;</span>);
+</span></span><span style="display:flex;"><span>        Person person <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Person(1000);
+</span></span><span style="display:flex;"><span>        mAtoLong.<span style="color:#a6e22e">compareAndSet</span>(person, 1000, 1001);
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;id=&#34;</span><span style="color:#f92672">+</span>person.<span style="color:#a6e22e">getId</span>());
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Person</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">volatile</span> <span style="color:#66d9ef">int</span> id;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">Person</span>(<span style="color:#66d9ef">int</span> id) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">id</span> <span style="color:#f92672">=</span> id;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">setId</span>(<span style="color:#66d9ef">int</span> id) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">id</span> <span style="color:#f92672">=</span> id;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">getId</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> id;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>使用该类有如下约束：</p>
+<ul>
+<li>字段必须由volatile修饰</li>
+<li>字段的访问修饰符能让调用方访问到。</li>
+<li>只能是实例变量，不能加static</li>
+<li>对于AtomicIntegerFieldUpdater和AtomicLongFieldUpdater只能修改int/long类型的字段，不能修改其包装类型(Integer/Long)。如果要修改包装类型就需要使用AtomicReferenceFieldUpdater。</li>
+</ul>
+<h2 id="cas理论">CAS理论</h2>
+<p>CAS（Compare-And-Swap）：是一条CPU的原子指令，其作用是让CPU先进行比较两个值是否相等，然后原子地更新某个位置的值。一个当前内存值V、旧的预期值A、即将更新的值B，当且仅当预期值A和内存值V相同时，将内存值修改为B并返回true，否则返回false。CAS的基本思路就是循环进行CAS操作直到成功为止。</p>
+<p>CAS在X86架构下汇编指令是<code>lock cmpxchg</code>。需要和volatile配合使用，保证拿到的变量是最新值。</p>
+<p>虽然乐观锁通常情况下比悲观锁性能更优，但是还存在以下一些问题：</p>
+<h3 id="aba问题">ABA问题</h3>
+<p>CAS自旋需要在操作值得时候检查是否发生变化，但是如果一个值是A，变成B，然后又变成A，CAS检查会发现没有变化。<strong>AtomicStampedReference</strong>来解决ABA问题：这个类的<code>compareAndSet</code>方法作用是首先检查当前引用是否等于预期引用，并且当前<code>stamp</code>是否等于预期<code>stamp</code>，这里的<code>stamp</code>类似于版本号功能。如果全部相等，则以原子方式将该引用和该标志的值设置为给定的更新值。</p>
+<h3 id="循环时间长开销大">循环时间长开销大</h3>
+<p>CAS自旋如果长时间不成功，会给CPU带来较大得执行开销。</p>
+<h3 id="只能保证一个共享变量的原子操作">只能保证一个共享变量的原子操作</h3>
+<p>对多个共享变量操作时，CAS无法保证多个操作的原子性，但是可以使用锁来解决。
+当然可以将多个共享变量合并成一个共享变量来操作，比如<code>i = 2;j = a</code>，合并为<code>ij = 2a</code>，然后CAS操作<code>ij</code>，从Java 1.5开始，JDK提供了<code>AtomicReference</code>类来保证引用对象之间的原子性，可以把多个变量放在一个对象里来进行CAS操作。</p>
+<h2 id="unsafe-cas解析">Unsafe-CAS解析</h2>
+<p>Java中原子类中CAS操作通过调用<code>Unsafe</code>去实现，<code>Unsafe</code>是位于<code>sun.misc</code>下的一个类，提供的功能主要如下：</p>
+<ul>
+<li>数组相关
+<ul>
+<li>返回数组元素内存大小</li>
+<li>返回数组首元素偏移大小</li>
+</ul>
+</li>
+<li>内存屏障
+<ul>
+<li>禁止load, store重排序</li>
+</ul>
+</li>
+<li>系统相关
+<ul>
+<li>返回内存页的大小</li>
+<li>返回系统指针大小</li>
+</ul>
+</li>
+<li>线程调度
+<ul>
+<li>线程挂起, 恢复</li>
+<li>获取，释放锁</li>
+</ul>
+</li>
+<li>内存操作
+<ul>
+<li>分配、拷贝、扩充、释放堆外内存</li>
+</ul>
+</li>
+<li>CAS</li>
+<li>Class
+<ul>
+<li>动态创建类</li>
+<li>获取field的内存地址偏移量</li>
+<li>检测、确保类初始化</li>
+</ul>
+</li>
+<li>对象操作
+<ul>
+<li>获取对象成员属性的偏移量</li>
+<li>非常规对象实例化</li>
+<li>存储、获取指定偏移地址的变量值。</li>
+</ul>
+</li>
+</ul>
+<p>下文对<code>Unsafe</code>的CAS做简要分析。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">getAndSetInt</span>(Object var1, <span style="color:#66d9ef">long</span> var2, <span style="color:#66d9ef">int</span> var4) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> var5;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>            var5 <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">getIntVolatile</span>(var1, var2);
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">while</span>(<span style="color:#f92672">!</span><span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">compareAndSwapInt</span>(var1, var2, var5, var4));
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> var5;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">getAndSetLong</span>(Object var1, <span style="color:#66d9ef">long</span> var2, <span style="color:#66d9ef">long</span> var4) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> var6;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>            var6 <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">getLongVolatile</span>(var1, var2);
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">while</span>(<span style="color:#f92672">!</span><span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">compareAndSwapLong</span>(var1, var2, var6, var4));
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> var6;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p><code>Unsafe</code>调用<code>compareAndSwapInt</code>进行CAS操作，使用while操作进行自旋。这是一个<code>native</code>方法，实现位于<a href="http://hg.openjdk.java.net/jdk8/jdk8/hotspot/file/tip/src/share/vm/prims/unsafe.cpp">unsafe.cpp</a>，<code>cmpxchg</code>在不同平台上有不同的实现。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-C++" data-lang="C++"><span style="display:flex;"><span>UNSAFE_ENTRY(jboolean, Unsafe_CompareAndSwapInt(JNIEnv <span style="color:#f92672">*</span>env, jobject unsafe, jobject obj, jlong offset, jint e, jint x))
+</span></span><span style="display:flex;"><span>  UnsafeWrapper(<span style="color:#e6db74">&#34;Unsafe_CompareAndSwapInt&#34;</span>);
+</span></span><span style="display:flex;"><span>  oop p <span style="color:#f92672">=</span> JNIHandles<span style="color:#f92672">::</span>resolve(obj);
+</span></span><span style="display:flex;"><span>  jint<span style="color:#f92672">*</span> addr <span style="color:#f92672">=</span> (jint <span style="color:#f92672">*</span>) index_oop_from_field_offset_long(p, offset);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> (jint)(Atomic<span style="color:#f92672">::</span>cmpxchg(x, addr, e)) <span style="color:#f92672">==</span> e;
+</span></span><span style="display:flex;"><span>UNSAFE_END
+</span></span></code></pre></div>
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E5%B9%B6%E5%8F%91/">
+                并发
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/volatile%E5%85%B3%E9%94%AE%E5%AD%97%E5%89%96%E6%9E%90/">volatile关键字剖析</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/synchronized%E5%85%B3%E9%94%AE%E5%AD%97%E5%89%96%E6%9E%90/">synchronized关键字剖析</a></li>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/threadlocal-rondom/">ThreadLocalRondom原理剖析</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/netty/netty%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%B8%80-%E6%A6%82%E8%A7%88/" />
+  <link rel="canonical" href="http://localhost:59500/posts/netty/netty%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%B8%80-%E6%A6%82%E8%A7%88/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Netty学习笔记(一)-概览",
+      "headline" : "Netty学习笔记(一)-概览",
+      "description" : "简介 Netty是一个应用于网络编程领域的NIO网络框架，通过屏蔽底层Socket编程细节，封装了提供上层业务使用的API，简化了网络应用的开发过程。Netty需要关注以下几点：\nIO模型、线程模型 事件处理机制 API接口的使用 数据协议、序列化的支持 Netty的IO模型是基于非阻塞IO实现的，底层通过JDK NIO中的Selector实现，Selector可以同时轮询多个Channel，采用epoll模式后只需要一个线程负责Selector的轮询。\nIO多路复用的场景中，需要一个Event Dispather负责将读写事件分发给对应的Event Handler，事件分发器主要有两种：\nReactor：采用同步IO，实现简单，适用于处理耗时短的场景，耗时长的IO操作容易出现阻塞。 Proactor：采用异步IO，实现逻辑复杂，性能更高 Netty的优点：\n易用：将NIO的API进一步封装，提供了开箱即用的工具 稳定：修复了NIO的bug 可扩展：可以通过启动参数选择Reactor线程模型 低消耗：Netty性能优化 对象池复用 零拷贝 NIO基础 NIO是一种同步非阻塞的IO模型，NIO与普通IO的最大区别就是非阻塞，通过每个线程通过Selector去监听多个Channel，并且读写数据是以块为单位，与BIO相比，大大提升了IO效率。\nBIO存在的问题：\naccept、read、write都是同步阻塞，处理IO时，线程阻塞。 BIO模型严重依赖线程，线程资源比较宝贵。 Linux中用task_struct管理，创建或销毁线程使用系统调用，开销大，并且进程切换也存在开销 每个线程在JVM中占用1MB内存，连接数量大的时候，极易产生OOM Standard IO是对字节流进行读写，读写单位是字节，NIO将IO抽象成块，读写单位是块。\n基本概念：\nChannel：对原IO包中流的模拟，可以通过它来读取和写入数据，数据流向是双向的。\nFileChannel：从文件中读取数据 DatagramChannel：通过UDP读写网络数据 SocketChannel：通过TCP读写网络数据 ServerSocketChannel：监听新的TCP连接，对每个新连接都创建一个SocketChannel Buffer：Channel中的数据都需要通过Buffer进行传递，本质上是数组\nByteBuffer、CharBuffer等 Buffer的内部变量： capacity：最大容量 position：当前读写处的下标位置 limit：还可读写的下标位置 Selector：NIO采用的Reactor模型，一个线程使用一个Selector通过轮询的方式去监听多个Channel上面的事件，将Channel配置为非阻塞，那么Selector检测到当前Channel没有IO事件，就会轮询其他Channel。\n内存映射文件：是一种读写文件的方式，比常规基于流或者Channel的IO快。\n\/\/将文件的前1024字节映射到内存中，map()方法返回一个MappedByteBuffer MappedByteBuffer mbb = fc.map(FileChannel.MapMode.READ_WRITE, 0, 1024); Demo public class SimpleServer { public static void main(String[] args) { \/** * ServerBootstrap：服务端启动器，负责组装、协调netty组件 * NioEventLoopGroup：thread \u002b selector * NioServerSocketChannel：对原生NIO的ServerSocketChannel封装 * ChannelInitializer：对channel进行初始化 *\/ new ServerBootstrap() .group(new NioEventLoopGroup()) .channel(NioServerSocketChannel.class) .childHandler(new ChannelInitializer\u0026lt;NioSocketChannel\u0026gt;() { \/\/连接建立后执行initChannel @Override protected void initChannel(NioSocketChannel ch) throws Exception { \/\/StringDecoder：将Bytebuffer转为string ch.pipeline().addLast(new StringDecoder()); \/\/自定义handler ch.pipeline().addLast(new ChannelInboundHandlerAdapter() { @Override public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception { System.out.println(msg); } }); } }) .bind(8080); } } public class SimpleClient { public static void main(String[] args) throws IOException, InterruptedException { new Bootstrap() .group(new NioEventLoopGroup()) .channel(NioSocketChannel.class) .handler(new ChannelInitializer\u0026lt;NioSocketChannel\u0026gt;() { @Override protected void initChannel(NioSocketChannel ch) throws Exception { ch.pipeline().addLast(new StringEncoder()); } }) .connect(new InetSocketAddress(\u0026#34;localhost\u0026#34;, 8080)) \/\/阻塞直到连接建立 .sync() \/\/代表连接对象 .channel() \/\/发送数据 .writeAndFlush(\u0026#34;hello world\u0026#34;); } } Netty组件 Core：提供了底层网络通信的抽象和实现，支持零拷贝的ByteBuffer、可扩展的事件模型、通信API。 协议支持层：对主流协议的编解码实现，包括：HTTP、SSL、Protobuf等，还支持自定义应用层协议。 传输服务层：提供了网络传输能力的抽象和实现，支持Socket、HTTP tunnel、VM pipe等方式 ",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2022",
+      "datePublished": "2022-08-06 08:12:54 \u002b0000 UTC",
+      "dateModified" : "2022-08-06 08:12:54 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/netty\/netty%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E4%B8%80-%E6%A6%82%E8%A7%88\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Netty学习笔记(一)-概览</title>
+  <meta property="og:title" content="Netty学习笔记(一)-概览" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="简介 Netty是一个应用于网络编程领域的NIO网络框架，通过屏蔽底层Socket编程细节，封装了提供上层业务使用的API，简化了网络应用的开发过程。Netty需要关注以下几点：
+IO模型、线程模型 事件处理机制 API接口的使用 数据协议、序列化的支持 Netty的IO模型是基于非阻塞IO实现的，底层通过JDK NIO中的Selector实现，Selector可以同时轮询多个Channel，采用epoll模式后只需要一个线程负责Selector的轮询。
+IO多路复用的场景中，需要一个Event Dispather负责将读写事件分发给对应的Event Handler，事件分发器主要有两种：
+Reactor：采用同步IO，实现简单，适用于处理耗时短的场景，耗时长的IO操作容易出现阻塞。 Proactor：采用异步IO，实现逻辑复杂，性能更高 Netty的优点：
+易用：将NIO的API进一步封装，提供了开箱即用的工具 稳定：修复了NIO的bug 可扩展：可以通过启动参数选择Reactor线程模型 低消耗：Netty性能优化 对象池复用 零拷贝 NIO基础 NIO是一种同步非阻塞的IO模型，NIO与普通IO的最大区别就是非阻塞，通过每个线程通过Selector去监听多个Channel，并且读写数据是以块为单位，与BIO相比，大大提升了IO效率。
+BIO存在的问题：
+accept、read、write都是同步阻塞，处理IO时，线程阻塞。 BIO模型严重依赖线程，线程资源比较宝贵。 Linux中用task_struct管理，创建或销毁线程使用系统调用，开销大，并且进程切换也存在开销 每个线程在JVM中占用1MB内存，连接数量大的时候，极易产生OOM Standard IO是对字节流进行读写，读写单位是字节，NIO将IO抽象成块，读写单位是块。
+基本概念：
+Channel：对原IO包中流的模拟，可以通过它来读取和写入数据，数据流向是双向的。
+FileChannel：从文件中读取数据 DatagramChannel：通过UDP读写网络数据 SocketChannel：通过TCP读写网络数据 ServerSocketChannel：监听新的TCP连接，对每个新连接都创建一个SocketChannel Buffer：Channel中的数据都需要通过Buffer进行传递，本质上是数组
+ByteBuffer、CharBuffer等 Buffer的内部变量： capacity：最大容量 position：当前读写处的下标位置 limit：还可读写的下标位置 Selector：NIO采用的Reactor模型，一个线程使用一个Selector通过轮询的方式去监听多个Channel上面的事件，将Channel配置为非阻塞，那么Selector检测到当前Channel没有IO事件，就会轮询其他Channel。
+内存映射文件：是一种读写文件的方式，比常规基于流或者Channel的IO快。
+//将文件的前1024字节映射到内存中，map()方法返回一个MappedByteBuffer MappedByteBuffer mbb = fc.map(FileChannel.MapMode.READ_WRITE, 0, 1024); Demo public class SimpleServer { public static void main(String[] args) { /** * ServerBootstrap：服务端启动器，负责组装、协调netty组件 * NioEventLoopGroup：thread &#43; selector * NioServerSocketChannel：对原生NIO的ServerSocketChannel封装 * ChannelInitializer：对channel进行初始化 */ new ServerBootstrap() .group(new NioEventLoopGroup()) .channel(NioServerSocketChannel.class) .childHandler(new ChannelInitializer&lt;NioSocketChannel&gt;() { //连接建立后执行initChannel @Override protected void initChannel(NioSocketChannel ch) throws Exception { //StringDecoder：将Bytebuffer转为string ch.pipeline().addLast(new StringDecoder()); //自定义handler ch.pipeline().addLast(new ChannelInboundHandlerAdapter() { @Override public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception { System.out.println(msg); } }); } }) .bind(8080); } } public class SimpleClient { public static void main(String[] args) throws IOException, InterruptedException { new Bootstrap() .group(new NioEventLoopGroup()) .channel(NioSocketChannel.class) .handler(new ChannelInitializer&lt;NioSocketChannel&gt;() { @Override protected void initChannel(NioSocketChannel ch) throws Exception { ch.pipeline().addLast(new StringEncoder()); } }) .connect(new InetSocketAddress(&#34;localhost&#34;, 8080)) //阻塞直到连接建立 .sync() //代表连接对象 .channel() //发送数据 .writeAndFlush(&#34;hello world&#34;); } } Netty组件 Core：提供了底层网络通信的抽象和实现，支持零拷贝的ByteBuffer、可扩展的事件模型、通信API。 协议支持层：对主流协议的编解码实现，包括：HTTP、SSL、Protobuf等，还支持自定义应用层协议。 传输服务层：提供了网络传输能力的抽象和实现，支持Socket、HTTP tunnel、VM pipe等方式 " />
+  <meta name="description" content="简介 Netty是一个应用于网络编程领域的NIO网络框架，通过屏蔽底层Socket编程细节，封装了提供上层业务使用的API，简化了网络应用的开发过程。Netty需要关注以下几点：
+IO模型、线程模型 事件处理机制 API接口的使用 数据协议、序列化的支持 Netty的IO模型是基于非阻塞IO实现的，底层通过JDK NIO中的Selector实现，Selector可以同时轮询多个Channel，采用epoll模式后只需要一个线程负责Selector的轮询。
+IO多路复用的场景中，需要一个Event Dispather负责将读写事件分发给对应的Event Handler，事件分发器主要有两种：
+Reactor：采用同步IO，实现简单，适用于处理耗时短的场景，耗时长的IO操作容易出现阻塞。 Proactor：采用异步IO，实现逻辑复杂，性能更高 Netty的优点：
+易用：将NIO的API进一步封装，提供了开箱即用的工具 稳定：修复了NIO的bug 可扩展：可以通过启动参数选择Reactor线程模型 低消耗：Netty性能优化 对象池复用 零拷贝 NIO基础 NIO是一种同步非阻塞的IO模型，NIO与普通IO的最大区别就是非阻塞，通过每个线程通过Selector去监听多个Channel，并且读写数据是以块为单位，与BIO相比，大大提升了IO效率。
+BIO存在的问题：
+accept、read、write都是同步阻塞，处理IO时，线程阻塞。 BIO模型严重依赖线程，线程资源比较宝贵。 Linux中用task_struct管理，创建或销毁线程使用系统调用，开销大，并且进程切换也存在开销 每个线程在JVM中占用1MB内存，连接数量大的时候，极易产生OOM Standard IO是对字节流进行读写，读写单位是字节，NIO将IO抽象成块，读写单位是块。
+基本概念：
+Channel：对原IO包中流的模拟，可以通过它来读取和写入数据，数据流向是双向的。
+FileChannel：从文件中读取数据 DatagramChannel：通过UDP读写网络数据 SocketChannel：通过TCP读写网络数据 ServerSocketChannel：监听新的TCP连接，对每个新连接都创建一个SocketChannel Buffer：Channel中的数据都需要通过Buffer进行传递，本质上是数组
+ByteBuffer、CharBuffer等 Buffer的内部变量： capacity：最大容量 position：当前读写处的下标位置 limit：还可读写的下标位置 Selector：NIO采用的Reactor模型，一个线程使用一个Selector通过轮询的方式去监听多个Channel上面的事件，将Channel配置为非阻塞，那么Selector检测到当前Channel没有IO事件，就会轮询其他Channel。
+内存映射文件：是一种读写文件的方式，比常规基于流或者Channel的IO快。
+//将文件的前1024字节映射到内存中，map()方法返回一个MappedByteBuffer MappedByteBuffer mbb = fc.map(FileChannel.MapMode.READ_WRITE, 0, 1024); Demo public class SimpleServer { public static void main(String[] args) { /** * ServerBootstrap：服务端启动器，负责组装、协调netty组件 * NioEventLoopGroup：thread &#43; selector * NioServerSocketChannel：对原生NIO的ServerSocketChannel封装 * ChannelInitializer：对channel进行初始化 */ new ServerBootstrap() .group(new NioEventLoopGroup()) .channel(NioServerSocketChannel.class) .childHandler(new ChannelInitializer&lt;NioSocketChannel&gt;() { //连接建立后执行initChannel @Override protected void initChannel(NioSocketChannel ch) throws Exception { //StringDecoder：将Bytebuffer转为string ch.pipeline().addLast(new StringDecoder()); //自定义handler ch.pipeline().addLast(new ChannelInboundHandlerAdapter() { @Override public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception { System.out.println(msg); } }); } }) .bind(8080); } } public class SimpleClient { public static void main(String[] args) throws IOException, InterruptedException { new Bootstrap() .group(new NioEventLoopGroup()) .channel(NioSocketChannel.class) .handler(new ChannelInitializer&lt;NioSocketChannel&gt;() { @Override protected void initChannel(NioSocketChannel ch) throws Exception { ch.pipeline().addLast(new StringEncoder()); } }) .connect(new InetSocketAddress(&#34;localhost&#34;, 8080)) //阻塞直到连接建立 .sync() //代表连接对象 .channel() //发送数据 .writeAndFlush(&#34;hello world&#34;); } } Netty组件 Core：提供了底层网络通信的抽象和实现，支持零拷贝的ByteBuffer、可扩展的事件模型、通信API。 协议支持层：对主流协议的编解码实现，包括：HTTP、SSL、Protobuf等，还支持自定义应用层协议。 传输服务层：提供了网络传输能力的抽象和实现，支持Socket、HTTP tunnel、VM pipe等方式 " />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Netty学习笔记(一)-概览</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2022-08-06 08:12:54 UTC">
+                06 Aug 2022
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="简介">简介</h2>
+<p>Netty是一个应用于网络编程领域的NIO网络框架，通过屏蔽底层Socket编程细节，封装了提供上层业务使用的API，简化了网络应用的开发过程。Netty需要关注以下几点：</p>
+<ul>
+<li>IO模型、线程模型</li>
+<li>事件处理机制</li>
+<li>API接口的使用</li>
+<li>数据协议、序列化的支持</li>
+</ul>
+<p>Netty的IO模型是基于非阻塞IO实现的，底层通过<code>JDK NIO</code>中的<code>Selector</code>实现，<code>Selector</code>可以同时轮询多个<code>Channel</code>，采用<code>epoll</code>模式后只需要一个线程负责<code>Selector</code>的轮询。</p>
+<p>IO多路复用的场景中，需要一个<code>Event Dispather</code>负责将读写事件分发给对应的<code>Event Handler</code>，事件分发器主要有两种：</p>
+<ul>
+<li>Reactor：采用同步IO，实现简单，适用于处理耗时短的场景，耗时长的IO操作容易出现阻塞。</li>
+<li>Proactor：采用异步IO，实现逻辑复杂，性能更高</li>
+</ul>
+<p>Netty的优点：</p>
+<ul>
+<li>易用：将NIO的API进一步封装，提供了开箱即用的工具</li>
+<li>稳定：修复了NIO的bug</li>
+<li>可扩展：可以通过启动参数选择Reactor线程模型</li>
+<li>低消耗：Netty性能优化
+<ul>
+<li>对象池复用</li>
+<li>零拷贝</li>
+</ul>
+</li>
+</ul>
+<h2 id="nio基础">NIO基础</h2>
+<p>NIO是一种同步非阻塞的IO模型，NIO与普通IO的最大区别就是非阻塞，通过每个线程通过Selector去监听多个Channel，并且读写数据是以块为单位，与BIO相比，大大提升了IO效率。</p>
+<p>BIO存在的问题：</p>
+<ul>
+<li>accept、read、write都是同步阻塞，处理IO时，线程阻塞。</li>
+<li>BIO模型严重依赖线程，线程资源比较宝贵。
+<ul>
+<li>Linux中用<code>task_struct</code>管理，创建或销毁线程使用系统调用，开销大，并且进程切换也存在开销</li>
+<li>每个线程在JVM中占用1MB内存，连接数量大的时候，极易产生OOM</li>
+</ul>
+</li>
+</ul>
+<p>Standard IO是对字节流进行读写，读写单位是字节，NIO将IO抽象成块，读写单位是块。</p>
+<p>基本概念：</p>
+<ul>
+<li>
+<p>Channel：对原IO包中流的模拟，可以通过它来读取和写入数据，数据流向是双向的。</p>
+<ul>
+<li>FileChannel：从文件中读取数据</li>
+<li>DatagramChannel：通过UDP读写网络数据</li>
+<li>SocketChannel：通过TCP读写网络数据</li>
+<li>ServerSocketChannel：监听新的TCP连接，对每个新连接都创建一个SocketChannel</li>
+</ul>
+</li>
+<li>
+<p>Buffer：Channel中的数据都需要通过Buffer进行传递，本质上是数组</p>
+<ul>
+<li>ByteBuffer、CharBuffer等</li>
+<li>Buffer的内部变量：
+<ul>
+<li>capacity：最大容量</li>
+<li>position：当前读写处的下标位置</li>
+<li>limit：还可读写的下标位置</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>Selector：NIO采用的Reactor模型，一个线程使用一个Selector通过轮询的方式去监听多个Channel上面的事件，将Channel配置为非阻塞，那么Selector检测到当前Channel没有IO事件，就会轮询其他Channel。</p>
+</li>
+</ul>
+<p>内存映射文件：是一种读写文件的方式，比常规基于流或者Channel的IO快。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//将文件的前1024字节映射到内存中，map()方法返回一个MappedByteBuffer</span>
+</span></span><span style="display:flex;"><span>MappedByteBuffer mbb <span style="color:#f92672">=</span> fc.<span style="color:#a6e22e">map</span>(FileChannel.<span style="color:#a6e22e">MapMode</span>.<span style="color:#a6e22e">READ_WRITE</span>, 0, 1024);
+</span></span></code></pre></div><h2 id="demo">Demo</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">SimpleServer</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * ServerBootstrap：服务端启动器，负责组装、协调netty组件
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * NioEventLoopGroup：thread + selector
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * NioServerSocketChannel：对原生NIO的ServerSocketChannel封装
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * ChannelInitializer：对channel进行初始化
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">new</span> ServerBootstrap()
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">group</span>(<span style="color:#66d9ef">new</span> NioEventLoopGroup())
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">channel</span>(NioServerSocketChannel.<span style="color:#a6e22e">class</span>)
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">childHandler</span>(<span style="color:#66d9ef">new</span> ChannelInitializer<span style="color:#f92672">&lt;</span>NioSocketChannel<span style="color:#f92672">&gt;</span>() {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//连接建立后执行initChannel</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">initChannel</span>(NioSocketChannel ch) <span style="color:#66d9ef">throws</span> Exception {
+</span></span><span style="display:flex;"><span>                        <span style="color:#75715e">//StringDecoder：将Bytebuffer转为string</span>
+</span></span><span style="display:flex;"><span>                        ch.<span style="color:#a6e22e">pipeline</span>().<span style="color:#a6e22e">addLast</span>(<span style="color:#66d9ef">new</span> StringDecoder());
+</span></span><span style="display:flex;"><span>                        <span style="color:#75715e">//自定义handler</span>
+</span></span><span style="display:flex;"><span>                        ch.<span style="color:#a6e22e">pipeline</span>().<span style="color:#a6e22e">addLast</span>(<span style="color:#66d9ef">new</span> ChannelInboundHandlerAdapter() {
+</span></span><span style="display:flex;"><span>                            <span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>                            <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">channelRead</span>(ChannelHandlerContext ctx, Object msg) <span style="color:#66d9ef">throws</span> Exception {
+</span></span><span style="display:flex;"><span>                                System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(msg);
+</span></span><span style="display:flex;"><span>                            }
+</span></span><span style="display:flex;"><span>                        });
+</span></span><span style="display:flex;"><span>                    }
+</span></span><span style="display:flex;"><span>                })
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">bind</span>(8080);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">SimpleClient</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) <span style="color:#66d9ef">throws</span> IOException, InterruptedException {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">new</span> Bootstrap()
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">group</span>(<span style="color:#66d9ef">new</span> NioEventLoopGroup())
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">channel</span>(NioSocketChannel.<span style="color:#a6e22e">class</span>)
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">handler</span>(<span style="color:#66d9ef">new</span> ChannelInitializer<span style="color:#f92672">&lt;</span>NioSocketChannel<span style="color:#f92672">&gt;</span>() {
+</span></span><span style="display:flex;"><span>                    <span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">initChannel</span>(NioSocketChannel ch) <span style="color:#66d9ef">throws</span> Exception {
+</span></span><span style="display:flex;"><span>                        ch.<span style="color:#a6e22e">pipeline</span>().<span style="color:#a6e22e">addLast</span>(<span style="color:#66d9ef">new</span> StringEncoder());
+</span></span><span style="display:flex;"><span>                    }
+</span></span><span style="display:flex;"><span>                })
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">connect</span>(<span style="color:#66d9ef">new</span> InetSocketAddress(<span style="color:#e6db74">&#34;localhost&#34;</span>, 8080))
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//阻塞直到连接建立</span>
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">sync</span>()
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//代表连接对象</span>
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">channel</span>()
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//发送数据</span>
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">writeAndFlush</span>(<span style="color:#e6db74">&#34;hello world&#34;</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="netty组件">Netty组件</h2>
+<ul>
+<li>Core：提供了底层网络通信的抽象和实现，支持零拷贝的ByteBuffer、可扩展的事件模型、通信API。</li>
+<li>协议支持层：对主流协议的编解码实现，包括：HTTP、SSL、Protobuf等，还支持自定义应用层协议。</li>
+<li>传输服务层：提供了网络传输能力的抽象和实现，支持Socket、HTTP tunnel、VM pipe等方式</li>
+</ul>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/components.png" alt="netty-components"></p>
+<p>从逻辑架构上可以分为：</p>
+<ul>
+<li>网络通信层：执行网络IO的操作，支持多种网络协议和IO模型，数据被读取到内核缓冲区时，会触发各种网络事件，事件会分发给上层处理，包括以下组件：
+<ul>
+<li>Bootstrap：负责整个Netty的启动、初始化、服务器连接等过程，主要负责客户端的引导，可以连接远程服务器，只绑定一个EventLoopGroup</li>
+<li>ServerBootStrap：负责服务端的引导。用于服务端启动绑定本地端口，绑定两个EventLoopGroup。这两个被称为Boss和Worker。
+<ul>
+<li>Boss负责监听网络连接事件，新的连接到达，将Channel注册到Worker</li>
+<li>Worker分配一个EventLoop处理Channel的读写实现，通过Selector进行事件循环</li>
+</ul>
+</li>
+<li>Channel：网络通信的载体，提供了较NIO的Channel更高层次的抽象。会有生命周期，每一种状态都会绑定事件回调。</li>
+</ul>
+</li>
+<li>事件调度层：通过Reactor线程模型对各类事件进行处理，通过Selector主循环线程集成多种事件，实际的处理逻辑交给服务编排层的Handler完成。
+<ul>
+<li>
+<ul>
+<li></li>
+</ul>
+</li>
+<li><strong>EventLoop</strong>：本质上是一个单线程执行器，内部维护一个Selector，run方法处理Channel在生命周期内的所有IO事件，比如accept、connect、read、write等。同一时间与一个线程绑定，负责处理多个Channel。
+<ul>
+<li>继承关系：
+<ul>
+<li>继承netty的OrderedEventExecutor。
+<ul>
+<li>拥有netty特有的自定义线程池方法：包括判断一个线程是否属于当前EventLoop。</li>
+</ul>
+</li>
+<li>继承JUC的ScheduledExecutorService，因此其含有线程池的方法</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>EventLoopGroup</strong>：本质是一个线程池，负责接收IO请求，并分配线程去执行。内部有EventLoop。是Reactor线程模型的具体实现方式，channel调用group的register方法来绑定相应的EventLoop，通过传入不同参数，支持Reactor的三种线程模型：
+<ul>
+<li>单线程模型：EventLoopGroup内部包含一个EventLoop，Boss和Worker同时使用一个EventLoopGroup。</li>
+<li>多线程模型：EventLoopGroup内部包含多个EventLoop，Boss和Worker同时使用一个EventLoopGroup。</li>
+<li>主从多线程模型：EventLoopGroup内部包含多个EventLoop，Boss是主Reactor，Worker是从Reactor，使用不同的EventLoopGroup，主Reactor负责新连接的Channel创建，然后将Channel注册到从Reactor。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>服务编排层：负责组装各类服务，实现对网络事件的处理
+<ul>
+<li><strong>ChannelPipeline</strong>：负责组装各种ChannelHandler，内部通过双向链表来管理ChannelHandler，IO事件触发时，依次调用ChannelHandler来对数据进行拦截和处理。一个 ChannelPipeline 关联一个 EventLoop。
+<ul>
+<li>客户端和服务端都有各自的ChannelPipeline，数据从客户端发向服务端，该过程称为出站。反之为入站。</li>
+</ul>
+</li>
+<li><strong>ChannelHandler</strong>：负责数据的编解码和加工处理，分为InBound和OutBound，分别负责入站和出站。每一个ChannelHandler都会绑定一个ChannelHandlerContext。
+<ul>
+<li>ChannelInboundHandler：入站处理器的父类，用于读取客户端数据，写回结果。</li>
+<li>ChannelOutboundHandler：出站处理器的父类，用于处理写回结果。</li>
+</ul>
+</li>
+<li><strong>ChannelHandlerContext</strong>：用于保存ChannelHandler的上下文，通过它可以知道handler和pipeline的关联关系，可以实现handler之间的交互。它包含了 ChannelHandler 生命周期的所有事件，如 connect、bind、read、flush、write、close 等。</li>
+</ul>
+</li>
+</ul>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/Netty-framework.png" alt="Netty-framework"></p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

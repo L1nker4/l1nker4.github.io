@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/java-concurrency-implementation-principle/" />
+  <link rel="canonical" href="http://localhost:59500/posts/java%E5%B9%B6%E5%8F%91/java-concurrency-implementation-principle/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Java并发机制底层实现原理",
+      "headline" : "Java并发机制底层实现原理",
+      "description" : "Volatile 定义 Java语言规范第3版中对volatile的定义如下：Java编程语言允许线程访问共享变量，为了能确保共享变量能被准确和一致的更新，线程应该确保通过排他锁单独获取这个变量。Java语言提供了volatile关键字，在某些情况下比锁要更加方便，如果一个变量被声明成volatile，Java线程内存模型确保所有线程看到的这个变量的值是一致的。\n实现原理 先看下面的CPU术语定义：\n术语 描述 内存屏障 是一组处理器指令，用于实现对内存操作的顺序限制 缓冲行 缓存这两个可以分配的最小存储单位，处理器填写缓存线时会加载整个缓存线，需要使用多个主内存读周期 原子操作 不可中断的一个或一系列操作 缓存行填充 当处理器识别到内存中读取操作数是可缓存的，处理器读取整个缓存行到合适的缓存 缓存命中 如果进行高速缓存行填充操作的内存位置仍然是下次处理器访问的地址时，处理器从缓存中读取操作数，而不是从内存读取 写命中 当处理器将操作数写回到一个内存缓存中的区域中，它首先会检查这个缓存的内存地址是否在缓存行中，如果存在一个有效的缓存行，则处理器将这个操作数回写到缓存，而不是回写到内存，这个操作数被称为写命中 写缺失 一个有效的缓存行被写入到不存在的内存区域 \/** * @author ：L1nker4 * @date ： 创建于 2020\/4\/7 20:34 * @description： volatile测试 *\/ public class Demo01 { private static volatile boolean stop = false; public static void main(String[] args) { stop = true; boolean b = stop; } } 通过添加VM options打印程序汇编代码：\n-XX:\u002bUnlockDiagnosticVMOptions -XX:\u002bLogCompilation -XX:\u002bPrintAssembly -Xcomp -XX:CompileCommand=dontinline,*Demo01.main -XX:CompileCommand=compileonly,*Demo01.main 如果提示以下内容，需要将hedis-amd64.dll放在jre\/bin\/server目录下。\nJava HotSpot(TM) 64-Bit Server VM warning: PrintAssembly is enabled; turning on DebugNonSafepoints to gain additional output 截取部分的汇编代码\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-04-07 17:09:22 \u002b0000 UTC",
+      "dateModified" : "2020-04-07 17:09:22 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/java%E5%B9%B6%E5%8F%91\/java-concurrency-implementation-principle\/",
+      "keywords" : [ "Java","并发", ]
+  }
+</script>
+<title>Java并发机制底层实现原理</title>
+  <meta property="og:title" content="Java并发机制底层实现原理" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="Volatile 定义 Java语言规范第3版中对volatile的定义如下：Java编程语言允许线程访问共享变量，为了能确保共享变量能被准确和一致的更新，线程应该确保通过排他锁单独获取这个变量。Java语言提供了volatile关键字，在某些情况下比锁要更加方便，如果一个变量被声明成volatile，Java线程内存模型确保所有线程看到的这个变量的值是一致的。
+实现原理 先看下面的CPU术语定义：
+术语 描述 内存屏障 是一组处理器指令，用于实现对内存操作的顺序限制 缓冲行 缓存这两个可以分配的最小存储单位，处理器填写缓存线时会加载整个缓存线，需要使用多个主内存读周期 原子操作 不可中断的一个或一系列操作 缓存行填充 当处理器识别到内存中读取操作数是可缓存的，处理器读取整个缓存行到合适的缓存 缓存命中 如果进行高速缓存行填充操作的内存位置仍然是下次处理器访问的地址时，处理器从缓存中读取操作数，而不是从内存读取 写命中 当处理器将操作数写回到一个内存缓存中的区域中，它首先会检查这个缓存的内存地址是否在缓存行中，如果存在一个有效的缓存行，则处理器将这个操作数回写到缓存，而不是回写到内存，这个操作数被称为写命中 写缺失 一个有效的缓存行被写入到不存在的内存区域 /** * @author ：L1nker4 * @date ： 创建于 2020/4/7 20:34 * @description： volatile测试 */ public class Demo01 { private static volatile boolean stop = false; public static void main(String[] args) { stop = true; boolean b = stop; } } 通过添加VM options打印程序汇编代码：
+-XX:&#43;UnlockDiagnosticVMOptions -XX:&#43;LogCompilation -XX:&#43;PrintAssembly -Xcomp -XX:CompileCommand=dontinline,*Demo01.main -XX:CompileCommand=compileonly,*Demo01.main 如果提示以下内容，需要将hedis-amd64.dll放在jre/bin/server目录下。
+Java HotSpot(TM) 64-Bit Server VM warning: PrintAssembly is enabled; turning on DebugNonSafepoints to gain additional output 截取部分的汇编代码
+" />
+  <meta name="description" content="Volatile 定义 Java语言规范第3版中对volatile的定义如下：Java编程语言允许线程访问共享变量，为了能确保共享变量能被准确和一致的更新，线程应该确保通过排他锁单独获取这个变量。Java语言提供了volatile关键字，在某些情况下比锁要更加方便，如果一个变量被声明成volatile，Java线程内存模型确保所有线程看到的这个变量的值是一致的。
+实现原理 先看下面的CPU术语定义：
+术语 描述 内存屏障 是一组处理器指令，用于实现对内存操作的顺序限制 缓冲行 缓存这两个可以分配的最小存储单位，处理器填写缓存线时会加载整个缓存线，需要使用多个主内存读周期 原子操作 不可中断的一个或一系列操作 缓存行填充 当处理器识别到内存中读取操作数是可缓存的，处理器读取整个缓存行到合适的缓存 缓存命中 如果进行高速缓存行填充操作的内存位置仍然是下次处理器访问的地址时，处理器从缓存中读取操作数，而不是从内存读取 写命中 当处理器将操作数写回到一个内存缓存中的区域中，它首先会检查这个缓存的内存地址是否在缓存行中，如果存在一个有效的缓存行，则处理器将这个操作数回写到缓存，而不是回写到内存，这个操作数被称为写命中 写缺失 一个有效的缓存行被写入到不存在的内存区域 /** * @author ：L1nker4 * @date ： 创建于 2020/4/7 20:34 * @description： volatile测试 */ public class Demo01 { private static volatile boolean stop = false; public static void main(String[] args) { stop = true; boolean b = stop; } } 通过添加VM options打印程序汇编代码：
+-XX:&#43;UnlockDiagnosticVMOptions -XX:&#43;LogCompilation -XX:&#43;PrintAssembly -Xcomp -XX:CompileCommand=dontinline,*Demo01.main -XX:CompileCommand=compileonly,*Demo01.main 如果提示以下内容，需要将hedis-amd64.dll放在jre/bin/server目录下。
+Java HotSpot(TM) 64-Bit Server VM warning: PrintAssembly is enabled; turning on DebugNonSafepoints to gain additional output 截取部分的汇编代码
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Java并发机制底层实现原理</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-04-07 17:09:22 UTC">
+                07 Apr 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="volatile">Volatile</h2>
+<h3 id="定义">定义</h3>
+<p>Java语言规范第3版中对volatile的定义如下：Java编程语言允许线程访问共享变量，为了能确保共享变量能被准确和一致的更新，线程应该确保通过排他锁单独获取这个变量。Java语言提供了volatile关键字，在某些情况下比锁要更加方便，如果一个变量被声明成volatile，Java线程内存模型确保所有线程看到的这个变量的值是一致的。</p>
+<h4 id="实现原理">实现原理</h4>
+<p>先看下面的CPU术语定义：</p>
+<table>
+  <thead>
+      <tr>
+          <th style="text-align: center">术语</th>
+          <th style="text-align: center">描述</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td style="text-align: center">内存屏障</td>
+          <td style="text-align: center">是一组处理器指令，用于实现对内存操作的顺序限制</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">缓冲行</td>
+          <td style="text-align: center">缓存这两个可以分配的最小存储单位，处理器填写缓存线时会加载整个缓存线，需要使用多个主内存读周期</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">原子操作</td>
+          <td style="text-align: center">不可中断的一个或一系列操作</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">缓存行填充</td>
+          <td style="text-align: center">当处理器识别到内存中读取操作数是可缓存的，处理器读取整个缓存行到合适的缓存</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">缓存命中</td>
+          <td style="text-align: center">如果进行高速缓存行填充操作的内存位置仍然是下次处理器访问的地址时，处理器从缓存中读取操作数，而不是从内存读取</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">写命中</td>
+          <td style="text-align: center">当处理器将操作数写回到一个内存缓存中的区域中，它首先会检查这个缓存的内存地址是否在缓存行中，如果存在一个有效的缓存行，则处理器将这个操作数回写到缓存，而不是回写到内存，这个操作数被称为写命中</td>
+      </tr>
+      <tr>
+          <td style="text-align: center">写缺失</td>
+          <td style="text-align: center">一个有效的缓存行被写入到不存在的内存区域</td>
+      </tr>
+  </tbody>
+</table>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @author ：L1nker4
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @date ： 创建于  2020/4/7 20:34
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @description： volatile测试
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Demo01</span> {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">volatile</span> <span style="color:#66d9ef">boolean</span> stop <span style="color:#f92672">=</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>        stop <span style="color:#f92672">=</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">boolean</span> b <span style="color:#f92672">=</span> stop;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>通过添加VM options打印程序汇编代码：</p>
+<pre tabindex="0"><code>-XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation -XX:+PrintAssembly -Xcomp -XX:CompileCommand=dontinline,*Demo01.main -XX:CompileCommand=compileonly,*Demo01.main
+</code></pre><p>如果提示以下内容，需要将<code>hedis-amd64.dll</code>放在<code>jre/bin/server</code>目录下。</p>
+<pre tabindex="0"><code>Java HotSpot(TM) 64-Bit Server VM warning: PrintAssembly is enabled; turning on DebugNonSafepoints to gain additional output
+</code></pre><p>截取部分的汇编代码</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-asm" data-lang="asm"><span style="display:flex;"><span>Code:
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">[</span><span style="color:#a6e22e">Disassembling</span> <span style="color:#66d9ef">for</span> <span style="color:#66d9ef">mach</span><span style="color:#960050;background-color:#1e0010">=&#39;</span><span style="color:#66d9ef">i386</span>:<span style="color:#66d9ef">x86-64</span><span style="color:#960050;background-color:#1e0010">&#39;</span>]
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">[</span><span style="color:#a6e22e">Entry</span> <span style="color:#66d9ef">Point</span>]
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">[</span><span style="color:#a6e22e">Verified</span> <span style="color:#66d9ef">Entry</span> <span style="color:#66d9ef">Point</span>]
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">[</span><span style="color:#a6e22e">Constants</span>]
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e"># {method} {0x000000001bcd2a70} &#39;main&#39; &#39;([Ljava/lang/String;)V&#39; in &#39;wang/l1n/volatile1/Demo01&#39;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e"># parm0:    rdx:rdx   = &#39;[Ljava/lang/String;&#39;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">#           [sp+0x40]  (sp of caller)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a24760: <span style="color:#a6e22e">mov</span>    %eax,-<span style="color:#ae81ff">0x6000</span>(%rsp)
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a24767: <span style="color:#a6e22e">push</span>   %rbp
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a24768: <span style="color:#a6e22e">sub</span>    <span style="color:#66d9ef">$0x30</span>,%rsp
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a2476c: <span style="color:#a6e22e">movabs</span> <span style="color:#66d9ef">$0x1bcd2be8</span>,%rsi   <span style="color:#75715e">;   {metadata(method data for {method} {0x000000001bcd2a70} &#39;main&#39; &#39;([Ljava/lang/String;)V&#39; in &#39;wang/l1n/volatile1/Demo01&#39;)}
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a24776: <span style="color:#a6e22e">mov</span>    <span style="color:#ae81ff">0xdc</span>(%rsi),%edi
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a2477c: <span style="color:#a6e22e">add</span>    <span style="color:#66d9ef">$0x8</span>,%edi
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a2477f: <span style="color:#a6e22e">mov</span>    %edi,<span style="color:#ae81ff">0xdc</span>(%rsi)
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a24785: <span style="color:#a6e22e">movabs</span> <span style="color:#66d9ef">$0x1bcd2a68</span>,%rsi   <span style="color:#75715e">;   {metadata({method} {0x000000001bcd2a70} &#39;main&#39; &#39;([Ljava/lang/String;)V&#39; in &#39;wang/l1n/volatile1/Demo01&#39;)}
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a2478f: <span style="color:#a6e22e">and</span>    <span style="color:#66d9ef">$0x0</span>,%edi
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a24792: <span style="color:#a6e22e">cmp</span>    <span style="color:#66d9ef">$0x0</span>,%edi
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a24795: <span style="color:#a6e22e">je</span>     <span style="color:#ae81ff">0x0000000002a247c3</span>  <span style="color:#75715e">;*iconst_1
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                                                <span style="color:#75715e">; - wang.l1n.volatile1.Demo01::main@0 (line 12)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a2479b: <span style="color:#a6e22e">movabs</span> <span style="color:#66d9ef">$0x76ba9ff38</span>,%rsi  <span style="color:#75715e">;   {oop(a &#39;java/lang/Class&#39; = &#39;wang/l1n/volatile1/Demo01&#39;)}
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a247a5: <span style="color:#a6e22e">mov</span>    <span style="color:#66d9ef">$0x1</span>,%edi
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a247aa: <span style="color:#a6e22e">mov</span>    %dil,<span style="color:#ae81ff">0x68</span>(%rsi)
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a247ae: <span style="color:#a6e22e">lock</span> <span style="color:#a6e22e">addl</span> <span style="color:#66d9ef">$0x0</span>,(%rsp)     <span style="color:#75715e">;*putstatic stop
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                                                <span style="color:#75715e">; - wang.l1n.volatile1.Demo01::main@1 (line 12)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a247b3: <span style="color:#a6e22e">movsbl</span> <span style="color:#ae81ff">0x68</span>(%rsi),%esi    <span style="color:#75715e">;*getstatic stop
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                                                <span style="color:#75715e">; - wang.l1n.volatile1.Demo01::main@4 (line 13)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a247b7: <span style="color:#a6e22e">add</span>    <span style="color:#66d9ef">$0x30</span>,%rsp
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a247bb: <span style="color:#a6e22e">pop</span>    %rbp
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a247bc: <span style="color:#a6e22e">test</span>   %eax,-<span style="color:#ae81ff">0x25546c2</span>(%rip)        <span style="color:#75715e"># 0x00000000004d0100
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                                                <span style="color:#75715e">;   {poll_return}
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a247c2: <span style="color:#a6e22e">retq</span>   
+</span></span><span style="display:flex;"><span>  <span style="color:#ae81ff">0x0000000002a247c3</span>: <span style="color:#66d9ef">mov</span>    %rsi,<span style="color:#ae81ff">0x8</span>(%rsp)
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a247c8: <span style="color:#a6e22e">movq</span>   <span style="color:#66d9ef">$0xffffffffffffffff</span>,(%rsp)
+</span></span><span style="display:flex;"><span>  <span style="color:#960050;background-color:#1e0010">0</span>x0000000002a247d0: <span style="color:#a6e22e">callq</span>  <span style="color:#ae81ff">0x0000000002a20860</span>
+</span></span></code></pre></div><p>可以看到在<code>mov %dil,0x68(%rsi)</code>写操作之后有<code>lock addl $0x0,(%rsp)</code>，lock前缀指令在处理器发生了两件事：</p>
+<ol>
+<li>将当前处理器缓存行的数据回写到系统内存。</li>
+</ol>
+<p>数据写回内存是一个并发操作，如果另一个CPU也要写回内存，就会出现问题，所以需要锁，cache是486机器才引入的技术，所以在486以后P6处理器以前，是锁总线；在P6以后，如果访问的内存区域已经缓存在处理器内部，则不会声言Lock#信号，而是锁缓存+缓存一致性协议（<strong>cache coherency mechanism</strong>）来保证指令的原子性。此操作称为<strong>缓存锁定</strong>。</p>
+<ol start="2">
+<li>这个写回内存的操作会使在其他CPU里缓存了该内存地址的数据无效。</li>
+</ol>
+<p>IA-32处理器和Intel 64处理器使用**缓存一致性协议（MESI）**维护内部缓存和其他处理器缓存的一致性。</p>
+<blockquote>
+<p>Beginning with the P6 family processors, when the LOCK prefix is prefixed to an instruction and the memory area being accessed is cached internally in the processor, the LOCK# signal is generally not asserted. Instead, only the processor’s cache is locked. Here, the processor&rsquo;s cache coherency mechanism ensures that the operation is carried out atomically with regards to memory.</p>
+</blockquote>
+<h2 id="synchronized">Synchronized</h2>
+<h3 id="含义">含义</h3>
+<p>synchronized实现同步的基础：Java每一个对象都可以作为锁，具体有以下三种表现：</p>
+<ol>
+<li>对于普通同步方法，锁是当前实例对象。</li>
+<li>对于静态同步方法，锁是当前类的Class对象。</li>
+<li>对于同步方法块，锁是括号里面的对象。</li>
+</ol>
+<p>当一个线程试图访问同步代码块时，它首先必须得到锁，退出或者抛出异常时必须释放锁。</p>
+<h3 id="原理">原理</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Demo02</span> {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> Object object <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Object();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>        System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;hello world&#34;</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>通过<code>javap -c Demo02.class</code>生成字节码指令</p>
+<pre tabindex="0"><code>public class wang.l1n.volatile1.Demo02 {
+  public wang.l1n.volatile1.Demo02();
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object.&#34;&lt;init&gt;&#34;:()V
+       4: return
+
+  public static void main(java.lang.String[]);
+    Code:
+       0: getstatic     #2                  // Field java/lang/System.out:Ljava/io/PrintStream;
+       3: ldc           #3                  // String hello world
+       5: invokevirtual #4                  // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+       8: return
+
+  static {};
+    Code:
+       0: new           #5                  // class java/lang/Object
+       3: dup
+       4: invokespecial #1                  // Method java/lang/Object.&#34;&lt;init&gt;&#34;:()V
+       7: putstatic     #6                  // Field object:Ljava/lang/Object;
+      10: return
+}
+</code></pre><p>将代码使用synchronized括起来之后生成的字节码指令如下：</p>
+<pre tabindex="0"><code>public class wang.l1n.volatile1.Demo02 {
+  public wang.l1n.volatile1.Demo02();
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object.&#34;&lt;init&gt;&#34;:()V
+       4: return
+
+  public static void main(java.lang.String[]);
+    Code:
+       0: getstatic     #2                  // Field object:Ljava/lang/Object;
+       3: dup
+       4: astore_1
+       5: monitorenter
+       6: getstatic     #3                  // Field java/lang/System.out:Ljava/io/PrintStream;
+       9: ldc           #4                  // String hello world
+      11: invokevirtual #5                  // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+      14: aload_1
+      15: monitorexit
+      16: goto          24
+      19: astore_2
+      20: aload_1
+      21: monitorexit
+      22: aload_2
+      23: athrow
+      24: return
+    Exception table:
+       from    to  target type
+           6    16    19   any
+          19    22    19   any
+
+  static {};
+    Code:
+       0: new           #6                  // class java/lang/Object
+       3: dup
+       4: invokespecial #1                  // Method java/lang/Object.&#34;&lt;init&gt;&#34;:()V
+       7: putstatic     #2                  // Field object:Ljava/lang/Object;
+      10: return
+}
+</code></pre><p>可以看到字节码指令第5行-第15行被monitorenter和monitorexit包裹，执行到monitorenter会尝试获取对象的monitor，monitorexit会释放对象的monitor。</p>
+<h2 id="原子操作的实现原理">原子操作的实现原理</h2>
+<p>原子操作意为<strong>不可被中断的一个或一系列操作</strong>。</p>
+<h3 id="处理器层面实现">处理器层面实现</h3>
+<p>处理器提供总线锁定和缓存锁定两个机制来保证内存操作的原子性，总线锁定就是使用处理器的一个<code>LOCK #</code>信号，当一个处理器在总线上输出此信号时，其他处理器请求将被阻塞住。那么该处理器可以独占共享内存。</p>
+<p>总线锁定开销较大，所以就有了缓存锁定。缓存锁定是指内存区域如果被缓存在处理器的缓存行中，并且在Lock操作期间被锁定，那么它执行锁操作回写到内存时，处理器不在总线上声言Lock信号，而实修改内部的内存地址，并允许它的缓存一致性协议来保证操作的原子性，缓存一致性协议会阻止同时修改由两个以上处理器缓存的内存区域数据。</p>
+<h3 id="java如何实现原子操作">Java如何实现原子操作</h3>
+<p>Java使用锁和循环CAS的方式实现原子操作。</p>
+<h4 id="cas">CAS</h4>
+<p>首先介绍一下CAS（Compare and Swap）操作，一个当前内存值V、旧的预期值A、即将更新的值B，当且仅当预期值A和内存值V相同时，将内存值修改为B并返回true，否则返回false。</p>
+<p>JVM中的CAS操作利用了提到的处理器提供的CMPXCHG指令实现的；循环CAS实现的基本思路就是循环进行CAS操作直到成功为止。</p>
+<p>以<code>AtomicInteger</code>为例</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Atomically increments by one the current value.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     *
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * @return the updated value
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">incrementAndGet</span>() {
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> unsafe.<span style="color:#a6e22e">getAndAddInt</span>(<span style="color:#66d9ef">this</span>, valueOffset, 1) <span style="color:#f92672">+</span> 1;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//unsafe</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">getAndAddInt</span>(Object var1, <span style="color:#66d9ef">long</span> var2, <span style="color:#66d9ef">int</span> var4) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> var5;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>            var5 <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">getIntVolatile</span>(var1, var2);
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">while</span>(<span style="color:#f92672">!</span><span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">compareAndSwapInt</span>(var1, var2, var5, var5 <span style="color:#f92672">+</span> var4));
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> var5;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>getIntVolatile</code>通过偏移量获取到内存中变量值，<code>compareAndSwapInt</code>会比较获取的值与此时内存中的变量值是否相等，不相等则继续循环重复。整个过程利用CAS保证了对于value的修改的并发安全。</p>
+<p>但是CAS存在以下问题：</p>
+<ol>
+<li>ABA问题</li>
+</ol>
+<p>CAS需要在操作值得时候检查是否发生变化，但是如果一个值是A，变成B，然后又变成A，CAS检查会发现没有变化。<strong>AtomicStampedReference</strong>来解决ABA问题:这个类的compareAndSet方法作用是首先检查当前引用是否等于预期引用，并且当前标志是否等于预期标志，如果全部相等，则以原子方式将该引用和该标志的值设置为给定的更新值。</p>
+<ol start="2">
+<li>循环时间长开销大</li>
+</ol>
+<p>自旋CAS如果长时间不成功，会给CPU带来较大得执行开销。</p>
+<ol start="3">
+<li>只能保证一个共享变量的原子操作</li>
+</ol>
+<p>对多个共享变量操作时，循环CAS就无法保证操作的原子性，可以使用锁来解决。</p>
+<p>当然可以将多个共享变量合并成一个共享变量来操作，比如<code>i = 2;j = a</code>，合并为<code>ij = 2a</code>，然后CAS操作<code>ij</code>，从Java 1.5开始，JDK提供了<code>AtomicReference</code>类来保证引用对象之间的原子性，可以把多个变量放在一个对象里来进行CAS操作。</p>
+<h3 id="锁机制">锁机制</h3>
+<p>锁机制保证了只有获得锁的线程才能操作锁定的内存区域，JVM内部实现了很多锁机制，有偏向锁，轻量级锁和互斥锁，除了偏向锁，JVM实现锁的方式都用了循环CAS，当一个线程进入同步块的时候使用循环CAS的方式来获取锁，当它退出同步块的时候使用循环CAS释放锁。</p>
+<h2 id="参考">参考</h2>
+<p>《Java并发编程的艺术》</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E5%B9%B6%E5%8F%91/">
+                并发
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/java%E5%B9%B6%E5%8F%91/java%E7%BA%BF%E7%A8%8B%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/">Java线程基础知识</a></li>
+    
+    <li><a href="/posts/spring-cloud/spring-cloud-alibaba-nacos/">Spring Cloud Alibaba Nacos</a></li>
+    
+    <li><a href="/posts/jvm/jvm09-bytecode-engine/">JVM之字节码执行引擎（九）</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

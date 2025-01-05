@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/java%E9%9B%86%E5%90%88/java-hashmap/" />
+  <link rel="canonical" href="http://localhost:59500/posts/java%E9%9B%86%E5%90%88/java-hashmap/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "HashMap源码分析",
+      "headline" : "HashMap源码分析",
+      "description" : "概述 ​\tJava中对于Map数据结构，提供了java.util.Map接口，该接口下主要有四个常见的实现类，分别是：\nHashMap：根据key.hashCode计算存储位置，能在$O(1)$完成查询，但是遍历顺序是不确定的，HashMap最多存储一个键为null，允许多条entry的值为null。HashMap非线程安全。 HashTable：线程安全的Map，常用方法全部通过synchronized保证线程安全，可以使用ConcurrentHashMap达到目的，此类不建议使用。 LinkedHashMap：继承自HashMap，内部通过双向链表将所有entry连接起来，保证了迭代顺序和插入顺序相同。 TreeMap：实现了SortedMap接口，能够将保存的记录按照键排序。内部通过红黑树进行存储。 HashMap在JDK 7中采用了数组\u002b链表的数据结构，在JDK 8后，底层数据结构转变为：数组\u002b链表\u002b红黑树，也就是当出现Hash冲突时，当链表长度大于阈值(或者红黑树的边界值，默认为8)并且当前数组的长度大于64，链表会转为红黑树存储节点提高搜索效率。\npublic class HashMap\u0026lt;K,V\u0026gt; extends AbstractMap\u0026lt;K,V\u0026gt; implements Map\u0026lt;K,V\u0026gt;, Cloneable, Serializable HashMap 继承了 AbstractMap ，该类提供了Map接口的抽象实现，并提供了一些方法的基本实现。实现了 Map、Cloneable和 Serializable接口。\n成员变量 loadFactor：该变量控制table数组存放数据的疏密程度，越趋向1时，数组中存放的数据越多越密。链表的长度会增加，因此会导致查找效率变低。该值越小，则数组中存放的数据越少，越稀疏，则会导致空间利用率下降。默认值0.75是较好的默认值，可以最大程度减少rehash的次数，避免过多的性能消耗。 threshold：当前 HashMap所能容纳键值对数量的最大值，超过这个值，则需扩容。threshold = capacity * loadFactor 默认容量为16，默认负载因子为0.75，当size达到16 * 0.75 = 12时，需要进行扩容(resize)，即默认扩容阈值为12。 扩容倍数为：2倍 DEFAULT_INITIAL_CAPACITY：默认初始容量为16 table：存储Node的数组，链表状态下的节点。 length大小必须为2的n次方，减少hash冲突的现象。 entrySet：存储entry的set集合 size：实际存储的键值对数量 modCount：对map结构操作的次数。 TREEIFY_THRESHOLD：转为红黑树的链表节点阈值（条件之一）。 MIN_TREEIFY_CAPACITY：树化的数组长度阈值（条件之一）。 UNTREEIFY_THRESHOLD：树退化成链表的阈值。 \/\/存储元素的数组，大小为2的幂次 transient Node\u0026lt;K,V\u0026gt;[] table; \/\/存放具体元素的集合 transient Set\u0026lt;Map.Entry\u0026lt;K,V\u0026gt;\u0026gt; entrySet; \/\/已经存放了的数组大小 transient int size; \/\/结构修改的计数器 transient int modCount; \/\/临界值，实际大小超过该值，则进行扩容 int threshold; \/\/负载因子 final float loadFactor; \/\/默认初始容量：16 static final int DEFAULT_INITIAL_CAPACITY = 1 \u0026lt;\u0026lt; 4; \/\/ aka 16 \/\/最大容量 static final int MAXIMUM_CAPACITY = 1 \u0026lt;\u0026lt; 30; \/\/默认的负载因子 static final float DEFAULT_LOAD_FACTOR = 0.75f; \/\/链表节点数大于该阈值，转为红黑树存储 static final int TREEIFY_THRESHOLD = 8; \/\/红黑树节点数小于该值，转为链表存储 static final int UNTREEIFY_THRESHOLD = 6; \/\/树化时，检查table数组长度是否大于该值，小于则扩容 static final int MIN_TREEIFY_CAPACITY = 64; 数据结构 链表状态下的节点，继承自Map.Entry\u0026lt;K,V\u0026gt;。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-08-02 17:15:18 \u002b0000 UTC",
+      "dateModified" : "2020-08-02 17:15:18 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/java%E9%9B%86%E5%90%88\/java-hashmap\/",
+      "keywords" : [ "Java","数据结构", ]
+  }
+</script>
+<title>HashMap源码分析</title>
+  <meta property="og:title" content="HashMap源码分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="概述 ​	Java中对于Map数据结构，提供了java.util.Map接口，该接口下主要有四个常见的实现类，分别是：
+HashMap：根据key.hashCode计算存储位置，能在$O(1)$完成查询，但是遍历顺序是不确定的，HashMap最多存储一个键为null，允许多条entry的值为null。HashMap非线程安全。 HashTable：线程安全的Map，常用方法全部通过synchronized保证线程安全，可以使用ConcurrentHashMap达到目的，此类不建议使用。 LinkedHashMap：继承自HashMap，内部通过双向链表将所有entry连接起来，保证了迭代顺序和插入顺序相同。 TreeMap：实现了SortedMap接口，能够将保存的记录按照键排序。内部通过红黑树进行存储。 HashMap在JDK 7中采用了数组&#43;链表的数据结构，在JDK 8后，底层数据结构转变为：数组&#43;链表&#43;红黑树，也就是当出现Hash冲突时，当链表长度大于阈值(或者红黑树的边界值，默认为8)并且当前数组的长度大于64，链表会转为红黑树存储节点提高搜索效率。
+public class HashMap&lt;K,V&gt; extends AbstractMap&lt;K,V&gt; implements Map&lt;K,V&gt;, Cloneable, Serializable HashMap 继承了 AbstractMap ，该类提供了Map接口的抽象实现，并提供了一些方法的基本实现。实现了 Map、Cloneable和 Serializable接口。
+成员变量 loadFactor：该变量控制table数组存放数据的疏密程度，越趋向1时，数组中存放的数据越多越密。链表的长度会增加，因此会导致查找效率变低。该值越小，则数组中存放的数据越少，越稀疏，则会导致空间利用率下降。默认值0.75是较好的默认值，可以最大程度减少rehash的次数，避免过多的性能消耗。 threshold：当前 HashMap所能容纳键值对数量的最大值，超过这个值，则需扩容。threshold = capacity * loadFactor 默认容量为16，默认负载因子为0.75，当size达到16 * 0.75 = 12时，需要进行扩容(resize)，即默认扩容阈值为12。 扩容倍数为：2倍 DEFAULT_INITIAL_CAPACITY：默认初始容量为16 table：存储Node的数组，链表状态下的节点。 length大小必须为2的n次方，减少hash冲突的现象。 entrySet：存储entry的set集合 size：实际存储的键值对数量 modCount：对map结构操作的次数。 TREEIFY_THRESHOLD：转为红黑树的链表节点阈值（条件之一）。 MIN_TREEIFY_CAPACITY：树化的数组长度阈值（条件之一）。 UNTREEIFY_THRESHOLD：树退化成链表的阈值。 //存储元素的数组，大小为2的幂次 transient Node&lt;K,V&gt;[] table; //存放具体元素的集合 transient Set&lt;Map.Entry&lt;K,V&gt;&gt; entrySet; //已经存放了的数组大小 transient int size; //结构修改的计数器 transient int modCount; //临界值，实际大小超过该值，则进行扩容 int threshold; //负载因子 final float loadFactor; //默认初始容量：16 static final int DEFAULT_INITIAL_CAPACITY = 1 &lt;&lt; 4; // aka 16 //最大容量 static final int MAXIMUM_CAPACITY = 1 &lt;&lt; 30; //默认的负载因子 static final float DEFAULT_LOAD_FACTOR = 0.75f; //链表节点数大于该阈值，转为红黑树存储 static final int TREEIFY_THRESHOLD = 8; //红黑树节点数小于该值，转为链表存储 static final int UNTREEIFY_THRESHOLD = 6; //树化时，检查table数组长度是否大于该值，小于则扩容 static final int MIN_TREEIFY_CAPACITY = 64; 数据结构 链表状态下的节点，继承自Map.Entry&lt;K,V&gt;。
+" />
+  <meta name="description" content="概述 ​	Java中对于Map数据结构，提供了java.util.Map接口，该接口下主要有四个常见的实现类，分别是：
+HashMap：根据key.hashCode计算存储位置，能在$O(1)$完成查询，但是遍历顺序是不确定的，HashMap最多存储一个键为null，允许多条entry的值为null。HashMap非线程安全。 HashTable：线程安全的Map，常用方法全部通过synchronized保证线程安全，可以使用ConcurrentHashMap达到目的，此类不建议使用。 LinkedHashMap：继承自HashMap，内部通过双向链表将所有entry连接起来，保证了迭代顺序和插入顺序相同。 TreeMap：实现了SortedMap接口，能够将保存的记录按照键排序。内部通过红黑树进行存储。 HashMap在JDK 7中采用了数组&#43;链表的数据结构，在JDK 8后，底层数据结构转变为：数组&#43;链表&#43;红黑树，也就是当出现Hash冲突时，当链表长度大于阈值(或者红黑树的边界值，默认为8)并且当前数组的长度大于64，链表会转为红黑树存储节点提高搜索效率。
+public class HashMap&lt;K,V&gt; extends AbstractMap&lt;K,V&gt; implements Map&lt;K,V&gt;, Cloneable, Serializable HashMap 继承了 AbstractMap ，该类提供了Map接口的抽象实现，并提供了一些方法的基本实现。实现了 Map、Cloneable和 Serializable接口。
+成员变量 loadFactor：该变量控制table数组存放数据的疏密程度，越趋向1时，数组中存放的数据越多越密。链表的长度会增加，因此会导致查找效率变低。该值越小，则数组中存放的数据越少，越稀疏，则会导致空间利用率下降。默认值0.75是较好的默认值，可以最大程度减少rehash的次数，避免过多的性能消耗。 threshold：当前 HashMap所能容纳键值对数量的最大值，超过这个值，则需扩容。threshold = capacity * loadFactor 默认容量为16，默认负载因子为0.75，当size达到16 * 0.75 = 12时，需要进行扩容(resize)，即默认扩容阈值为12。 扩容倍数为：2倍 DEFAULT_INITIAL_CAPACITY：默认初始容量为16 table：存储Node的数组，链表状态下的节点。 length大小必须为2的n次方，减少hash冲突的现象。 entrySet：存储entry的set集合 size：实际存储的键值对数量 modCount：对map结构操作的次数。 TREEIFY_THRESHOLD：转为红黑树的链表节点阈值（条件之一）。 MIN_TREEIFY_CAPACITY：树化的数组长度阈值（条件之一）。 UNTREEIFY_THRESHOLD：树退化成链表的阈值。 //存储元素的数组，大小为2的幂次 transient Node&lt;K,V&gt;[] table; //存放具体元素的集合 transient Set&lt;Map.Entry&lt;K,V&gt;&gt; entrySet; //已经存放了的数组大小 transient int size; //结构修改的计数器 transient int modCount; //临界值，实际大小超过该值，则进行扩容 int threshold; //负载因子 final float loadFactor; //默认初始容量：16 static final int DEFAULT_INITIAL_CAPACITY = 1 &lt;&lt; 4; // aka 16 //最大容量 static final int MAXIMUM_CAPACITY = 1 &lt;&lt; 30; //默认的负载因子 static final float DEFAULT_LOAD_FACTOR = 0.75f; //链表节点数大于该阈值，转为红黑树存储 static final int TREEIFY_THRESHOLD = 8; //红黑树节点数小于该值，转为链表存储 static final int UNTREEIFY_THRESHOLD = 6; //树化时，检查table数组长度是否大于该值，小于则扩容 static final int MIN_TREEIFY_CAPACITY = 64; 数据结构 链表状态下的节点，继承自Map.Entry&lt;K,V&gt;。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">HashMap源码分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-08-02 17:15:18 UTC">
+                02 Aug 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="概述">概述</h2>
+<p>​	Java中对于Map数据结构，提供了<code>java.util.Map</code>接口，该接口下主要有四个常见的实现类，分别是：</p>
+<ul>
+<li><code>HashMap</code>：根据<code>key.hashCode</code>计算存储位置，能在$O(1)$完成查询，但是遍历顺序是不确定的，<code>HashMap</code>最多存储一个键为null，允许多条entry的值为null。<code>HashMap</code>非线程安全。</li>
+<li><code>HashTable</code>：线程安全的Map，常用方法全部通过<code>synchronized</code>保证线程安全，可以使用<code>ConcurrentHashMap</code>达到目的，此类不建议使用。</li>
+<li><code>LinkedHashMap</code>：继承自<code>HashMap</code>，内部通过双向链表将所有entry连接起来，保证了迭代顺序和插入顺序相同。</li>
+<li><code>TreeMap</code>：实现了SortedMap接口，能够将保存的记录按照键排序。内部通过红黑树进行存储。</li>
+</ul>
+<p><code>HashMap</code>在<code>JDK 7</code>中采用了数组+链表的数据结构，在<code>JDK 8</code>后，底层数据结构转变为：数组+链表+红黑树，也就是当出现Hash冲突时，当链表长度大于阈值(或者红黑树的边界值，默认为8)并且当前数组的长度大于64，链表会转为红黑树存储节点提高搜索效率。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">HashMap</span><span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">extends</span> AbstractMap<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">implements</span> Map<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span>, Cloneable, Serializable
+</span></span></code></pre></div><p><code>HashMap</code> 继承了 <code>AbstractMap</code> ，该类提供了Map接口的抽象实现，并提供了一些方法的基本实现。实现了 <code>Map</code>、<code>Cloneable</code>和 <code>Serializable</code>接口。</p>
+<h2 id="成员变量">成员变量</h2>
+<ul>
+<li>loadFactor：该变量控制table数组存放数据的疏密程度，越趋向1时，数组中存放的数据越多越密。链表的长度会增加，因此会导致查找效率变低。该值越小，则数组中存放的数据越少，越稀疏，则会导致空间利用率下降。默认值0.75是较好的默认值，可以最大程度减少rehash的次数，避免过多的性能消耗。</li>
+<li>threshold：当前 <code>HashMap</code>所能容纳键值对数量的最大值，超过这个值，则需扩容。<strong>threshold = capacity * loadFactor</strong>
+<ul>
+<li>默认容量为16，默认负载因子为0.75，当size达到16 * 0.75 = 12时，需要进行扩容(resize)，<strong>即默认扩容阈值为12。</strong></li>
+<li>扩容倍数为：2倍</li>
+</ul>
+</li>
+<li>DEFAULT_INITIAL_CAPACITY：默认初始容量为16</li>
+<li>table：存储Node的数组，链表状态下的节点。
+<ul>
+<li>length大小必须为2的n次方，减少hash冲突的现象。</li>
+</ul>
+</li>
+<li>entrySet：存储entry的set集合</li>
+<li>size：实际存储的键值对数量</li>
+<li>modCount：对map结构操作的次数。</li>
+<li>TREEIFY_THRESHOLD：转为红黑树的链表节点阈值（条件之一）。</li>
+<li>MIN_TREEIFY_CAPACITY：树化的数组长度阈值（条件之一）。</li>
+<li>UNTREEIFY_THRESHOLD：树退化成链表的阈值。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>	<span style="color:#75715e">//存储元素的数组，大小为2的幂次</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">transient</span> Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> table;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//存放具体元素的集合</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">transient</span> Set<span style="color:#f92672">&lt;</span>Map.<span style="color:#a6e22e">Entry</span><span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;&gt;</span> entrySet;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//已经存放了的数组大小</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">transient</span> <span style="color:#66d9ef">int</span> size;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//结构修改的计数器</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">transient</span> <span style="color:#66d9ef">int</span> modCount;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//临界值，实际大小超过该值，则进行扩容</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> threshold;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//负载因子</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">float</span> loadFactor;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//默认初始容量：16</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> DEFAULT_INITIAL_CAPACITY <span style="color:#f92672">=</span> 1 <span style="color:#f92672">&lt;&lt;</span> 4; <span style="color:#75715e">// aka 16</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//最大容量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> MAXIMUM_CAPACITY <span style="color:#f92672">=</span> 1 <span style="color:#f92672">&lt;&lt;</span> 30;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//默认的负载因子</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">float</span> DEFAULT_LOAD_FACTOR <span style="color:#f92672">=</span> 0.<span style="color:#a6e22e">75f</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//链表节点数大于该阈值，转为红黑树存储</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> TREEIFY_THRESHOLD <span style="color:#f92672">=</span> 8;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//红黑树节点数小于该值，转为链表存储</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> UNTREEIFY_THRESHOLD <span style="color:#f92672">=</span> 6;
+</span></span><span style="display:flex;"><span>	
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//树化时，检查table数组长度是否大于该值，小于则扩容</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> MIN_TREEIFY_CAPACITY <span style="color:#f92672">=</span> 64;
+</span></span></code></pre></div><h2 id="数据结构">数据结构</h2>
+<p>链表状态下的节点，继承自<code>Map.Entry&lt;K,V&gt;</code>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Node</span><span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">implements</span> Map.<span style="color:#a6e22e">Entry</span><span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> hash;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">final</span> K key;
+</span></span><span style="display:flex;"><span>    V value;
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> next;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//构造方法</span>
+</span></span><span style="display:flex;"><span>    Node(<span style="color:#66d9ef">int</span> hash, K key, V value, Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> next) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">=</span> hash;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">key</span> <span style="color:#f92672">=</span> key;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">value</span> <span style="color:#f92672">=</span> value;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> next;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> K <span style="color:#a6e22e">getKey</span>()        { <span style="color:#66d9ef">return</span> key; }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> V <span style="color:#a6e22e">getValue</span>()      { <span style="color:#66d9ef">return</span> value; }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> String <span style="color:#a6e22e">toString</span>() { <span style="color:#66d9ef">return</span> key <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34;=&#34;</span> <span style="color:#f92672">+</span> value; }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//Node的HashCode返回键值的HashCode异或值</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">hashCode</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> Objects.<span style="color:#a6e22e">hashCode</span>(key) <span style="color:#f92672">^</span> Objects.<span style="color:#a6e22e">hashCode</span>(value);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//设置新值，返回旧值</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> V <span style="color:#a6e22e">setValue</span>(V newValue) {
+</span></span><span style="display:flex;"><span>        V oldValue <span style="color:#f92672">=</span> value;
+</span></span><span style="display:flex;"><span>        value <span style="color:#f92672">=</span> newValue;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> oldValue;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//equals</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">equals</span>(Object o) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (o <span style="color:#f92672">==</span> <span style="color:#66d9ef">this</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (o <span style="color:#66d9ef">instanceof</span> Map.<span style="color:#a6e22e">Entry</span>) {
+</span></span><span style="display:flex;"><span>            Map.<span style="color:#a6e22e">Entry</span><span style="color:#f92672">&lt;?</span>,<span style="color:#f92672">?&gt;</span> e <span style="color:#f92672">=</span> (Map.<span style="color:#a6e22e">Entry</span><span style="color:#f92672">&lt;?</span>,<span style="color:#f92672">?&gt;</span>)o;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (Objects.<span style="color:#a6e22e">equals</span>(key, e.<span style="color:#a6e22e">getKey</span>()) <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                Objects.<span style="color:#a6e22e">equals</span>(value, e.<span style="color:#a6e22e">getValue</span>()))
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//返回key的HashCode值</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">hash</span>(Object key) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> h;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> (key <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) <span style="color:#f92672">?</span> 0 : (h <span style="color:#f92672">=</span> key.<span style="color:#a6e22e">hashCode</span>()) <span style="color:#f92672">^</span> (h <span style="color:#f92672">&gt;&gt;&gt;</span> 16);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//如果对象x的类是C，如果C实现了Comparable&lt;C&gt;接口，那么返回C，否则返回null</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> Class<span style="color:#f92672">&lt;?&gt;</span> comparableClassFor(Object x) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (x <span style="color:#66d9ef">instanceof</span> Comparable) {
+</span></span><span style="display:flex;"><span>        Class<span style="color:#f92672">&lt;?&gt;</span> c; Type<span style="color:#f92672">[]</span> ts, as; Type t; ParameterizedType p;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> ((c <span style="color:#f92672">=</span> x.<span style="color:#a6e22e">getClass</span>()) <span style="color:#f92672">==</span> String.<span style="color:#a6e22e">class</span>) <span style="color:#75715e">// bypass checks</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> c;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> ((ts <span style="color:#f92672">=</span> c.<span style="color:#a6e22e">getGenericInterfaces</span>()) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> 0; i <span style="color:#f92672">&lt;</span> ts.<span style="color:#a6e22e">length</span>; <span style="color:#f92672">++</span>i) {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (((t <span style="color:#f92672">=</span> ts<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span>) <span style="color:#66d9ef">instanceof</span> ParameterizedType) <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                    ((p <span style="color:#f92672">=</span> (ParameterizedType)t).<span style="color:#a6e22e">getRawType</span>() <span style="color:#f92672">==</span>
+</span></span><span style="display:flex;"><span>                     Comparable.<span style="color:#a6e22e">class</span>) <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                    (as <span style="color:#f92672">=</span> p.<span style="color:#a6e22e">getActualTypeArguments</span>()) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                    as.<span style="color:#a6e22e">length</span> <span style="color:#f92672">==</span> 1 <span style="color:#f92672">&amp;&amp;</span> as<span style="color:#f92672">[</span>0<span style="color:#f92672">]</span> <span style="color:#f92672">==</span> c) <span style="color:#75715e">// type arg is c</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> c;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>红黑树状态下的节点，继承自<code>LinkedHashMap.Entry&lt;K,V&gt;</code>，而该类继承自<code>HashMap.Node&lt;K,V&gt;</code>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">TreeNode</span><span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">extends</span> LinkedHashMap.<span style="color:#a6e22e">Entry</span><span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//父结点</span>
+</span></span><span style="display:flex;"><span>    	TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> parent;  <span style="color:#75715e">// red-black tree links</span>
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//左孩子节点</span>
+</span></span><span style="display:flex;"><span>        TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> left;
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//右孩子节点</span>
+</span></span><span style="display:flex;"><span>        TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> right;
+</span></span><span style="display:flex;"><span>        TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> prev;    <span style="color:#75715e">// needed to unlink next upon deletion</span>
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//颜色</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">boolean</span> red;
+</span></span><span style="display:flex;"><span>        TreeNode(<span style="color:#66d9ef">int</span> hash, K key, V val, Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> next) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">super</span>(hash, key, val, next);
+</span></span><span style="display:flex;"><span>        }
+</span></span></code></pre></div><h2 id="构造方法">构造方法</h2>
+<p>核心的构造方法是第一个，通过调用<code>tableSizeFor</code>为<code>threshold</code>（扩容临界值）赋值。</p>
+<blockquote>
+<p>Returns a power of two size for the given target capacity.</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>	<span style="color:#66d9ef">public</span> <span style="color:#a6e22e">HashMap</span>(<span style="color:#66d9ef">int</span> initialCapacity, <span style="color:#66d9ef">float</span> loadFactor) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//边界检测</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (initialCapacity <span style="color:#f92672">&lt;</span> 0)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(<span style="color:#e6db74">&#34;Illegal initial capacity: &#34;</span> <span style="color:#f92672">+</span>
+</span></span><span style="display:flex;"><span>                                            initialCapacity);
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//边界检测</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (initialCapacity <span style="color:#f92672">&gt;</span> MAXIMUM_CAPACITY)
+</span></span><span style="display:flex;"><span>            initialCapacity <span style="color:#f92672">=</span> MAXIMUM_CAPACITY;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (loadFactor <span style="color:#f92672">&lt;=</span> 0 <span style="color:#f92672">||</span> Float.<span style="color:#a6e22e">isNaN</span>(loadFactor))
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(<span style="color:#e6db74">&#34;Illegal load factor: &#34;</span> <span style="color:#f92672">+</span>
+</span></span><span style="display:flex;"><span>                                               loadFactor);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">loadFactor</span> <span style="color:#f92672">=</span> loadFactor;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">threshold</span> <span style="color:#f92672">=</span> tableSizeFor(initialCapacity);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//调用前一个构造方法</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">HashMap</span>(<span style="color:#66d9ef">int</span> initialCapacity) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>(initialCapacity, DEFAULT_LOAD_FACTOR);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>   <span style="color:#75715e">//未传参数时,负载因子设置为默认值</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">HashMap</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">loadFactor</span> <span style="color:#f92672">=</span> DEFAULT_LOAD_FACTOR;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//传递Map的时候，调用putMapEntries进行批量添加</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">HashMap</span>(Map<span style="color:#f92672">&lt;?</span> <span style="color:#66d9ef">extends</span> K, <span style="color:#f92672">?</span> <span style="color:#66d9ef">extends</span> V<span style="color:#f92672">&gt;</span> m) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">loadFactor</span> <span style="color:#f92672">=</span> DEFAULT_LOAD_FACTOR;
+</span></span><span style="display:flex;"><span>        putMapEntries(m, <span style="color:#66d9ef">false</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h2 id="api">API</h2>
+<h3 id="tablesizefor">tableSizeFor</h3>
+<p>该方法在初始化时，对<code>threshold</code>赋值，通过位运算找到大于或等于cap的最小的2的幂次方。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">tableSizeFor</span>(<span style="color:#66d9ef">int</span> cap) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> n <span style="color:#f92672">=</span> cap <span style="color:#f92672">-</span> 1;
+</span></span><span style="display:flex;"><span>    n <span style="color:#f92672">|=</span> n <span style="color:#f92672">&gt;&gt;&gt;</span> 1;
+</span></span><span style="display:flex;"><span>    n <span style="color:#f92672">|=</span> n <span style="color:#f92672">&gt;&gt;&gt;</span> 2;
+</span></span><span style="display:flex;"><span>    n <span style="color:#f92672">|=</span> n <span style="color:#f92672">&gt;&gt;&gt;</span> 4;
+</span></span><span style="display:flex;"><span>    n <span style="color:#f92672">|=</span> n <span style="color:#f92672">&gt;&gt;&gt;</span> 8;
+</span></span><span style="display:flex;"><span>    n <span style="color:#f92672">|=</span> n <span style="color:#f92672">&gt;&gt;&gt;</span> 16;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> (n <span style="color:#f92672">&lt;</span> 0) <span style="color:#f92672">?</span> 1 : (n <span style="color:#f92672">&gt;=</span> MAXIMUM_CAPACITY) <span style="color:#f92672">?</span> MAXIMUM_CAPACITY : n <span style="color:#f92672">+</span> 1;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="hash计算hash值">hash（计算hash值）</h3>
+<p>该方法在插入时，计算元素的hash值时调用。<code>hash</code>值为传入key的<code>hashCode</code>与其右移16位的异或值。这被称为<strong>扰动函数</strong>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">hash</span>(Object key) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> h;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> (key <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) <span style="color:#f92672">?</span> 0 : (h <span style="color:#f92672">=</span> key.<span style="color:#a6e22e">hashCode</span>()) <span style="color:#f92672">^</span> (h <span style="color:#f92672">&gt;&gt;&gt;</span> 16);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>hashCode</code>方法，是key的类自带的hash方法，返回一个int的Hash值，理论上，这个值应当均匀得分布在int的范围内，但是<code>HashMap</code>初始化大小为16，如果让hash映射到16个桶中，通过取模实现十分简单。但是直接取模会造成较多的哈希碰撞。扰动函数的作用是：增加了随机性，减少了hash碰撞的几率。</p>
+<p>那么如何通过hash值，获取对应的数组下标呢？在<code>putVal</code>中，获取下标的方法如下：<code>(n - 1) &amp; hash</code>，n是数组大小，上文中<code>threshold</code>为2<!-- raw HTML omitted -->n<!-- raw HTML omitted -->，那么<code>(n - 1)</code><!-- raw HTML omitted -->2<!-- raw HTML omitted --> = 00&hellip;.111111，那么通过<code>&amp;</code>运算，会保留下hash的低位。为何用<code>&amp;</code>替代取模运算，主要是位运算的效率高于取模运算。这也证明了为何<code>threshold</code>必须要是2的幂次方，通过控制该值，从而达到提高hash映射效率的目的。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> ((p <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>i <span style="color:#f92672">=</span> (n <span style="color:#f92672">-</span> 1) <span style="color:#f92672">&amp;</span> hash<span style="color:#f92672">]</span>) <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>)
+</span></span></code></pre></div><h3 id="get">get</h3>
+<p>主要逻辑：</p>
+<ol>
+<li>根据hash找到指定位置的节点</li>
+<li>判断第一个节点的key是否符合要求，符合要求直接返回第一个节点，否则继续查找。</li>
+<li>如果是红黑树结构，通过调用<code>getTreeNode(hash, key)</code>查找红黑树节点并返回。</li>
+<li>如果是链表结构，遍历节点查询并返回</li>
+<li>如果没有找到，返回null</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> V <span style="color:#a6e22e">get</span>(Object key) {
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> e;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> (e <span style="color:#f92672">=</span> getNode(hash(key), key)) <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">?</span> <span style="color:#66d9ef">null</span> : e.<span style="color:#a6e22e">value</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">final</span> Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">getNode</span>(<span style="color:#66d9ef">int</span> hash, Object key) {
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> tab; Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> first, e; <span style="color:#66d9ef">int</span> n; K k;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> ((tab <span style="color:#f92672">=</span> table) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> (n <span style="color:#f92672">=</span> tab.<span style="color:#a6e22e">length</span>) <span style="color:#f92672">&gt;</span> 0 <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>        (first <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>(n <span style="color:#f92672">-</span> 1) <span style="color:#f92672">&amp;</span> hash<span style="color:#f92672">]</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//第一个节点就命中</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (first.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">==</span> hash <span style="color:#f92672">&amp;&amp;</span> <span style="color:#75715e">// always check first node</span>
+</span></span><span style="display:flex;"><span>            ((k <span style="color:#f92672">=</span> first.<span style="color:#a6e22e">key</span>) <span style="color:#f92672">==</span> key <span style="color:#f92672">||</span> (key <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> key.<span style="color:#a6e22e">equals</span>(k))))
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> first;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> ((e <span style="color:#f92672">=</span> first.<span style="color:#a6e22e">next</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//判断是否为红黑树节点</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (first <span style="color:#66d9ef">instanceof</span> TreeNode)
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> ((TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span>)first).<span style="color:#a6e22e">getTreeNode</span>(hash, key);
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果是链表，就遍历链表找到相应的数据</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (e.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">==</span> hash <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                    ((k <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">key</span>) <span style="color:#f92672">==</span> key <span style="color:#f92672">||</span> (key <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> key.<span style="color:#a6e22e">equals</span>(k))))
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">return</span> e;
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">while</span> ((e <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">next</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="put">put</h3>
+<p>主要逻辑：</p>
+<ol>
+<li>若桶数组table为空或length==0，则通过<code>resize()</code>进行扩容。</li>
+<li>根据key的hash得到数组索引，查找要插入的键值对是否已经存在，存在的话，用新值替换旧值。</li>
+<li>如果不存在，将键值对插入链表或者红黑树中，并根据长度判断是否将链表转换成红黑树。</li>
+<li>判断键值对数量是否大于阈值，大于的话进行扩容操作。</li>
+</ol>
+<p>需要注意的是，<code>treeifyBin</code>方法在进行树化前，进行了检查。如果小于<code>MIN_TREEIFY_CAPACITY</code>，则进行扩容，不进行树化。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (tab <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> (n <span style="color:#f92672">=</span> tab.<span style="color:#a6e22e">length</span>) <span style="color:#f92672">&lt;</span> MIN_TREEIFY_CAPACITY)
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>	<span style="color:#66d9ef">public</span> V <span style="color:#a6e22e">put</span>(K key, V value) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> putVal(hash(key), key, value, <span style="color:#66d9ef">false</span>, <span style="color:#66d9ef">true</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">final</span> V <span style="color:#a6e22e">putVal</span>(<span style="color:#66d9ef">int</span> hash, K key, V value, <span style="color:#66d9ef">boolean</span> onlyIfAbsent,
+</span></span><span style="display:flex;"><span>                   <span style="color:#66d9ef">boolean</span> evict) {
+</span></span><span style="display:flex;"><span>        Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> tab; Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> p; <span style="color:#66d9ef">int</span> n, i;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> ((tab <span style="color:#f92672">=</span> table) <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> (n <span style="color:#f92672">=</span> tab.<span style="color:#a6e22e">length</span>) <span style="color:#f92672">==</span> 0)
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果未初始化，进行数组初始化，赋予初始容量</span>
+</span></span><span style="display:flex;"><span>            n <span style="color:#f92672">=</span> (tab <span style="color:#f92672">=</span> resize()).<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//通过hash找到下标，如果该位置为空</span>
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//若下标处有节点存储，使用p存储</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> ((p <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>i <span style="color:#f92672">=</span> (n <span style="color:#f92672">-</span> 1) <span style="color:#f92672">&amp;</span> hash<span style="color:#f92672">]</span>) <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//直接将数据存储进去</span>
+</span></span><span style="display:flex;"><span>            tab<span style="color:#f92672">[</span>i<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> newNode(hash, key, value, <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//发生hash碰撞</span>
+</span></span><span style="display:flex;"><span>            Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> e; K k;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果插入的key和当前key相同，直接覆盖</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (p.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">==</span> hash <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                ((k <span style="color:#f92672">=</span> p.<span style="color:#a6e22e">key</span>) <span style="color:#f92672">==</span> key <span style="color:#f92672">||</span> (key <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> key.<span style="color:#a6e22e">equals</span>(k))))
+</span></span><span style="display:flex;"><span>                e <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果当前节点类型是红黑树节点，使用红黑树进行插入</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (p <span style="color:#66d9ef">instanceof</span> TreeNode)
+</span></span><span style="display:flex;"><span>                e <span style="color:#f92672">=</span> ((TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span>)p).<span style="color:#a6e22e">putTreeVal</span>(<span style="color:#66d9ef">this</span>, tab, hash, key, value);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//链表的情况</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> binCount <span style="color:#f92672">=</span> 0; ; <span style="color:#f92672">++</span>binCount) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//将新节点放到链表的末尾</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> ((e <span style="color:#f92672">=</span> p.<span style="color:#a6e22e">next</span>) <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                        p.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> newNode(hash, key, value, <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>                        <span style="color:#75715e">//如果链表长度达到红黑树化的阈值，将链表转化成红黑树</span>
+</span></span><span style="display:flex;"><span>                        <span style="color:#66d9ef">if</span> (binCount <span style="color:#f92672">&gt;=</span> TREEIFY_THRESHOLD <span style="color:#f92672">-</span> 1)
+</span></span><span style="display:flex;"><span>                            treeifyBin(tab, hash);
+</span></span><span style="display:flex;"><span>                        <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>                    }
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//如果该key已经存在于链表中，覆盖</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> (e.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">==</span> hash <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                        ((k <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">key</span>) <span style="color:#f92672">==</span> key <span style="color:#f92672">||</span> (key <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> key.<span style="color:#a6e22e">equals</span>(k))))
+</span></span><span style="display:flex;"><span>                        <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>                    p <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//e不为空说明值已经插入成功</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (e <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) { <span style="color:#75715e">// existing mapping for key</span>
+</span></span><span style="display:flex;"><span>                V oldValue <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">value</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">//onlyIfAbsent控制是否替换原来的value</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>onlyIfAbsent <span style="color:#f92672">||</span> oldValue <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>                    e.<span style="color:#a6e22e">value</span> <span style="color:#f92672">=</span> value;
+</span></span><span style="display:flex;"><span>                afterNodeAccess(e);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> oldValue;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">++</span>modCount;
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//扩容检测</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">++</span>size <span style="color:#f92672">&gt;</span> threshold)
+</span></span><span style="display:flex;"><span>            resize();
+</span></span><span style="display:flex;"><span>        afterNodeInsertion(evict);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//链表转为红黑树的方法</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">final</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">treeifyBin</span>(Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> tab, <span style="color:#66d9ef">int</span> hash) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> n, index; Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> e;
+</span></span><span style="display:flex;"><span>    	<span style="color:#75715e">//树化的第二个条件</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (tab <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> (n <span style="color:#f92672">=</span> tab.<span style="color:#a6e22e">length</span>) <span style="color:#f92672">&lt;</span> MIN_TREEIFY_CAPACITY)
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果小于树化条件，使用resize</span>
+</span></span><span style="display:flex;"><span>            resize();
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> ((e <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>index <span style="color:#f92672">=</span> (n <span style="color:#f92672">-</span> 1) <span style="color:#f92672">&amp;</span> hash<span style="color:#f92672">]</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> hd <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>, tl <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>                TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> p <span style="color:#f92672">=</span> replacementTreeNode(e, <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (tl <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>                    hd <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                    p.<span style="color:#a6e22e">prev</span> <span style="color:#f92672">=</span> tl;
+</span></span><span style="display:flex;"><span>                    tl.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>                tl <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">while</span> ((e <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">next</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> ((tab<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> hd) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>                hd.<span style="color:#a6e22e">treeify</span>(tab);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><h3 id="remove">remove</h3>
+<p>主要逻辑：</p>
+<ol>
+<li>判断第一个节点是否是需删除节点，如果是，将节点存储下来。</li>
+<li>如果节点是红黑树节点，通过调用<code>getTreeNode</code>找到需删除节点，存储下来。</li>
+<li>如果是链表，遍历获取到需删除节点。</li>
+<li>删除节点，并进行修复工作</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> V <span style="color:#a6e22e">remove</span>(Object key) {
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> e;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> (e <span style="color:#f92672">=</span> removeNode(hash(key), key, <span style="color:#66d9ef">null</span>, <span style="color:#66d9ef">false</span>, <span style="color:#66d9ef">true</span>)) <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">?</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">null</span> : e.<span style="color:#a6e22e">value</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">final</span> Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">removeNode</span>(<span style="color:#66d9ef">int</span> hash, Object key, Object value,
+</span></span><span style="display:flex;"><span>                           <span style="color:#66d9ef">boolean</span> matchValue, <span style="color:#66d9ef">boolean</span> movable) {
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> tab; Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> p; <span style="color:#66d9ef">int</span> n, index;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> ((tab <span style="color:#f92672">=</span> table) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> (n <span style="color:#f92672">=</span> tab.<span style="color:#a6e22e">length</span>) <span style="color:#f92672">&gt;</span> 0 <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>        (p <span style="color:#f92672">=</span> tab<span style="color:#f92672">[</span>index <span style="color:#f92672">=</span> (n <span style="color:#f92672">-</span> 1) <span style="color:#f92672">&amp;</span> hash<span style="color:#f92672">]</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>        Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> node <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>, e; K k; V v;
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//如果键与第一个节点相等，则该节点是需删除节点</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (p.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">==</span> hash <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>            ((k <span style="color:#f92672">=</span> p.<span style="color:#a6e22e">key</span>) <span style="color:#f92672">==</span> key <span style="color:#f92672">||</span> (key <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> key.<span style="color:#a6e22e">equals</span>(k))))
+</span></span><span style="display:flex;"><span>            node <span style="color:#f92672">=</span> p;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> ((e <span style="color:#f92672">=</span> p.<span style="color:#a6e22e">next</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果是红黑树节点，调用红黑树的查找方法找到需删除节点</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (p <span style="color:#66d9ef">instanceof</span> TreeNode)
+</span></span><span style="display:flex;"><span>                node <span style="color:#f92672">=</span> ((TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span>)p).<span style="color:#a6e22e">getTreeNode</span>(hash, key);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//遍历链表，找到需删除节点</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> (e.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">==</span> hash <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                        ((k <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">key</span>) <span style="color:#f92672">==</span> key <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                         (key <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> key.<span style="color:#a6e22e">equals</span>(k)))) {
+</span></span><span style="display:flex;"><span>                        node <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                        <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>                    }
+</span></span><span style="display:flex;"><span>                    p <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                } <span style="color:#66d9ef">while</span> ((e <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">next</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//删除节点，并修复链表或红黑树</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (node <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> (<span style="color:#f92672">!</span>matchValue <span style="color:#f92672">||</span> (v <span style="color:#f92672">=</span> node.<span style="color:#a6e22e">value</span>) <span style="color:#f92672">==</span> value <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                             (value <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">&amp;&amp;</span> value.<span style="color:#a6e22e">equals</span>(v)))) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (node <span style="color:#66d9ef">instanceof</span> TreeNode)
+</span></span><span style="display:flex;"><span>                ((TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span>)node).<span style="color:#a6e22e">removeTreeNode</span>(<span style="color:#66d9ef">this</span>, tab, movable);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (node <span style="color:#f92672">==</span> p)
+</span></span><span style="display:flex;"><span>                tab<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> node.<span style="color:#a6e22e">next</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>                p.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> node.<span style="color:#a6e22e">next</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">++</span>modCount;
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">--</span>size;
+</span></span><span style="display:flex;"><span>            afterNodeRemoval(node);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> node;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="resize">resize</h3>
+<p><code>HashMap</code>的table数组长度为2的幂，阈值大小 = <code>capacity * load factor</code>（默认阈值为12），<code>Node</code>数量超过阈值，进行扩容，<strong>扩容倍数为2倍。</strong></p>
+<p>主要逻辑：</p>
+<ol>
+<li>计算新的桶数组容量<code>newCap</code>和新阈值<code>newThr</code>。<code>newCap</code>为原来的两倍，<code>newThr</code>为原来的两倍。</li>
+<li>根据<code>newCap</code>创建新的桶数组，初始化新的桶数组。</li>
+<li>将键值对节点重新映射到新的桶数组中，如果是红黑树节点，则需要拆分红黑树，如果是普通节点，则节点按照顺序进行分组。</li>
+</ol>
+<p>需要注意的是：<code>resize</code>十分消耗性能，日常开发需要尽量避免。方法中变量含义如下：</p>
+<ul>
+<li>oldTab：引用扩容前的哈希表</li>
+<li>oldCap：表示扩容前的table数组的长度</li>
+<li>newCap：扩容之后table数组大小</li>
+<li>newThr：扩容之后下次触发扩容的阈值</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">final</span> Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> <span style="color:#a6e22e">resize</span>() {
+</span></span><span style="display:flex;"><span>    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> oldTab <span style="color:#f92672">=</span> table;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> oldCap <span style="color:#f92672">=</span> (oldTab <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) <span style="color:#f92672">?</span> 0 : oldTab.<span style="color:#a6e22e">length</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> oldThr <span style="color:#f92672">=</span> threshold;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> newCap, newThr <span style="color:#f92672">=</span> 0;
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//如果table长度大于0，说明已经被初始化</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (oldCap <span style="color:#f92672">&gt;</span> 0) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//如果table的容量超过最大容量，不进行扩容</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (oldCap <span style="color:#f92672">&gt;=</span> MAXIMUM_CAPACITY) {
+</span></span><span style="display:flex;"><span>            threshold <span style="color:#f92672">=</span> Integer.<span style="color:#a6e22e">MAX_VALUE</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> oldTab;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//将容量变为原来的两倍，阈值变为原来的两倍</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> ((newCap <span style="color:#f92672">=</span> oldCap <span style="color:#f92672">&lt;&lt;</span> 1) <span style="color:#f92672">&lt;</span> MAXIMUM_CAPACITY <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>                 oldCap <span style="color:#f92672">&gt;=</span> DEFAULT_INITIAL_CAPACITY)
+</span></span><span style="display:flex;"><span>            newThr <span style="color:#f92672">=</span> oldThr <span style="color:#f92672">&lt;&lt;</span> 1; <span style="color:#75715e">// double threshold</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//newCap = threshold</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (oldThr <span style="color:#f92672">&gt;</span> 0)
+</span></span><span style="display:flex;"><span>        newCap <span style="color:#f92672">=</span> oldThr;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//阈值为默认容量与默认负载因子乘积</span>
+</span></span><span style="display:flex;"><span>        newCap <span style="color:#f92672">=</span> DEFAULT_INITIAL_CAPACITY;
+</span></span><span style="display:flex;"><span>        newThr <span style="color:#f92672">=</span> (<span style="color:#66d9ef">int</span>)(DEFAULT_LOAD_FACTOR <span style="color:#f92672">*</span> DEFAULT_INITIAL_CAPACITY);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//新阈值为0时，按照默认公式重新算newThr</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (newThr <span style="color:#f92672">==</span> 0) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">float</span> ft <span style="color:#f92672">=</span> (<span style="color:#66d9ef">float</span>)newCap <span style="color:#f92672">*</span> loadFactor;
+</span></span><span style="display:flex;"><span>        newThr <span style="color:#f92672">=</span> (newCap <span style="color:#f92672">&lt;</span> MAXIMUM_CAPACITY <span style="color:#f92672">&amp;&amp;</span> ft <span style="color:#f92672">&lt;</span> (<span style="color:#66d9ef">float</span>)MAXIMUM_CAPACITY <span style="color:#f92672">?</span>
+</span></span><span style="display:flex;"><span>                  (<span style="color:#66d9ef">int</span>)ft : Integer.<span style="color:#a6e22e">MAX_VALUE</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//赋值</span>
+</span></span><span style="display:flex;"><span>    threshold <span style="color:#f92672">=</span> newThr;
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@SuppressWarnings</span>({<span style="color:#e6db74">&#34;rawtypes&#34;</span>,<span style="color:#e6db74">&#34;unchecked&#34;</span>})
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//创建新的桶数组</span>
+</span></span><span style="display:flex;"><span>        Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span> newTab <span style="color:#f92672">=</span> (Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;[]</span>)<span style="color:#66d9ef">new</span> Node<span style="color:#f92672">[</span>newCap<span style="color:#f92672">]</span>;
+</span></span><span style="display:flex;"><span>    table <span style="color:#f92672">=</span> newTab;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (oldTab <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">int</span> j <span style="color:#f92672">=</span> 0; j <span style="color:#f92672">&lt;</span> oldCap; <span style="color:#f92672">++</span>j) {
+</span></span><span style="display:flex;"><span>            Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> e;
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//如果旧的桶数组不为空，就遍历桶数组，并将键值对映射到新的桶数组</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> ((e <span style="color:#f92672">=</span> oldTab<span style="color:#f92672">[</span>j<span style="color:#f92672">]</span>) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                oldTab<span style="color:#f92672">[</span>j<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (e.<span style="color:#a6e22e">next</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>                    newTab<span style="color:#f92672">[</span>e.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">&amp;</span> (newCap <span style="color:#f92672">-</span> 1)<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (e <span style="color:#66d9ef">instanceof</span> TreeNode)
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//如果是红黑树节点，进行拆分</span>
+</span></span><span style="display:flex;"><span>                    ((TreeNode<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span>)e).<span style="color:#a6e22e">split</span>(<span style="color:#66d9ef">this</span>, newTab, j, oldCap);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">else</span> { <span style="color:#75715e">// 链表节点情况</span>
+</span></span><span style="display:flex;"><span>                    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> loHead <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>, loTail <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>                    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> hiHead <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>, hiTail <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>                    Node<span style="color:#f92672">&lt;</span>K,V<span style="color:#f92672">&gt;</span> next;
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>                        <span style="color:#75715e">//遍历链表并进行按序分组</span>
+</span></span><span style="display:flex;"><span>                        next <span style="color:#f92672">=</span> e.<span style="color:#a6e22e">next</span>;
+</span></span><span style="display:flex;"><span>                        <span style="color:#66d9ef">if</span> ((e.<span style="color:#a6e22e">hash</span> <span style="color:#f92672">&amp;</span> oldCap) <span style="color:#f92672">==</span> 0) {
+</span></span><span style="display:flex;"><span>                            <span style="color:#66d9ef">if</span> (loTail <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>                                loHead <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                            <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>                                loTail.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                            loTail <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                        }
+</span></span><span style="display:flex;"><span>                        <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                            <span style="color:#66d9ef">if</span> (hiTail <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>                                hiHead <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                            <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>                                hiTail.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                            hiTail <span style="color:#f92672">=</span> e;
+</span></span><span style="display:flex;"><span>                        }
+</span></span><span style="display:flex;"><span>                    } <span style="color:#66d9ef">while</span> ((e <span style="color:#f92672">=</span> next) <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>);
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">//将分组后的链表映射到新的桶数组中</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> (loTail <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                        loTail.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>                        newTab<span style="color:#f92672">[</span>j<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> loHead;
+</span></span><span style="display:flex;"><span>                    }
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> (hiTail <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                        hiTail.<span style="color:#a6e22e">next</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;
+</span></span><span style="display:flex;"><span>                        newTab<span style="color:#f92672">[</span>j <span style="color:#f92672">+</span> oldCap<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> hiHead;
+</span></span><span style="display:flex;"><span>                    }
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> newTab;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="红黑树退化">红黑树退化</h2>
+<p>在<code>TreeNode.split</code>方法和中，有一段代码对是否需要进行退化进行了判断。如果树节点个数小于<code>6</code>，则会退化为链表，至于该阈值与树化阈值<code>（UNTREEIFY_THRESHOLD 与 TREEIFY_THRESHOLD）</code>不等的原因，主要为了避免桶数组中的某个节点在该值附近震荡，从而导致频繁的树化和链表化。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (loHead <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (lc <span style="color:#f92672">&lt;=</span> UNTREEIFY_THRESHOLD)
+</span></span><span style="display:flex;"><span>                    tab<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> loHead.<span style="color:#a6e22e">untreeify</span>(map);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                    tab<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> loHead;
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> (hiHead <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) <span style="color:#75715e">// (else is already treeified)</span>
+</span></span><span style="display:flex;"><span>                        loHead.<span style="color:#a6e22e">treeify</span>(tab);
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (hiHead <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (hc <span style="color:#f92672">&lt;=</span> UNTREEIFY_THRESHOLD)
+</span></span><span style="display:flex;"><span>                    tab<span style="color:#f92672">[</span>index <span style="color:#f92672">+</span> bit<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> hiHead.<span style="color:#a6e22e">untreeify</span>(map);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                    tab<span style="color:#f92672">[</span>index <span style="color:#f92672">+</span> bit<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> hiHead;
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> (loHead <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>)
+</span></span><span style="display:flex;"><span>                        hiHead.<span style="color:#a6e22e">treeify</span>(tab);
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span></code></pre></div><p>此外，在<code>TreeNode.removeTreeNode</code>中，删除红黑树节点之前，如果满足以下条件，也会进行链表化再进行删除：</p>
+<ul>
+<li>树的左子树为空</li>
+<li>树的右子树为空</li>
+<li>树的左孙子节点为空</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (root <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> root.<span style="color:#a6e22e">right</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                (rl <span style="color:#f92672">=</span> root.<span style="color:#a6e22e">left</span>) <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> rl.<span style="color:#a6e22e">left</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span>) {
+</span></span><span style="display:flex;"><span>                tab<span style="color:#f92672">[</span>index<span style="color:#f92672">]</span> <span style="color:#f92672">=</span> first.<span style="color:#a6e22e">untreeify</span>(map);  <span style="color:#75715e">// too small</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="线程安全性">线程安全性</h2>
+<p>HashMap多线程操作存在以下问题：</p>
+<ul>
+<li>多线程下扩容形成死循环：JDK1.7中使用头插法插入元素，扩容时可能导致形成环形链表，JDK1.8采用尾插法，不会出现此问题。</li>
+<li>多线程put操作导致元素的丢失：多线程put时，发生hash碰撞，会导致key被覆盖，从而导致元素丢失。</li>
+<li>put和get并发，导致get为null：线程1执行put，因元素个数超出扩容阈值而导致resize，线程2执行get时，会得到null。</li>
+</ul>
+<h2 id="小结">小结</h2>
+<p>本文对 JDK 8 中的 <code>HashMap</code> 的源代码进行了简要分析，主要为增删改查接口的内部实现机制以及扩容原理。</p>
+<p>HashMap内部基于数组实现的，数组每个元素称为一个桶(bucket)，当存储的键值对数量超过阈值时，还会进行扩容操作，HashMap中的键值对会重新Hash到新位置。当桶中节点数超过阈值，则会进行树化，如果删除导致低于阈值，则会进行链表化。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/">
+                数据结构
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/java%E9%9B%86%E5%90%88/java-linkedlist/">LinkedList源码分析</a></li>
+    
+    <li><a href="/posts/java%E9%9B%86%E5%90%88/java-arraylist/">ArrayList源码分析</a></li>
+    
+    <li><a href="/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/redis/redis-stream/">Redis底层数据结构-Stream源码分析</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>

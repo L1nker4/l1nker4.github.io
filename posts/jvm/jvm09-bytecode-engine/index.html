@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=59500&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:59500/posts/jvm/jvm09-bytecode-engine/" />
+  <link rel="canonical" href="http://localhost:59500/posts/jvm/jvm09-bytecode-engine/" /><link rel="apple-touch-icon" href="favicon.ico" />
+  <link rel="icon" href="favicon.ico" />
+  <link rel="shortcut" href="favicon.ico" /><link rel="alternate" type="application/atom+xml" href="http://localhost:59500/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:59500\/"
+      },
+      "articleSection" : "posts",
+      "name" : "JVM之字节码执行引擎（九）",
+      "headline" : "JVM之字节码执行引擎（九）",
+      "description" : "字节码执行引擎 执行引擎是JVM核心的组成部分之一，虚拟机是一个相对于物理机的概念，物理机的执行引擎是直接建立在存储器、缓存、指令集和操作系统上的，而虚拟机的执行引擎完全由软件自行实现。因此可以不受物理条件制约地定制指令集与执行引擎地结构体系。\n执行引擎在执行字节码地时候，通常会有解释执行和编译执行两种选择。\n运行时栈帧结构 JVM以方法为最基本地执行单元，栈帧是用于支持JVM进行方法调用和方法执行背后地数据结构，它是JVM运行时数据区中虚拟机栈地栈元素，每一个方法从调用开始至执行结束的过程，都对应着一个栈帧在虚拟机栈里面的入栈到出栈的过程。\n对于执行引擎来说，在活动线程中，只有位于栈顶的方法才是在运行的，只有位于栈顶的栈帧才是在运行的，被称为当前栈帧，与这个栈帧相关联的方法被称为当前方法。\n局部变量表 局部变量表是一组变量值的存储空间，用于存放方法参数和方法内部定义的局部变量。局部变量表的容量以变量槽为最小单位。\n当一个方法被调用时，JVM会使用局部变量表完成参数值到参数变量列表的传递过程，即实参到形参的传递。如果执行的是实例方法（没有被static修饰的方法），那局部变量表中第0位索引的变量槽默认是用于传递方法所属对象实例的引用，在方法中可以通过this来访问到这个参数，其余参数按照参数表顺序排列，占用从1开始的局部变量槽。\n操作数栈 操作数栈也被称为操作栈，它是一个后入先出栈，操作数栈的最大深度在编译时写入到Code属性的max_stacks数据项之中，操作数栈的每一个元素都可以是包括long和double在内的任何Java数据类型，32位数据类型所占的栈容量为1，64位数据类型栈容量为2.\n当一个方法刚刚开始执行时，这个方法的操作数栈是空的，在方法的执行过程中，会有各种字节码指令往操作数栈中写入和提取内容，也就是出栈和入栈操作。\n操作数栈中的数据类型必须与字节码指令的序列严格匹配，在编译程序代码时，编译器需要严格保证这一点，在类校验阶段的数据流分析中还要再次验证这一点。\n在概念模型中，两个不同栈帧作为不同方法的虚拟机栈的元素，是完全相互独立的。但在大多数JVM实现里会进行一些优化操作，令两个栈帧出现一部分重叠，让下面栈帧的部分操作数栈与上面栈帧的部分局部变量表重叠在一起。不仅可以节约空间，更重要的是在方法调用时可以直接共用一部分数据，无需进行额外的参数复制传递了。\n方法返回地址 当一个方法开始执行后，只有两种方式退出这个方法，第一种方式是执行引擎遇到任意一个方法返回的字节码指令，这时可能会有返回值传递给上层的方法调用者，方法是否有返回之以及返回值的类型将根据遇到何种方法返回指令来决定，这种退出方法的方式称为正常调用完成。\n另一种方式是在方法执行的过程中遇到了异常，并且这个异常没有在方法体内得到妥善处理。无论是JVM内部异常，还是代码中使用了athrow指令产生的异常，只要在笨方法的异常表中没有搜索到匹配的异常处理器，就会导致方法退出，这种退出方法的方式称为异常调用完成，异常调用完成的方式退出，不会给它的调用者提供任何返回值。\n方法退出的过程实际上等同于当前栈帧出栈，因此退出时可能执行饿操作有：恢复上层方法的局部变量表和操作数栈，把返回值压入调用者栈帧的操作数栈，调整PC计数器的值以指向方法调用指令后面的一条指令等。\n方法调用 一切方法调用在Class文件里面存储的都只是符号引用，而不是方法在实际运行时内存布局中的入口地址。\n解析 在类加载的解析阶段，会将其中的一部分符号引用转换成直接引用，这种解析能成立的前提是：方法在程序运行之前就有一个可确定的调用版本，并且方法的调用版本在运行期不可改变的。\n在Java语言中符合“编译期可知，运行期不可知”的方法，主要有静态方法和私有方法两大类，前者与类型直接关联，后者在外部不可被访问。这两种方法各自的特点决定了都不可能通过继承或别的方式重写出其他版本，因此都适合在类加载阶段进行解析。\n调用不同种类的方法有不同的字节码指令，分别是：\ninvokestatic：调用静态方法 invokespecial：用于调用实例构造器()方法、私有方法和父类中的方法 invokevirtual：用于调用所有的虚方法 invokeinterface：用于调用接口方法，会在运行时再确定一个实现该接口的对象 invokedynamic：先在运行时动态解析出调用点限定符所引用的方法，然后执行该方法 只要能被invokestatic和invokespecial指令调用的方法，都可以在解析阶段中确定唯一的调用版本，Java语言中符合这个条件的有静态方法、私有方法、实例构造器、父类方法，被final修饰的方法，这五种方法调用会在类加载的时候就可以把符号引用解析为该方法的直接引用。这些方法统称为非虚方法。\n分派 另一种主要的方法调用形式：分派调用则复杂许多，他可能是静态的，可能是动态的，按照分派依据的宗量数可分为单分派和多分派，这两种分派方式两两组合可以得到四种分派组合情况。\n静态分派 public class StaticDispatch { static abstract class Human{ } static class Man extends Human{ } static class Woman extends Human{ } public static void sayHello(Human guy){ System.out.println(\u0026#34;hello,guy!\u0026#34;); } public static void sayHello(Man guy){ System.out.println(\u0026#34;hello,gentlemen!\u0026#34;); } public static void sayHello(Woman guy){ System.out.println(\u0026#34;hello,lady!\u0026#34;); } public static void main(String[] args) { Human man=new Man(); Human woman=new Woman(); sayHello(man); sayHello(woman); } } 运行结果为：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2020",
+      "datePublished": "2020-04-03 19:56:23 \u002b0000 UTC",
+      "dateModified" : "2020-04-03 19:56:23 \u002b0000 UTC",
+      "url" : "http:\/\/localhost:59500\/posts\/jvm\/jvm09-bytecode-engine\/",
+      "keywords" : [ "Java","JVM", ]
+  }
+</script>
+<title>JVM之字节码执行引擎（九）</title>
+  <meta property="og:title" content="JVM之字节码执行引擎（九）" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="字节码执行引擎 执行引擎是JVM核心的组成部分之一，虚拟机是一个相对于物理机的概念，物理机的执行引擎是直接建立在存储器、缓存、指令集和操作系统上的，而虚拟机的执行引擎完全由软件自行实现。因此可以不受物理条件制约地定制指令集与执行引擎地结构体系。
+执行引擎在执行字节码地时候，通常会有解释执行和编译执行两种选择。
+运行时栈帧结构 JVM以方法为最基本地执行单元，栈帧是用于支持JVM进行方法调用和方法执行背后地数据结构，它是JVM运行时数据区中虚拟机栈地栈元素，每一个方法从调用开始至执行结束的过程，都对应着一个栈帧在虚拟机栈里面的入栈到出栈的过程。
+对于执行引擎来说，在活动线程中，只有位于栈顶的方法才是在运行的，只有位于栈顶的栈帧才是在运行的，被称为当前栈帧，与这个栈帧相关联的方法被称为当前方法。
+局部变量表 局部变量表是一组变量值的存储空间，用于存放方法参数和方法内部定义的局部变量。局部变量表的容量以变量槽为最小单位。
+当一个方法被调用时，JVM会使用局部变量表完成参数值到参数变量列表的传递过程，即实参到形参的传递。如果执行的是实例方法（没有被static修饰的方法），那局部变量表中第0位索引的变量槽默认是用于传递方法所属对象实例的引用，在方法中可以通过this来访问到这个参数，其余参数按照参数表顺序排列，占用从1开始的局部变量槽。
+操作数栈 操作数栈也被称为操作栈，它是一个后入先出栈，操作数栈的最大深度在编译时写入到Code属性的max_stacks数据项之中，操作数栈的每一个元素都可以是包括long和double在内的任何Java数据类型，32位数据类型所占的栈容量为1，64位数据类型栈容量为2.
+当一个方法刚刚开始执行时，这个方法的操作数栈是空的，在方法的执行过程中，会有各种字节码指令往操作数栈中写入和提取内容，也就是出栈和入栈操作。
+操作数栈中的数据类型必须与字节码指令的序列严格匹配，在编译程序代码时，编译器需要严格保证这一点，在类校验阶段的数据流分析中还要再次验证这一点。
+在概念模型中，两个不同栈帧作为不同方法的虚拟机栈的元素，是完全相互独立的。但在大多数JVM实现里会进行一些优化操作，令两个栈帧出现一部分重叠，让下面栈帧的部分操作数栈与上面栈帧的部分局部变量表重叠在一起。不仅可以节约空间，更重要的是在方法调用时可以直接共用一部分数据，无需进行额外的参数复制传递了。
+方法返回地址 当一个方法开始执行后，只有两种方式退出这个方法，第一种方式是执行引擎遇到任意一个方法返回的字节码指令，这时可能会有返回值传递给上层的方法调用者，方法是否有返回之以及返回值的类型将根据遇到何种方法返回指令来决定，这种退出方法的方式称为正常调用完成。
+另一种方式是在方法执行的过程中遇到了异常，并且这个异常没有在方法体内得到妥善处理。无论是JVM内部异常，还是代码中使用了athrow指令产生的异常，只要在笨方法的异常表中没有搜索到匹配的异常处理器，就会导致方法退出，这种退出方法的方式称为异常调用完成，异常调用完成的方式退出，不会给它的调用者提供任何返回值。
+方法退出的过程实际上等同于当前栈帧出栈，因此退出时可能执行饿操作有：恢复上层方法的局部变量表和操作数栈，把返回值压入调用者栈帧的操作数栈，调整PC计数器的值以指向方法调用指令后面的一条指令等。
+方法调用 一切方法调用在Class文件里面存储的都只是符号引用，而不是方法在实际运行时内存布局中的入口地址。
+解析 在类加载的解析阶段，会将其中的一部分符号引用转换成直接引用，这种解析能成立的前提是：方法在程序运行之前就有一个可确定的调用版本，并且方法的调用版本在运行期不可改变的。
+在Java语言中符合“编译期可知，运行期不可知”的方法，主要有静态方法和私有方法两大类，前者与类型直接关联，后者在外部不可被访问。这两种方法各自的特点决定了都不可能通过继承或别的方式重写出其他版本，因此都适合在类加载阶段进行解析。
+调用不同种类的方法有不同的字节码指令，分别是：
+invokestatic：调用静态方法 invokespecial：用于调用实例构造器()方法、私有方法和父类中的方法 invokevirtual：用于调用所有的虚方法 invokeinterface：用于调用接口方法，会在运行时再确定一个实现该接口的对象 invokedynamic：先在运行时动态解析出调用点限定符所引用的方法，然后执行该方法 只要能被invokestatic和invokespecial指令调用的方法，都可以在解析阶段中确定唯一的调用版本，Java语言中符合这个条件的有静态方法、私有方法、实例构造器、父类方法，被final修饰的方法，这五种方法调用会在类加载的时候就可以把符号引用解析为该方法的直接引用。这些方法统称为非虚方法。
+分派 另一种主要的方法调用形式：分派调用则复杂许多，他可能是静态的，可能是动态的，按照分派依据的宗量数可分为单分派和多分派，这两种分派方式两两组合可以得到四种分派组合情况。
+静态分派 public class StaticDispatch { static abstract class Human{ } static class Man extends Human{ } static class Woman extends Human{ } public static void sayHello(Human guy){ System.out.println(&#34;hello,guy!&#34;); } public static void sayHello(Man guy){ System.out.println(&#34;hello,gentlemen!&#34;); } public static void sayHello(Woman guy){ System.out.println(&#34;hello,lady!&#34;); } public static void main(String[] args) { Human man=new Man(); Human woman=new Woman(); sayHello(man); sayHello(woman); } } 运行结果为：
+" />
+  <meta name="description" content="字节码执行引擎 执行引擎是JVM核心的组成部分之一，虚拟机是一个相对于物理机的概念，物理机的执行引擎是直接建立在存储器、缓存、指令集和操作系统上的，而虚拟机的执行引擎完全由软件自行实现。因此可以不受物理条件制约地定制指令集与执行引擎地结构体系。
+执行引擎在执行字节码地时候，通常会有解释执行和编译执行两种选择。
+运行时栈帧结构 JVM以方法为最基本地执行单元，栈帧是用于支持JVM进行方法调用和方法执行背后地数据结构，它是JVM运行时数据区中虚拟机栈地栈元素，每一个方法从调用开始至执行结束的过程，都对应着一个栈帧在虚拟机栈里面的入栈到出栈的过程。
+对于执行引擎来说，在活动线程中，只有位于栈顶的方法才是在运行的，只有位于栈顶的栈帧才是在运行的，被称为当前栈帧，与这个栈帧相关联的方法被称为当前方法。
+局部变量表 局部变量表是一组变量值的存储空间，用于存放方法参数和方法内部定义的局部变量。局部变量表的容量以变量槽为最小单位。
+当一个方法被调用时，JVM会使用局部变量表完成参数值到参数变量列表的传递过程，即实参到形参的传递。如果执行的是实例方法（没有被static修饰的方法），那局部变量表中第0位索引的变量槽默认是用于传递方法所属对象实例的引用，在方法中可以通过this来访问到这个参数，其余参数按照参数表顺序排列，占用从1开始的局部变量槽。
+操作数栈 操作数栈也被称为操作栈，它是一个后入先出栈，操作数栈的最大深度在编译时写入到Code属性的max_stacks数据项之中，操作数栈的每一个元素都可以是包括long和double在内的任何Java数据类型，32位数据类型所占的栈容量为1，64位数据类型栈容量为2.
+当一个方法刚刚开始执行时，这个方法的操作数栈是空的，在方法的执行过程中，会有各种字节码指令往操作数栈中写入和提取内容，也就是出栈和入栈操作。
+操作数栈中的数据类型必须与字节码指令的序列严格匹配，在编译程序代码时，编译器需要严格保证这一点，在类校验阶段的数据流分析中还要再次验证这一点。
+在概念模型中，两个不同栈帧作为不同方法的虚拟机栈的元素，是完全相互独立的。但在大多数JVM实现里会进行一些优化操作，令两个栈帧出现一部分重叠，让下面栈帧的部分操作数栈与上面栈帧的部分局部变量表重叠在一起。不仅可以节约空间，更重要的是在方法调用时可以直接共用一部分数据，无需进行额外的参数复制传递了。
+方法返回地址 当一个方法开始执行后，只有两种方式退出这个方法，第一种方式是执行引擎遇到任意一个方法返回的字节码指令，这时可能会有返回值传递给上层的方法调用者，方法是否有返回之以及返回值的类型将根据遇到何种方法返回指令来决定，这种退出方法的方式称为正常调用完成。
+另一种方式是在方法执行的过程中遇到了异常，并且这个异常没有在方法体内得到妥善处理。无论是JVM内部异常，还是代码中使用了athrow指令产生的异常，只要在笨方法的异常表中没有搜索到匹配的异常处理器，就会导致方法退出，这种退出方法的方式称为异常调用完成，异常调用完成的方式退出，不会给它的调用者提供任何返回值。
+方法退出的过程实际上等同于当前栈帧出栈，因此退出时可能执行饿操作有：恢复上层方法的局部变量表和操作数栈，把返回值压入调用者栈帧的操作数栈，调整PC计数器的值以指向方法调用指令后面的一条指令等。
+方法调用 一切方法调用在Class文件里面存储的都只是符号引用，而不是方法在实际运行时内存布局中的入口地址。
+解析 在类加载的解析阶段，会将其中的一部分符号引用转换成直接引用，这种解析能成立的前提是：方法在程序运行之前就有一个可确定的调用版本，并且方法的调用版本在运行期不可改变的。
+在Java语言中符合“编译期可知，运行期不可知”的方法，主要有静态方法和私有方法两大类，前者与类型直接关联，后者在外部不可被访问。这两种方法各自的特点决定了都不可能通过继承或别的方式重写出其他版本，因此都适合在类加载阶段进行解析。
+调用不同种类的方法有不同的字节码指令，分别是：
+invokestatic：调用静态方法 invokespecial：用于调用实例构造器()方法、私有方法和父类中的方法 invokevirtual：用于调用所有的虚方法 invokeinterface：用于调用接口方法，会在运行时再确定一个实现该接口的对象 invokedynamic：先在运行时动态解析出调用点限定符所引用的方法，然后执行该方法 只要能被invokestatic和invokespecial指令调用的方法，都可以在解析阶段中确定唯一的调用版本，Java语言中符合这个条件的有静态方法、私有方法、实例构造器、父类方法，被final修饰的方法，这五种方法调用会在类加载的时候就可以把符号引用解析为该方法的直接引用。这些方法统称为非虚方法。
+分派 另一种主要的方法调用形式：分派调用则复杂许多，他可能是静态的，可能是动态的，按照分派依据的宗量数可分为单分派和多分派，这两种分派方式两两组合可以得到四种分派组合情况。
+静态分派 public class StaticDispatch { static abstract class Human{ } static class Man extends Human{ } static class Woman extends Human{ } public static void sayHello(Human guy){ System.out.println(&#34;hello,guy!&#34;); } public static void sayHello(Man guy){ System.out.println(&#34;hello,gentlemen!&#34;); } public static void sayHello(Woman guy){ System.out.println(&#34;hello,lady!&#34;); } public static void main(String[] args) { Human man=new Man(); Human woman=new Woman(); sayHello(man); sayHello(woman); } } 运行结果为：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="favicon.ico" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:100%;background-color:inherit;border:0}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4</a
+    >
+  </div>
+  <div class="header-subtitle"></div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">JVM之字节码执行引擎（九）</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2020-04-03 19:56:23 UTC">
+                03 Apr 2020
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h2 id="字节码执行引擎">字节码执行引擎</h2>
+<p>执行引擎是JVM核心的组成部分之一，虚拟机是一个相对于物理机的概念，物理机的执行引擎是直接建立在存储器、缓存、指令集和操作系统上的，而虚拟机的执行引擎完全由软件自行实现。因此可以不受物理条件制约地定制指令集与执行引擎地结构体系。</p>
+<p>执行引擎在执行字节码地时候，通常会有解释执行和编译执行两种选择。</p>
+<h2 id="运行时栈帧结构">运行时栈帧结构</h2>
+<p>JVM以方法为最基本地执行单元，栈帧是用于支持JVM进行方法调用和方法执行背后地数据结构，它是JVM运行时数据区中虚拟机栈地栈元素，每一个方法从调用开始至执行结束的过程，都对应着一个栈帧在虚拟机栈里面的入栈到出栈的过程。</p>
+<p>对于执行引擎来说，在活动线程中，只有位于栈顶的方法才是在运行的，只有位于栈顶的栈帧才是在运行的，被称为<strong>当前栈帧</strong>，与这个栈帧相关联的方法被称为<strong>当前方法</strong>。</p>
+<h3 id="局部变量表">局部变量表</h3>
+<p>局部变量表是一组变量值的存储空间，用于存放方法参数和方法内部定义的局部变量。局部变量表的容量以变量槽为最小单位。</p>
+<p>当一个方法被调用时，JVM会使用局部变量表完成参数值到参数变量列表的传递过程，即实参到形参的传递。如果执行的是实例方法（没有被static修饰的方法），那局部变量表中第0位索引的变量槽默认是用于传递方法所属对象实例的引用，在方法中可以通过<strong>this</strong>来访问到这个参数，其余参数按照参数表顺序排列，占用从1开始的局部变量槽。</p>
+<h3 id="操作数栈">操作数栈</h3>
+<p>操作数栈也被称为操作栈，它是一个后入先出栈，操作数栈的最大深度在编译时写入到Code属性的max_stacks数据项之中，操作数栈的每一个元素都可以是包括long和double在内的任何Java数据类型，32位数据类型所占的栈容量为1，64位数据类型栈容量为2.</p>
+<p>当一个方法刚刚开始执行时，这个方法的操作数栈是空的，在方法的执行过程中，会有各种字节码指令往操作数栈中写入和提取内容，也就是出栈和入栈操作。</p>
+<p>操作数栈中的数据类型必须与字节码指令的序列严格匹配，在编译程序代码时，编译器需要严格保证这一点，在类校验阶段的数据流分析中还要再次验证这一点。</p>
+<p>在概念模型中，两个不同栈帧作为不同方法的虚拟机栈的元素，是完全相互独立的。但在大多数JVM实现里会进行一些优化操作，令两个栈帧出现一部分重叠，让下面栈帧的部分操作数栈与上面栈帧的部分局部变量表重叠在一起。不仅可以节约空间，更重要的是在方法调用时可以直接共用一部分数据，无需进行额外的参数复制传递了。</p>
+<h3 id="方法返回地址">方法返回地址</h3>
+<p>当一个方法开始执行后，只有两种方式退出这个方法，第一种方式是执行引擎遇到任意一个方法返回的字节码指令，这时可能会有返回值传递给上层的方法调用者，方法是否有返回之以及返回值的类型将根据遇到何种方法返回指令来决定，这种退出方法的方式称为<strong>正常调用完成</strong>。</p>
+<p>另一种方式是在方法执行的过程中遇到了异常，并且这个异常没有在方法体内得到妥善处理。无论是JVM内部异常，还是代码中使用了<code>athrow</code>指令产生的异常，只要在笨方法的异常表中没有搜索到匹配的异常处理器，就会导致方法退出，这种退出方法的方式称为<strong>异常调用完成</strong>，异常调用完成的方式退出，不会给它的调用者提供任何返回值。</p>
+<p>方法退出的过程实际上等同于当前栈帧出栈，因此退出时可能执行饿操作有：恢复上层方法的局部变量表和操作数栈，把返回值压入调用者栈帧的操作数栈，调整PC计数器的值以指向方法调用指令后面的一条指令等。</p>
+<h2 id="方法调用">方法调用</h2>
+<p>一切方法调用在Class文件里面存储的都只是符号引用，而不是方法在实际运行时内存布局中的入口地址。</p>
+<h3 id="解析">解析</h3>
+<p>在类加载的解析阶段，会将其中的一部分符号引用转换成直接引用，这种解析能成立的前提是：方法在程序运行之前就有一个可确定的调用版本，并且方法的调用版本在运行期不可改变的。</p>
+<p>在Java语言中符合“编译期可知，运行期不可知”的方法，主要有静态方法和私有方法两大类，前者与类型直接关联，后者在外部不可被访问。这两种方法各自的特点决定了都不可能通过继承或别的方式重写出其他版本，因此都适合在类加载阶段进行解析。</p>
+<p>调用不同种类的方法有不同的字节码指令，分别是：</p>
+<ul>
+<li>invokestatic：调用静态方法</li>
+<li>invokespecial：用于调用实例构造器<!-- raw HTML omitted -->()方法、私有方法和父类中的方法</li>
+<li>invokevirtual：用于调用所有的虚方法</li>
+<li>invokeinterface：用于调用接口方法，会在运行时再确定一个实现该接口的对象</li>
+<li>invokedynamic：先在运行时动态解析出调用点限定符所引用的方法，然后执行该方法</li>
+</ul>
+<p>只要能被invokestatic和invokespecial指令调用的方法，都可以在解析阶段中确定唯一的调用版本，Java语言中符合这个条件的有静态方法、私有方法、实例构造器、父类方法，被final修饰的方法，这五种方法调用会在类加载的时候就可以把符号引用解析为该方法的直接引用。这些方法统称为<strong>非虚方法</strong>。</p>
+<h3 id="分派">分派</h3>
+<p>另一种主要的方法调用形式：分派调用则复杂许多，他可能是静态的，可能是动态的，按照分派依据的宗量数可分为单分派和多分派，这两种分派方式两两组合可以得到四种分派组合情况。</p>
+<h4 id="静态分派">静态分派</h4>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">StaticDispatch</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">abstract</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Human</span>{
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Man</span> <span style="color:#66d9ef">extends</span> Human{
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Woman</span> <span style="color:#66d9ef">extends</span> Human{
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">sayHello</span>(Human guy){
+</span></span><span style="display:flex;"><span>		System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;hello,guy!&#34;</span>);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">sayHello</span>(Man guy){
+</span></span><span style="display:flex;"><span>		System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;hello,gentlemen!&#34;</span>);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">sayHello</span>(Woman guy){
+</span></span><span style="display:flex;"><span>		System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;hello,lady!&#34;</span>);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>		Human man<span style="color:#f92672">=</span><span style="color:#66d9ef">new</span> Man();
+</span></span><span style="display:flex;"><span>		Human woman<span style="color:#f92672">=</span><span style="color:#66d9ef">new</span> Woman();
+</span></span><span style="display:flex;"><span>		sayHello(man);
+</span></span><span style="display:flex;"><span>		sayHello(woman);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>运行结果为：</p>
+<pre tabindex="0"><code>hello,guy!
+hello,guy!
+</code></pre><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>Human man<span style="color:#f92672">=</span><span style="color:#66d9ef">new</span> Man();
+</span></span></code></pre></div><p>上面代码的Human称为变量的静态类型或者叫外观类型，后面的Man称为变量的实际类型或者叫运行时类型，静态类型和实际类型在程序中都可能发生变化，区别是静态类型的变化仅仅在使用时发生，变量本身的静态类型不会被改变，并且最终的静态类型是在编译期间可知的，而实际类型变化的结果在运行期才可确定，编译器在编译程序的时候并不知道一个对象的实际类型是什么。</p>
+<p>JVM在重载时是通过参数的静态类型而不是实际类型作为判定依据的。</p>
+<p>所有依赖静态类型来决定方法执行版本的分派动作，都称为静态分派，静态分派的最典型应用表现就是方法重载，静态分派发生在编译阶段。</p>
+<h4 id="动态分派">动态分派</h4>
+<p>动态分派与Java语言多态性的——重写有着很密切的关系，以之前Human为例：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">DynamicDispatch</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">abstract</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Human</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">abstract</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">sayHello</span>();
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Man</span> <span style="color:#66d9ef">extends</span> Human{ 
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">sayHello</span>() { 
+</span></span><span style="display:flex;"><span>			System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;man say hello!&#34;</span>);
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Woman</span> <span style="color:#66d9ef">extends</span> Human{ 
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">@Override</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">sayHello</span>() { 
+</span></span><span style="display:flex;"><span>			System.<span style="color:#a6e22e">out</span>.<span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;woman say hello!&#34;</span>);
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>	} 
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">main</span>(String<span style="color:#f92672">[]</span> args) {
+</span></span><span style="display:flex;"><span>		
+</span></span><span style="display:flex;"><span>		Human man<span style="color:#f92672">=</span><span style="color:#66d9ef">new</span> Man();
+</span></span><span style="display:flex;"><span>		Human woman<span style="color:#f92672">=</span><span style="color:#66d9ef">new</span> Woman();
+</span></span><span style="display:flex;"><span>		man.<span style="color:#a6e22e">sayHello</span>();
+</span></span><span style="display:flex;"><span>		woman.<span style="color:#a6e22e">sayHello</span>();
+</span></span><span style="display:flex;"><span>		man<span style="color:#f92672">=</span><span style="color:#66d9ef">new</span> Woman();
+</span></span><span style="display:flex;"><span>		man.<span style="color:#a6e22e">sayHello</span>(); 
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>运行结果：</p>
+<pre tabindex="0"><code>man say hello!
+woman say hello!
+woman say hello!
+</code></pre><p>JVM如何判断应该调用哪个方法呢？</p>
+<p>显然，这里不可能再根据静态类型来决定，因为静态类型同样是Human的两个变量man和woman在调用sayHello()方法时执行了不同的行为，并且变量man在两次调用中执行了不同的方法。导致这个现象的原因很明显，是这两个变量的实际类型不同，Java虚拟机是如何根据实际类型来分派方法执行版本的呢？
+我们从invokevirtual指令的多态查找过程开始说起，invokevirtual指令的运行时解析过程大致分为以下几个步骤：</p>
+<ol>
+<li>找到操作数栈顶的第一个元素所指向的对象的实际类型，记作C。</li>
+<li>如果在类型C中找到与常量中的描述符和简单名称相符合的方法，然后进行访问权限验证，如果验证通过则返回这个方法的直接引用，查找过程结束；如果验证不通过，则抛出java.lang.IllegalAccessError异常。</li>
+<li>否则未找到，就按照继承关系从下往上依次对类型C的各个父类进行第2步的搜索和验证过程。</li>
+<li>如果始终没有找到合适的方法，则跑出java.lang.AbstractMethodError异常。</li>
+</ol>
+<p>由于invokevirtual指令执行的第一步就是在运行期确定接收者的实际类型，所以两次调用中的invokevirtual指令把常量池中的类方法符号引用解析到了不同的直接引用上，这个过程就是Java语言方法重写的本质。我们把这种在运行期根据实际类型确定方法执行版本的分派过程称为动态分派。</p>
+<h4 id="jvm动态分派的实现">JVM动态分派的实现</h4>
+<p>动态分派是执行非常频繁的动作，而且动态分派的方法版本选择过程需要运行时在接受者类型的方法元数据中搜索合适的目标方法，因此JVM基于执行性能的考虑，真正运行时不会如此频繁地区搜索类型元数据。面对这种情况，一种基础且常见的优化手段是为类型在方法区中建立一个虚方法表，与之对应地，在invokeinterface执行时也会用到接口方法表。</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/jvm/methodTable.png" alt="图1-方法表结构"></p>
+<p>虚方法表中存放着各个方法地实际入口地址，如果某个方法在子类中没有被重写，那么子类地虚方法表中唔到地址入口和父类相同方法的地址入口时一致的，都指向父类的实现入口。如果子类中重写了这个方法，子类虚方法表中的地址也会被替换为指向子类实现版本的入口地址。</p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+            <div class="post-tags">
+              <a href="/tags/java/">
+                Java
+              </a>
+            </div>
+            
+            <div class="post-tags">
+              <a href="/tags/jvm/">
+                JVM
+              </a>
+            </div>
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+<div class="related-content">
+  <h3>Related Posts</h3>
+  <ul>
+    
+    <li><a href="/posts/jvm/jvm08-class-load/">JVM之类加载机制（八）</a></li>
+    
+    <li><a href="/posts/jvm/jvm07-bytecode/">JVM之字节码指令（七）</a></li>
+    
+    <li><a href="/posts/jvm/jvm06-class-file/">JVM之类文件结构（六）</a></li>
+    
+  </ul>
+</div>
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>
