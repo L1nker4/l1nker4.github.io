@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.140.2">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-3-log-startup/" />
+  <link rel="canonical" href="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-3-log-startup/" /><link rel="apple-touch-icon" href="/favicon.png" />
+  <link rel="icon" href="/favicon.png" />
+  <link rel="shortcut" href="/favicon.png" /><link rel="alternate" type="application/atom+xml" href="http://localhost:1313/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:1313\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Kafka源码分析(三) - 日志加载流程",
+      "headline" : "Kafka源码分析(三) - 日志加载流程",
+      "description" : "Kafka Log由多个LogSegment构成，每个LogSegment对应一个分区，每个LogSegment对象都会在磁盘中创建一组文件：\n日志消息文件(.log) 位移索引文件(.index) 时间戳索引文件(.timeindex) 已中止十五的索引文件(.txnindex) LogManager LogManager作为Kafka Log管理的入口点，负责日志创建、检索、清理，所有的读写操作都会委托给对应的日志实例。\nprivate val currentLogs = new Pool[TopicPartition, UnifiedLog]() private val _liveLogDirs: ConcurrentLinkedQueue[File] = createAndValidateLogDirs(logDirs, initialOfflineDirs) currentLogs字段是用于存储分区和UnifiedLog映射的map结构，Pool内部使用ConcurrentHashMap作为存储。\nliveLogDirs用于存储log路径下所有有效的File对象，存储结构使用ConcurrentLinkedQueue。createAndValidateLogDirs()方法用来检查并追加有效路径到队列中。\nstartup启动流程 KafkaServer的startup()方法中会调用logManager的startup()方法，用来加载所有的日志。\nlogManager.startup(zkClient.getAllTopicsInCluster()) startup的第一个参数是topic名称集合，第二个可选参数isStray通过metadata计算当前UnifiedLog是否需要当前broker加载（kafka.log.LogManager.isStrayKraftReplica）\n\/** * Start the background threads to flush logs and do log cleanup *\/def startup(topicNames: Set[String], isStray: UnifiedLog =\u0026gt; Boolean = _ =\u0026gt; false): Unit = { \/\/ ensure consistency between default config and overrides val defaultConfig = currentDefaultConfig startupWithConfigOverrides(defaultConfig, fetchTopicConfigOverrides(defaultConfig, topicNames), isStray) }s fetchTopicConfigOverrides()方法用于检查topic是否存在自定义配置并覆盖。接下来看startupWithConfigOverrides()的具体实现。\n调用loadLogs()加载所有log 启动以下定时调度任务： 日志清理任务 日志刷盘任务 日志checkpoint更新任务 log start offset属性checkpoint更新任务 日志删除任务 检查log.cleaner.enable参数，true则配置LogCleaner scheduler定时调度 scheduler定时调度使用内部封装的org.apache.kafka.server.util.KafkaScheduler，它是对ScheduledThreadPoolExecutor的简单封装。\nprivate[log] def startupWithConfigOverrides( defaultConfig: LogConfig, topicConfigOverrides: Map[String, LogConfig], isStray: UnifiedLog =\u0026gt; Boolean): Unit = { loadLogs(defaultConfig, topicConfigOverrides, isStray) \/\/ this could take a while if shutdown was not clean \/* Schedule the cleanup task to delete old logs *\/ if (scheduler != null) { info(\u0026#34;Starting log cleanup with a period of %d ms.\u0026#34;.format(retentionCheckMs)) scheduler.schedule(\u0026#34;kafka-log-retention\u0026#34;, () =\u0026gt; cleanupLogs(), initialTaskDelayMs, retentionCheckMs) info(\u0026#34;Starting log flusher with a default period of %d ms.\u0026#34;.format(flushCheckMs)) scheduler.schedule(\u0026#34;kafka-log-flusher\u0026#34;, () =\u0026gt; flushDirtyLogs(), initialTaskDelayMs, flushCheckMs) scheduler.schedule(\u0026#34;kafka-recovery-point-checkpoint\u0026#34;, () =\u0026gt; checkpointLogRecoveryOffsets(), initialTaskDelayMs, flushRecoveryOffsetCheckpointMs) scheduler.schedule(\u0026#34;kafka-log-start-offset-checkpoint\u0026#34;, () =\u0026gt; checkpointLogStartOffsets(), initialTaskDelayMs, flushStartOffsetCheckpointMs) scheduler.scheduleOnce(\u0026#34;kafka-delete-logs\u0026#34;, \/\/ will be rescheduled after each delete logs with a dynamic period () =\u0026gt; deleteLogs(), initialTaskDelayMs) } if (cleanerConfig.enableCleaner) { _cleaner = new LogCleaner(cleanerConfig, liveLogDirs, currentLogs, logDirFailureChannel, time = time) _cleaner.startup() } } loadLogs流程 loadLogs()方法作为实际加载Log数据的入口，逻辑链路较长，首先看下方法中使用到的类属性：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2025",
+      "datePublished": "2025-02-04 17:51:13 \u002b0800 CST",
+      "dateModified" : "2025-02-04 17:51:13 \u002b0800 CST",
+      "url" : "http:\/\/localhost:1313\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/kafka\/kafka-source-code-3-log-startup\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Kafka源码分析(三) - 日志加载流程</title>
+  <meta property="og:title" content="Kafka源码分析(三) - 日志加载流程" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="Kafka Log由多个LogSegment构成，每个LogSegment对应一个分区，每个LogSegment对象都会在磁盘中创建一组文件：
+日志消息文件(.log) 位移索引文件(.index) 时间戳索引文件(.timeindex) 已中止十五的索引文件(.txnindex) LogManager LogManager作为Kafka Log管理的入口点，负责日志创建、检索、清理，所有的读写操作都会委托给对应的日志实例。
+private val currentLogs = new Pool[TopicPartition, UnifiedLog]() private val _liveLogDirs: ConcurrentLinkedQueue[File] = createAndValidateLogDirs(logDirs, initialOfflineDirs) currentLogs字段是用于存储分区和UnifiedLog映射的map结构，Pool内部使用ConcurrentHashMap作为存储。
+liveLogDirs用于存储log路径下所有有效的File对象，存储结构使用ConcurrentLinkedQueue。createAndValidateLogDirs()方法用来检查并追加有效路径到队列中。
+startup启动流程 KafkaServer的startup()方法中会调用logManager的startup()方法，用来加载所有的日志。
+logManager.startup(zkClient.getAllTopicsInCluster()) startup的第一个参数是topic名称集合，第二个可选参数isStray通过metadata计算当前UnifiedLog是否需要当前broker加载（kafka.log.LogManager.isStrayKraftReplica）
+/** * Start the background threads to flush logs and do log cleanup */def startup(topicNames: Set[String], isStray: UnifiedLog =&gt; Boolean = _ =&gt; false): Unit = { // ensure consistency between default config and overrides val defaultConfig = currentDefaultConfig startupWithConfigOverrides(defaultConfig, fetchTopicConfigOverrides(defaultConfig, topicNames), isStray) }s fetchTopicConfigOverrides()方法用于检查topic是否存在自定义配置并覆盖。接下来看startupWithConfigOverrides()的具体实现。
+调用loadLogs()加载所有log 启动以下定时调度任务： 日志清理任务 日志刷盘任务 日志checkpoint更新任务 log start offset属性checkpoint更新任务 日志删除任务 检查log.cleaner.enable参数，true则配置LogCleaner scheduler定时调度 scheduler定时调度使用内部封装的org.apache.kafka.server.util.KafkaScheduler，它是对ScheduledThreadPoolExecutor的简单封装。
+private[log] def startupWithConfigOverrides( defaultConfig: LogConfig, topicConfigOverrides: Map[String, LogConfig], isStray: UnifiedLog =&gt; Boolean): Unit = { loadLogs(defaultConfig, topicConfigOverrides, isStray) // this could take a while if shutdown was not clean /* Schedule the cleanup task to delete old logs */ if (scheduler != null) { info(&#34;Starting log cleanup with a period of %d ms.&#34;.format(retentionCheckMs)) scheduler.schedule(&#34;kafka-log-retention&#34;, () =&gt; cleanupLogs(), initialTaskDelayMs, retentionCheckMs) info(&#34;Starting log flusher with a default period of %d ms.&#34;.format(flushCheckMs)) scheduler.schedule(&#34;kafka-log-flusher&#34;, () =&gt; flushDirtyLogs(), initialTaskDelayMs, flushCheckMs) scheduler.schedule(&#34;kafka-recovery-point-checkpoint&#34;, () =&gt; checkpointLogRecoveryOffsets(), initialTaskDelayMs, flushRecoveryOffsetCheckpointMs) scheduler.schedule(&#34;kafka-log-start-offset-checkpoint&#34;, () =&gt; checkpointLogStartOffsets(), initialTaskDelayMs, flushStartOffsetCheckpointMs) scheduler.scheduleOnce(&#34;kafka-delete-logs&#34;, // will be rescheduled after each delete logs with a dynamic period () =&gt; deleteLogs(), initialTaskDelayMs) } if (cleanerConfig.enableCleaner) { _cleaner = new LogCleaner(cleanerConfig, liveLogDirs, currentLogs, logDirFailureChannel, time = time) _cleaner.startup() } } loadLogs流程 loadLogs()方法作为实际加载Log数据的入口，逻辑链路较长，首先看下方法中使用到的类属性：
+" />
+  <meta name="description" content="Kafka Log由多个LogSegment构成，每个LogSegment对应一个分区，每个LogSegment对象都会在磁盘中创建一组文件：
+日志消息文件(.log) 位移索引文件(.index) 时间戳索引文件(.timeindex) 已中止十五的索引文件(.txnindex) LogManager LogManager作为Kafka Log管理的入口点，负责日志创建、检索、清理，所有的读写操作都会委托给对应的日志实例。
+private val currentLogs = new Pool[TopicPartition, UnifiedLog]() private val _liveLogDirs: ConcurrentLinkedQueue[File] = createAndValidateLogDirs(logDirs, initialOfflineDirs) currentLogs字段是用于存储分区和UnifiedLog映射的map结构，Pool内部使用ConcurrentHashMap作为存储。
+liveLogDirs用于存储log路径下所有有效的File对象，存储结构使用ConcurrentLinkedQueue。createAndValidateLogDirs()方法用来检查并追加有效路径到队列中。
+startup启动流程 KafkaServer的startup()方法中会调用logManager的startup()方法，用来加载所有的日志。
+logManager.startup(zkClient.getAllTopicsInCluster()) startup的第一个参数是topic名称集合，第二个可选参数isStray通过metadata计算当前UnifiedLog是否需要当前broker加载（kafka.log.LogManager.isStrayKraftReplica）
+/** * Start the background threads to flush logs and do log cleanup */def startup(topicNames: Set[String], isStray: UnifiedLog =&gt; Boolean = _ =&gt; false): Unit = { // ensure consistency between default config and overrides val defaultConfig = currentDefaultConfig startupWithConfigOverrides(defaultConfig, fetchTopicConfigOverrides(defaultConfig, topicNames), isStray) }s fetchTopicConfigOverrides()方法用于检查topic是否存在自定义配置并覆盖。接下来看startupWithConfigOverrides()的具体实现。
+调用loadLogs()加载所有log 启动以下定时调度任务： 日志清理任务 日志刷盘任务 日志checkpoint更新任务 log start offset属性checkpoint更新任务 日志删除任务 检查log.cleaner.enable参数，true则配置LogCleaner scheduler定时调度 scheduler定时调度使用内部封装的org.apache.kafka.server.util.KafkaScheduler，它是对ScheduledThreadPoolExecutor的简单封装。
+private[log] def startupWithConfigOverrides( defaultConfig: LogConfig, topicConfigOverrides: Map[String, LogConfig], isStray: UnifiedLog =&gt; Boolean): Unit = { loadLogs(defaultConfig, topicConfigOverrides, isStray) // this could take a while if shutdown was not clean /* Schedule the cleanup task to delete old logs */ if (scheduler != null) { info(&#34;Starting log cleanup with a period of %d ms.&#34;.format(retentionCheckMs)) scheduler.schedule(&#34;kafka-log-retention&#34;, () =&gt; cleanupLogs(), initialTaskDelayMs, retentionCheckMs) info(&#34;Starting log flusher with a default period of %d ms.&#34;.format(flushCheckMs)) scheduler.schedule(&#34;kafka-log-flusher&#34;, () =&gt; flushDirtyLogs(), initialTaskDelayMs, flushCheckMs) scheduler.schedule(&#34;kafka-recovery-point-checkpoint&#34;, () =&gt; checkpointLogRecoveryOffsets(), initialTaskDelayMs, flushRecoveryOffsetCheckpointMs) scheduler.schedule(&#34;kafka-log-start-offset-checkpoint&#34;, () =&gt; checkpointLogStartOffsets(), initialTaskDelayMs, flushStartOffsetCheckpointMs) scheduler.scheduleOnce(&#34;kafka-delete-logs&#34;, // will be rescheduled after each delete logs with a dynamic period () =&gt; deleteLogs(), initialTaskDelayMs) } if (cleanerConfig.enableCleaner) { _cleaner = new LogCleaner(cleanerConfig, liveLogDirs, currentLogs, logDirFailureChannel, time = time) _cleaner.startup() } } loadLogs流程 loadLogs()方法作为实际加载Log数据的入口，逻辑链路较长，首先看下方法中使用到的类属性：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="/favicon.png" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:85%;background-color:inherit;border:0;font-family:SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4&#39;s Blog</a
+    >
+  </div>
+  <div class="header-subtitle">提升认知，解构世界</div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Kafka源码分析(三) - 日志加载流程</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2025-02-04 17:51:13 CST">
+                04 Feb 2025
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <p>Kafka Log由多个LogSegment构成，每个LogSegment对应一个分区，每个LogSegment对象都会在磁盘中创建一组文件：</p>
+<ol>
+<li>日志消息文件(.log)</li>
+<li>位移索引文件(.index)</li>
+<li>时间戳索引文件(.timeindex)</li>
+<li>已中止十五的索引文件(.txnindex)</li>
+</ol>
+<h2 id="logmanager">LogManager</h2>
+<p>LogManager作为Kafka Log管理的入口点，负责日志创建、检索、清理，所有的读写操作都会委托给对应的日志实例。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> currentLogs <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">Pool</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicPartition</span>, <span style="color:#66d9ef">UnifiedLog</span><span style="color:#f92672">]()</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> <span style="color:#a6e22e">_liveLogDirs</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ConcurrentLinkedQueue</span><span style="color:#f92672">[</span><span style="color:#66d9ef">File</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> createAndValidateLogDirs<span style="color:#f92672">(</span>logDirs<span style="color:#f92672">,</span> initialOfflineDirs<span style="color:#f92672">)</span>
+</span></span></code></pre></div><p>currentLogs字段是用于存储分区和UnifiedLog映射的map结构，Pool内部使用ConcurrentHashMap作为存储。</p>
+<p>liveLogDirs用于存储log路径下所有有效的File对象，存储结构使用ConcurrentLinkedQueue。createAndValidateLogDirs()方法用来检查并追加有效路径到队列中。</p>
+<h3 id="startup启动流程">startup启动流程</h3>
+<p>KafkaServer的startup()方法中会调用logManager的startup()方法，用来加载所有的日志。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span>logManager<span style="color:#f92672">.</span>startup<span style="color:#f92672">(</span>zkClient<span style="color:#f92672">.</span>getAllTopicsInCluster<span style="color:#f92672">())</span>
+</span></span></code></pre></div><p>startup的第一个参数是topic名称集合，第二个可选参数isStray通过metadata计算当前UnifiedLog是否需要当前broker加载（kafka.log.LogManager.isStrayKraftReplica）</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#75715e">/**  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> *  Start the background threads to flush logs and do log cleanup */</span><span style="color:#66d9ef">def</span> startup<span style="color:#f92672">(</span>topicNames<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Set</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span><span style="color:#f92672">],</span> isStray<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">UnifiedLog</span> <span style="color:#f92672">=&gt;</span> <span style="color:#a6e22e">Boolean</span> <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">_</span> <span style="color:#66d9ef">=&gt;</span> <span style="color:#66d9ef">false</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// ensure consistency between default config and overrides  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> defaultConfig <span style="color:#66d9ef">=</span> currentDefaultConfig  
+</span></span><span style="display:flex;"><span>  startupWithConfigOverrides<span style="color:#f92672">(</span>defaultConfig<span style="color:#f92672">,</span> fetchTopicConfigOverrides<span style="color:#f92672">(</span>defaultConfig<span style="color:#f92672">,</span> topicNames<span style="color:#f92672">),</span> isStray<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>s
+</span></span></code></pre></div><p>fetchTopicConfigOverrides()方法用于检查topic是否存在自定义配置并覆盖。接下来看startupWithConfigOverrides()的具体实现。</p>
+<ol>
+<li>调用loadLogs()加载所有log</li>
+<li>启动以下定时调度任务：
+<ol>
+<li>日志清理任务</li>
+<li>日志刷盘任务</li>
+<li>日志checkpoint更新任务</li>
+<li>log start offset属性checkpoint更新任务</li>
+<li>日志删除任务</li>
+</ol>
+</li>
+<li>检查<code>log.cleaner.enable</code>参数，true则配置LogCleaner</li>
+</ol>
+<h3 id="scheduler定时调度">scheduler定时调度</h3>
+<p>scheduler定时调度使用内部封装的<code>org.apache.kafka.server.util.KafkaScheduler</code>，它是对ScheduledThreadPoolExecutor的简单封装。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">log</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">def</span> startupWithConfigOverrides<span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>  defaultConfig<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">LogConfig</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  topicConfigOverrides<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">LogConfig</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>  isStray<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">UnifiedLog</span> <span style="color:#f92672">=&gt;</span> <span style="color:#a6e22e">Boolean</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>  loadLogs<span style="color:#f92672">(</span>defaultConfig<span style="color:#f92672">,</span> topicConfigOverrides<span style="color:#f92672">,</span> isStray<span style="color:#f92672">)</span> <span style="color:#75715e">// this could take a while if shutdown was not clean  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* Schedule the cleanup task to delete old logs */</span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>scheduler <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    info<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Starting log cleanup with a period of %d ms.&#34;</span><span style="color:#f92672">.</span>format<span style="color:#f92672">(</span>retentionCheckMs<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>    scheduler<span style="color:#f92672">.</span>schedule<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;kafka-log-retention&#34;</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                       <span style="color:#f92672">()</span> <span style="color:#66d9ef">=&gt;</span> cleanupLogs<span style="color:#f92672">(),</span>  
+</span></span><span style="display:flex;"><span>                       initialTaskDelayMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                       retentionCheckMs<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    info<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Starting log flusher with a default period of %d ms.&#34;</span><span style="color:#f92672">.</span>format<span style="color:#f92672">(</span>flushCheckMs<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>    scheduler<span style="color:#f92672">.</span>schedule<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;kafka-log-flusher&#34;</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                       <span style="color:#f92672">()</span> <span style="color:#66d9ef">=&gt;</span> flushDirtyLogs<span style="color:#f92672">(),</span>  
+</span></span><span style="display:flex;"><span>                       initialTaskDelayMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                       flushCheckMs<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    scheduler<span style="color:#f92672">.</span>schedule<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;kafka-recovery-point-checkpoint&#34;</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                       <span style="color:#f92672">()</span> <span style="color:#66d9ef">=&gt;</span> checkpointLogRecoveryOffsets<span style="color:#f92672">(),</span>  
+</span></span><span style="display:flex;"><span>                       initialTaskDelayMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                       flushRecoveryOffsetCheckpointMs<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    scheduler<span style="color:#f92672">.</span>schedule<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;kafka-log-start-offset-checkpoint&#34;</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                       <span style="color:#f92672">()</span> <span style="color:#66d9ef">=&gt;</span> checkpointLogStartOffsets<span style="color:#f92672">(),</span>  
+</span></span><span style="display:flex;"><span>                       initialTaskDelayMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                       flushStartOffsetCheckpointMs<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    scheduler<span style="color:#f92672">.</span>scheduleOnce<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;kafka-delete-logs&#34;</span><span style="color:#f92672">,</span> <span style="color:#75715e">// will be rescheduled after each delete logs with a dynamic period  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                       <span style="color:#f92672">()</span> <span style="color:#66d9ef">=&gt;</span> deleteLogs<span style="color:#f92672">(),</span>  
+</span></span><span style="display:flex;"><span>                       initialTaskDelayMs<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>cleanerConfig<span style="color:#f92672">.</span>enableCleaner<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_cleaner</span> <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">LogCleaner</span><span style="color:#f92672">(</span>cleanerConfig<span style="color:#f92672">,</span> liveLogDirs<span style="color:#f92672">,</span> currentLogs<span style="color:#f92672">,</span> logDirFailureChannel<span style="color:#f92672">,</span> time <span style="color:#66d9ef">=</span> time<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_cleaner</span><span style="color:#f92672">.</span>startup<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="loadlogs流程">loadLogs流程</h3>
+<p>loadLogs()方法作为实际加载Log数据的入口，逻辑链路较长，首先看下方法中使用到的类属性：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#75715e">// A map that stores hadCleanShutdown flag for each log dir.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> hadCleanShutdownFlags <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ConcurrentHashMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">Boolean</span><span style="color:#f92672">]()</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// A map that tells whether all logs in a log dir had been loaded or not at startup time.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> loadLogsCompletedFlags <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ConcurrentHashMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">Boolean</span><span style="color:#f92672">]()</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">@volatile</span> <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">var</span> recoveryPointCheckpoints <span style="color:#66d9ef">=</span> liveLogDirs<span style="color:#f92672">.</span>map<span style="color:#f92672">(</span>dir <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">(</span>dir<span style="color:#f92672">,</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">OffsetCheckpointFile</span><span style="color:#f92672">(</span><span style="color:#66d9ef">new</span> <span style="color:#a6e22e">File</span><span style="color:#f92672">(</span>dir<span style="color:#f92672">,</span> <span style="color:#a6e22e">RecoveryPointCheckpointFile</span><span style="color:#f92672">),</span> logDirFailureChannel<span style="color:#f92672">))).</span>toMap  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">@volatile</span> <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">var</span> logStartOffsetCheckpoints <span style="color:#66d9ef">=</span> liveLogDirs<span style="color:#f92672">.</span>map<span style="color:#f92672">(</span>dir <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">(</span>dir<span style="color:#f92672">,</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">OffsetCheckpointFile</span><span style="color:#f92672">(</span><span style="color:#66d9ef">new</span> <span style="color:#a6e22e">File</span><span style="color:#f92672">(</span>dir<span style="color:#f92672">,</span> <span style="color:#a6e22e">LogStartOffsetCheckpointFile</span><span style="color:#f92672">),</span> logDirFailureChannel<span style="color:#f92672">))).</span>toMap
+</span></span></code></pre></div><p>其中hadCleanShutdownFlags和loadLogsCompletedFlags都是<code>map[String, Boolean]</code> 结构，分别用于存储对应log dir是否为clean shutdown、是否已经完成加载的flag。</p>
+<p>recoveryPointCheckpoints和logStartOffsetCheckpoints是<code>map[String, OffsetCheckpointFile]</code>结构，OffsetCheckpointFile对象是<code>Partition =&gt; Offsets</code>的映射持久化存储的相关对象。类似的文件格式如下：</p>
+<pre tabindex="0"><code>-----checkpoint file begin------  
+0                &lt;- OffsetCheckpointFile.currentVersion  
+2                &lt;- following entries size  
+tp1  par1  1     &lt;- the format is: TOPIC  PARTITION  OFFSET  
+tp1  par2  2  
+-----checkpoint file end----------
+</code></pre><p>loadLogs()方法的核心逻辑如下：</p>
+<ol>
+<li>循环当前data dirs，每个data dir分配一个线程池执行load</li>
+<li>获取当前dir下topic的recovery point和log start offset checkpoint信息</li>
+<li>遍历当前dir下所有topic，忽略掉remote存储的，构建runnable加载任务，runnable任务会调用loadLog构造UnifiedLog</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#75715e">/**  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Recover and load all logs in the given data directories */</span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">log</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">def</span> loadLogs<span style="color:#f92672">(</span>defaultConfig<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">LogConfig</span><span style="color:#f92672">,</span> topicConfigOverrides<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">LogConfig</span><span style="color:#f92672">],</span> isStray<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">UnifiedLog</span> <span style="color:#f92672">=&gt;</span> <span style="color:#a6e22e">Boolean</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Loading logs from log dirs </span><span style="color:#e6db74">$liveLogDirs</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 定义线程池和任务队列  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> startMs <span style="color:#66d9ef">=</span> time<span style="color:#f92672">.</span>hiResClockMs<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> threadPools <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">ArrayBuffer</span><span style="color:#f92672">.</span>empty<span style="color:#f92672">[</span><span style="color:#66d9ef">ExecutorService</span><span style="color:#f92672">]</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> offlineDirs <span style="color:#66d9ef">=</span> mutable<span style="color:#f92672">.</span><span style="color:#a6e22e">Set</span><span style="color:#f92672">.</span>empty<span style="color:#f92672">[(</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">IOException</span><span style="color:#f92672">)]</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> jobs <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">ArrayBuffer</span><span style="color:#f92672">.</span>empty<span style="color:#f92672">[</span><span style="color:#66d9ef">Seq</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Future</span><span style="color:#f92672">[</span><span style="color:#66d9ef">_</span><span style="color:#f92672">]]]</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">var</span> numTotalLogs <span style="color:#66d9ef">=</span> <span style="color:#ae81ff">0</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// log dir path -&gt; number of Remaining logs map for remainingLogsToRecover metric  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> numRemainingLogs<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ConcurrentMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">Int</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ConcurrentHashMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">Int</span><span style="color:#f92672">]</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// log recovery thread name -&gt; number of remaining segments map for remainingSegmentsToRecover metric  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> numRemainingSegments<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ConcurrentMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">Int</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ConcurrentHashMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">Int</span><span style="color:#f92672">]</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">def</span> handleIOException<span style="color:#f92672">(</span>logDirAbsolutePath<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">IOException</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    offlineDirs<span style="color:#f92672">.</span>add<span style="color:#f92672">((</span>logDirAbsolutePath<span style="color:#f92672">,</span> e<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>    error<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Error while loading log dir </span><span style="color:#e6db74">$logDirAbsolutePath</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.2 循环liveLogDirs  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> uncleanLogDirs <span style="color:#66d9ef">=</span> mutable<span style="color:#f92672">.</span><span style="color:#a6e22e">Buffer</span><span style="color:#f92672">.</span>empty<span style="color:#f92672">[</span><span style="color:#66d9ef">String</span><span style="color:#f92672">]</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> <span style="color:#f92672">(</span>dir <span style="color:#66d9ef">&lt;-</span> liveLogDirs<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> logDirAbsolutePath <span style="color:#66d9ef">=</span> dir<span style="color:#f92672">.</span>getAbsolutePath  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> hadCleanShutdown<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">false</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 每个data dir分配一个线程池去加载  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> pool <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">Executors</span><span style="color:#f92672">.</span>newFixedThreadPool<span style="color:#f92672">(</span>numRecoveryThreadsPerDataDir<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">LogRecoveryThreadFactory</span><span style="color:#f92672">(</span>logDirAbsolutePath<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>      threadPools<span style="color:#f92672">.</span>append<span style="color:#f92672">(</span>pool<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.4 检查上次是否为clean shutdown, 删除文件是为了防止加载日志时发生crash后仍然被认为是clean shutdown  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">val</span> cleanShutdownFileHandler <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">CleanShutdownFileHandler</span><span style="color:#f92672">(</span>dir<span style="color:#f92672">.</span>getPath<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>cleanShutdownFileHandler<span style="color:#f92672">.</span>exists<span style="color:#f92672">())</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Cache the clean shutdown status and use that for rest of log loading workflow. Delete the CleanShutdownFile  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// so that if broker crashes while loading the log, it is considered hard shutdown during the next boot up. KAFKA-10471        cleanShutdownFileHandler.delete()  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        hadCleanShutdown <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">true</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.5 更新当前log dir是否为clean shutdown  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      hadCleanShutdownFlags<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>logDirAbsolutePath<span style="color:#f92672">,</span> hadCleanShutdown<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.6 获取当前dir的recovery point信息和log start offset信息  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">var</span> recoveryPoints <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicPartition</span>, <span style="color:#66d9ef">Long</span><span style="color:#f92672">]()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        recoveryPoints <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span>recoveryPointCheckpoints<span style="color:#f92672">(</span>dir<span style="color:#f92672">).</span>read<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Exception</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          warn<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Error occurred while reading recovery-point-offset-checkpoint file of directory &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">s&#34;</span><span style="color:#e6db74">$logDirAbsolutePath</span><span style="color:#e6db74">, resetting the recovery checkpoint to 0&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">var</span> logStartOffsets <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicPartition</span>, <span style="color:#66d9ef">Long</span><span style="color:#f92672">]()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        logStartOffsets <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span>logStartOffsetCheckpoints<span style="color:#f92672">(</span>dir<span style="color:#f92672">).</span>read<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Exception</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          warn<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Error occurred while reading log-start-offset-checkpoint file of directory &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">s&#34;</span><span style="color:#e6db74">$logDirAbsolutePath</span><span style="color:#e6db74">, resetting to the base offset of the first segment&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.7 忽略remote存储的topic  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">val</span> logsToLoad <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">Option</span><span style="color:#f92672">(</span>dir<span style="color:#f92672">.</span>listFiles<span style="color:#f92672">).</span>getOrElse<span style="color:#f92672">(</span><span style="color:#a6e22e">Array</span><span style="color:#f92672">.</span>empty<span style="color:#f92672">).</span>filter<span style="color:#f92672">(</span>logDir <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        logDir<span style="color:#f92672">.</span>isDirectory <span style="color:#f92672">&amp;&amp;</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">// Ignore remote-log-index-cache directory as that is index cache maintained by tiered storage subsystem  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          <span style="color:#75715e">// but not any topic-partition dir.          !logDir.getName.equals(RemoteIndexCache.DIR_NAME) &amp;&amp;  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          <span style="color:#a6e22e">UnifiedLog</span><span style="color:#f92672">.</span>parseTopicPartitionName<span style="color:#f92672">(</span>logDir<span style="color:#f92672">).</span>topic <span style="color:#f92672">!=</span> <span style="color:#a6e22e">KafkaRaftServer</span><span style="color:#f92672">.</span><span style="color:#a6e22e">MetadataTopic</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      numTotalLogs <span style="color:#f92672">+=</span> logsToLoad<span style="color:#f92672">.</span>length  
+</span></span><span style="display:flex;"><span>      numRemainingLogs<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>logDirAbsolutePath<span style="color:#f92672">,</span> logsToLoad<span style="color:#f92672">.</span>length<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      loadLogsCompletedFlags<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>logDirAbsolutePath<span style="color:#f92672">,</span> logsToLoad<span style="color:#f92672">.</span>isEmpty<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>logsToLoad<span style="color:#f92672">.</span>isEmpty<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;No logs found to be loaded in </span><span style="color:#e6db74">$logDirAbsolutePath</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>hadCleanShutdown<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Skipping recovery of </span><span style="color:#e6db74">${</span>logsToLoad<span style="color:#f92672">.</span>length<span style="color:#e6db74">}</span><span style="color:#e6db74"> logs from </span><span style="color:#e6db74">$logDirAbsolutePath</span><span style="color:#e6db74"> since &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#e6db74">&#34;clean shutdown file was found&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Recovering </span><span style="color:#e6db74">${</span>logsToLoad<span style="color:#f92672">.</span>length<span style="color:#e6db74">}</span><span style="color:#e6db74"> logs from </span><span style="color:#e6db74">$logDirAbsolutePath</span><span style="color:#e6db74"> since no &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#e6db74">&#34;clean shutdown file was found&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        uncleanLogDirs<span style="color:#f92672">.</span>append<span style="color:#f92672">(</span>logDirAbsolutePath<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.8 遍历当前dir，构建runnable加载任务，runnable调用loadLog构造UnifiedLog  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">val</span> jobsForDir <span style="color:#66d9ef">=</span> logsToLoad<span style="color:#f92672">.</span>map <span style="color:#f92672">{</span> logDir <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">val</span> runnable<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Runnable</span> <span style="color:#f92672">=</span> <span style="color:#f92672">()</span> <span style="color:#66d9ef">=&gt;</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Loading log </span><span style="color:#e6db74">$logDir</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">var</span> log <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">None</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">UnifiedLog</span><span style="color:#f92672">]</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">val</span> logLoadStartMs <span style="color:#66d9ef">=</span> time<span style="color:#f92672">.</span>hiResClockMs<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>            log <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>loadLog<span style="color:#f92672">(</span>logDir<span style="color:#f92672">,</span> hadCleanShutdown<span style="color:#f92672">,</span> recoveryPoints<span style="color:#f92672">,</span> logStartOffsets<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>              defaultConfig<span style="color:#f92672">,</span> topicConfigOverrides<span style="color:#f92672">,</span> numRemainingSegments<span style="color:#f92672">,</span> isStray<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">IOException</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>              handleIOException<span style="color:#f92672">(</span>logDirAbsolutePath<span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">KafkaStorageException</span> <span style="color:#66d9ef">if</span> <span style="color:#66d9ef">e.getCause.isInstanceOf</span><span style="color:#f92672">[</span><span style="color:#66d9ef">IOException</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#75715e">// KafkaStorageException might be thrown, ex: during writing LeaderEpochFileCache  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              <span style="color:#75715e">// And while converting IOException to KafkaStorageException, we&#39;ve already handled the exception. So we can ignore it here.          } finally {  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">val</span> logLoadDurationMs <span style="color:#66d9ef">=</span> time<span style="color:#f92672">.</span>hiResClockMs<span style="color:#f92672">()</span> <span style="color:#f92672">-</span> logLoadStartMs  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">val</span> remainingLogs <span style="color:#66d9ef">=</span> decNumRemainingLogs<span style="color:#f92672">(</span>numRemainingLogs<span style="color:#f92672">,</span> logDirAbsolutePath<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">val</span> currentNumLoaded <span style="color:#66d9ef">=</span> logsToLoad<span style="color:#f92672">.</span>length <span style="color:#f92672">-</span> remainingLogs  
+</span></span><span style="display:flex;"><span>            log <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>loadedLog<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span> info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Completed load of </span><span style="color:#e6db74">$loadedLog</span><span style="color:#e6db74"> with </span><span style="color:#e6db74">${</span>loadedLog<span style="color:#f92672">.</span>numberOfSegments<span style="color:#e6db74">}</span><span style="color:#e6db74"> segments, &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">s&#34;local-log-start-offset </span><span style="color:#e6db74">${</span>loadedLog<span style="color:#f92672">.</span>localLogStartOffset<span style="color:#f92672">()</span><span style="color:#e6db74">}</span><span style="color:#e6db74"> and log-end-offset </span><span style="color:#e6db74">${</span>loadedLog<span style="color:#f92672">.</span>logEndOffset<span style="color:#e6db74">}</span><span style="color:#e6db74"> in </span><span style="color:#e6db74">${</span>logLoadDurationMs<span style="color:#e6db74">}</span><span style="color:#e6db74">ms &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">s&#34;(</span><span style="color:#e6db74">$currentNumLoaded</span><span style="color:#e6db74">/</span><span style="color:#e6db74">${</span>logsToLoad<span style="color:#f92672">.</span>length<span style="color:#e6db74">}</span><span style="color:#e6db74"> completed in </span><span style="color:#e6db74">$logDirAbsolutePath</span><span style="color:#e6db74">)&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">None</span> <span style="color:#66d9ef">=&gt;</span> info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Error while loading logs in </span><span style="color:#e6db74">$logDir</span><span style="color:#e6db74"> in </span><span style="color:#e6db74">${</span>logLoadDurationMs<span style="color:#e6db74">}</span><span style="color:#e6db74">ms (</span><span style="color:#e6db74">$currentNumLoaded</span><span style="color:#e6db74">/</span><span style="color:#e6db74">${</span>logsToLoad<span style="color:#f92672">.</span>length<span style="color:#e6db74">}</span><span style="color:#e6db74"> completed in </span><span style="color:#e6db74">$logDirAbsolutePath</span><span style="color:#e6db74">)&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>remainingLogs <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#75715e">// loadLog is completed for all logs under the logDdir, mark it.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              loadLogsCompletedFlags<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>logDirAbsolutePath<span style="color:#f92672">,</span> <span style="color:#66d9ef">true</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>        runnable  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      jobs <span style="color:#f92672">+=</span> jobsForDir<span style="color:#f92672">.</span>map<span style="color:#f92672">(</span>pool<span style="color:#f92672">.</span>submit<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">IOException</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        handleIOException<span style="color:#f92672">(</span>logDirAbsolutePath<span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.9 添加Metrics  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    addLogRecoveryMetrics<span style="color:#f92672">(</span>numRemainingLogs<span style="color:#f92672">,</span> numRemainingSegments<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> <span style="color:#f92672">(</span>dirJobs <span style="color:#66d9ef">&lt;-</span> jobs<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      dirJobs<span style="color:#f92672">.</span>foreach<span style="color:#f92672">(</span><span style="color:#66d9ef">_</span><span style="color:#f92672">.</span>get<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    offlineDirs<span style="color:#f92672">.</span>foreach <span style="color:#f92672">{</span> <span style="color:#66d9ef">case</span> <span style="color:#f92672">(</span>dir<span style="color:#f92672">,</span> e<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>      logDirFailureChannel<span style="color:#f92672">.</span>maybeAddOfflineLogDir<span style="color:#f92672">(</span>dir<span style="color:#f92672">,</span> <span style="color:#e6db74">s&#34;Error while loading log dir </span><span style="color:#e6db74">$dir</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ExecutionException</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>      error<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;There was an error in one of the threads during logs loading: </span><span style="color:#e6db74">${</span>e<span style="color:#f92672">.</span>getCause<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">throw</span> e<span style="color:#f92672">.</span>getCause  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">finally</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    removeLogRecoveryMetrics<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>    threadPools<span style="color:#f92672">.</span>foreach<span style="color:#f92672">(</span><span style="color:#66d9ef">_</span><span style="color:#f92672">.</span>shutdown<span style="color:#f92672">())</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> elapsedMs <span style="color:#66d9ef">=</span> time<span style="color:#f92672">.</span>hiResClockMs<span style="color:#f92672">()</span> <span style="color:#f92672">-</span> startMs  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> printedUncleanLogDirs <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>uncleanLogDirs<span style="color:#f92672">.</span>isEmpty<span style="color:#f92672">)</span> <span style="color:#e6db74">&#34;&#34;</span> <span style="color:#66d9ef">else</span> <span style="color:#e6db74">s&#34; (unclean log dirs = </span><span style="color:#e6db74">$uncleanLogDirs</span><span style="color:#e6db74">)&#34;</span>  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Loaded </span><span style="color:#e6db74">$numTotalLogs</span><span style="color:#e6db74"> logs in </span><span style="color:#e6db74">${</span>elapsedMs<span style="color:#e6db74">}</span><span style="color:#e6db74">ms</span><span style="color:#e6db74">$printedUncleanLogDirs</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>loadLog()方法会先创建UnifiedLog对象，在其初始化逻辑中，会调用LogLoader.load()方法完成日志加载动作，UnifiedLog初始化完成后会将该对象存储到map中。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">log</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">def</span> loadLog<span style="color:#f92672">(</span>logDir<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">File</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         hadCleanShutdown<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         recoveryPoints<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicPartition</span>, <span style="color:#66d9ef">Long</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                         logStartOffsets<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicPartition</span>, <span style="color:#66d9ef">Long</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                         defaultConfig<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">LogConfig</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         topicConfigOverrides<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">LogConfig</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                         numRemainingSegments<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ConcurrentMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">Int</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                         isStray<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">UnifiedLog</span> <span style="color:#f92672">=&gt;</span> <span style="color:#a6e22e">Boolean</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">UnifiedLog</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> topicPartition <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">UnifiedLog</span><span style="color:#f92672">.</span>parseTopicPartitionName<span style="color:#f92672">(</span>logDir<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> config <span style="color:#66d9ef">=</span> topicConfigOverrides<span style="color:#f92672">.</span>getOrElse<span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">.</span>topic<span style="color:#f92672">,</span> defaultConfig<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> logRecoveryPoint <span style="color:#66d9ef">=</span> recoveryPoints<span style="color:#f92672">.</span>getOrElse<span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">,</span> <span style="color:#ae81ff">0L</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> logStartOffset <span style="color:#66d9ef">=</span> logStartOffsets<span style="color:#f92672">.</span>getOrElse<span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">,</span> <span style="color:#ae81ff">0L</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 创建UnifiedLog对象，这里会调用UnifiedLog的apply方法  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> log <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">UnifiedLog</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>    dir <span style="color:#66d9ef">=</span> logDir<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    config <span style="color:#66d9ef">=</span> config<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    logStartOffset <span style="color:#66d9ef">=</span> logStartOffset<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    recoveryPoint <span style="color:#66d9ef">=</span> logRecoveryPoint<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    maxTransactionTimeoutMs <span style="color:#66d9ef">=</span> maxTransactionTimeoutMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    producerStateManagerConfig <span style="color:#66d9ef">=</span> producerStateManagerConfig<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    producerIdExpirationCheckIntervalMs <span style="color:#66d9ef">=</span> producerIdExpirationCheckIntervalMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    scheduler <span style="color:#66d9ef">=</span> scheduler<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    time <span style="color:#66d9ef">=</span> time<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    brokerTopicStats <span style="color:#66d9ef">=</span> brokerTopicStats<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    logDirFailureChannel <span style="color:#66d9ef">=</span> logDirFailureChannel<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    lastShutdownClean <span style="color:#66d9ef">=</span> hadCleanShutdown<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    topicId <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">None</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    keepPartitionMetadataFile <span style="color:#66d9ef">=</span> keepPartitionMetadataFile<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    numRemainingSegments <span style="color:#66d9ef">=</span> numRemainingSegments<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    remoteStorageSystemEnable <span style="color:#66d9ef">=</span> remoteStorageSystemEnable<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.2 检查是否为待删除文件，添加到待删除队列中，后续定时任务执行删除动作  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>logDir<span style="color:#f92672">.</span>getName<span style="color:#f92672">.</span>endsWith<span style="color:#f92672">(</span><span style="color:#a6e22e">UnifiedLog</span><span style="color:#f92672">.</span><span style="color:#a6e22e">DeleteDirSuffix</span><span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    addLogToBeDeleted<span style="color:#f92672">(</span>log<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>logDir<span style="color:#f92672">.</span>getName<span style="color:#f92672">.</span>endsWith<span style="color:#f92672">(</span><span style="color:#a6e22e">UnifiedLog</span><span style="color:#f92672">.</span><span style="color:#a6e22e">StrayDirSuffix</span><span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 检查是否为Stray分区  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    addStrayLog<span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">,</span> log<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    warn<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Loaded stray log: </span><span style="color:#e6db74">$logDir</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>isStray<span style="color:#f92672">(</span>log<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Unlike Zookeeper mode, which tracks pending topic deletions under a ZNode, KRaft is unable to prevent a topic from being recreated before every replica has been deleted.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// A KRaft broker with an offline directory may be unable to detect it still holds a to-be-deleted replica,    // and can create a conflicting topic partition for a new incarnation of the topic in one of the remaining online directories.    // So upon a restart in which the offline directory is back online we need to clean up the old replica directory.    log.renameDir(UnifiedLog.logStrayDirName(log.topicPartition), shouldReinitialize = false)  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    addStrayLog<span style="color:#f92672">(</span>log<span style="color:#f92672">.</span>topicPartition<span style="color:#f92672">,</span> log<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    warn<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Log in </span><span style="color:#e6db74">${</span>logDir<span style="color:#f92672">.</span>getAbsolutePath<span style="color:#e6db74">}</span><span style="color:#e6db74"> marked stray and renamed to </span><span style="color:#e6db74">${</span>log<span style="color:#f92672">.</span>dir<span style="color:#f92672">.</span>getAbsolutePath<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//previous保存旧值  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">val</span> previous <span style="color:#66d9ef">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>log<span style="color:#f92672">.</span>isFuture<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span>futureLogs<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">,</span> log<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">else</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span>currentLogs<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">,</span> log<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//check是否重复  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>previous <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>log<span style="color:#f92672">.</span>isFuture<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">IllegalStateException</span><span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Duplicate log directories found: </span><span style="color:#e6db74">${</span>log<span style="color:#f92672">.</span>dir<span style="color:#f92672">.</span>getAbsolutePath<span style="color:#e6db74">}</span><span style="color:#e6db74">, </span><span style="color:#e6db74">${</span>previous<span style="color:#f92672">.</span>dir<span style="color:#f92672">.</span>getAbsolutePath<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">else</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">IllegalStateException</span><span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Duplicate log directories for </span><span style="color:#e6db74">$topicPartition</span><span style="color:#e6db74"> are found in both </span><span style="color:#e6db74">${</span>log<span style="color:#f92672">.</span>dir<span style="color:#f92672">.</span>getAbsolutePath<span style="color:#e6db74">}</span><span style="color:#e6db74"> &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#e6db74">s&#34;and </span><span style="color:#e6db74">${</span>previous<span style="color:#f92672">.</span>dir<span style="color:#f92672">.</span>getAbsolutePath<span style="color:#e6db74">}</span><span style="color:#e6db74">. It is likely because log directory failure happened while broker was &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#e6db74">s&#34;replacing current replica with future replica. Recover broker from this failure by manually deleting one of the two directories &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#e6db74">s&#34;for this partition. It is recommended to delete the partition in the log directory that is known to have failed recently.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  log  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>UnifiedLog的apply()方法完成初始化动作：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> apply<span style="color:#f92672">(</span>dir<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">File</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          config<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">LogConfig</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          logStartOffset<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          recoveryPoint<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          scheduler<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Scheduler</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          brokerTopicStats<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">BrokerTopicStats</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          time<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Time</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          maxTransactionTimeoutMs<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          producerStateManagerConfig<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ProducerStateManagerConfig</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          producerIdExpirationCheckIntervalMs<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          logDirFailureChannel<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">LogDirFailureChannel</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          lastShutdownClean<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">true</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          topicId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Uuid</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>          keepPartitionMetadataFile<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          numRemainingSegments<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ConcurrentMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">Int</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ConcurrentHashMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">Int</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>          remoteStorageSystemEnable<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">false</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          logOffsetsListener<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">LogOffsetsListener</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">LogOffsetsListener</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NO_OP_OFFSETS_LISTENER</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">UnifiedLog</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// create the log directory if it doesn&#39;t exist  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#a6e22e">Files</span><span style="color:#f92672">.</span>createDirectories<span style="color:#f92672">(</span>dir<span style="color:#f92672">.</span>toPath<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 从dir解析出topicPartition，初始化LogSegments  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> topicPartition <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">UnifiedLog</span><span style="color:#f92672">.</span>parseTopicPartitionName<span style="color:#f92672">(</span>dir<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> segments <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">LogSegments</span><span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// The created leaderEpochCache will be truncated by LogLoader if necessary  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// so it is guaranteed that the epoch entries will be correct even when on-disk  // checkpoint was stale (due to async nature of LeaderEpochFileCache#truncateFromStart/End).  val leaderEpochCache = UnifiedLog.maybeCreateLeaderEpochCache(  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    dir<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    topicPartition<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    logDirFailureChannel<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    config<span style="color:#f92672">.</span>recordVersion<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">s&#34;[UnifiedLog partition=</span><span style="color:#e6db74">$topicPartition</span><span style="color:#e6db74">, dir=</span><span style="color:#e6db74">${</span>dir<span style="color:#f92672">.</span>getParent<span style="color:#e6db74">}</span><span style="color:#e6db74">] &#34;</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">None</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    scheduler<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> producerStateManager <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ProducerStateManager</span><span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">,</span> dir<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    maxTransactionTimeoutMs<span style="color:#f92672">,</span> producerStateManagerConfig<span style="color:#f92672">,</span> time<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> isRemoteLogEnabled <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">UnifiedLog</span><span style="color:#f92672">.</span>isRemoteLogEnabled<span style="color:#f92672">(</span>remoteStorageSystemEnable<span style="color:#f92672">,</span> config<span style="color:#f92672">,</span> topicPartition<span style="color:#f92672">.</span>topic<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//diaoyong  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> offsets <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">LogLoader</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>    dir<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    topicPartition<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    config<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    scheduler<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    time<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    logDirFailureChannel<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    lastShutdownClean<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    segments<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    logStartOffset<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    recoveryPoint<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    leaderEpochCache<span style="color:#f92672">.</span>asJava<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    producerStateManager<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    numRemainingSegments<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    isRemoteLogEnabled<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">).</span>load<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> localLog <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">LocalLog</span><span style="color:#f92672">(</span>dir<span style="color:#f92672">,</span> config<span style="color:#f92672">,</span> segments<span style="color:#f92672">,</span> offsets<span style="color:#f92672">.</span>recoveryPoint<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    offsets<span style="color:#f92672">.</span>nextOffsetMetadata<span style="color:#f92672">,</span> scheduler<span style="color:#f92672">,</span> time<span style="color:#f92672">,</span> topicPartition<span style="color:#f92672">,</span> logDirFailureChannel<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">UnifiedLog</span><span style="color:#f92672">(</span>offsets<span style="color:#f92672">.</span>logStartOffset<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    localLog<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    brokerTopicStats<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    producerIdExpirationCheckIntervalMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    leaderEpochCache<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    producerStateManager<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    topicId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    keepPartitionMetadataFile<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    remoteStorageSystemEnable<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    logOffsetsListener<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>LogLoader的load()方法遍历当前分区dir，加载LogSegment，并存储到LogSegments中，流程如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> loadSegmentFiles<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// load segments in ascending order because transactional data from one segment may depend on the  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// segments that come before it  //1. 按升序加载  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">for</span> <span style="color:#f92672">(</span>file <span style="color:#66d9ef">&lt;-</span> dir<span style="color:#f92672">.</span>listFiles<span style="color:#f92672">.</span>sortBy<span style="color:#f92672">(</span><span style="color:#66d9ef">_</span><span style="color:#f92672">.</span>getName<span style="color:#f92672">)</span> <span style="color:#66d9ef">if</span> file<span style="color:#f92672">.</span>isFile<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查是否为index文件，若是则检查它的log文件是否存在  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>isIndexFile<span style="color:#f92672">(</span>file<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// if it is an index file, make sure it has a corresponding .log file  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">val</span> offset <span style="color:#66d9ef">=</span> offsetFromFile<span style="color:#f92672">(</span>file<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> logFile <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">LogFileUtils</span><span style="color:#f92672">.</span>logFile<span style="color:#f92672">(</span>dir<span style="color:#f92672">,</span> offset<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(!</span>logFile<span style="color:#f92672">.</span>exists<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        warn<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Found an orphaned index file </span><span style="color:#e6db74">${</span>file<span style="color:#f92672">.</span>getAbsolutePath<span style="color:#e6db74">}</span><span style="color:#e6db74">, with no corresponding log file.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">Files</span><span style="color:#f92672">.</span>deleteIfExists<span style="color:#f92672">(</span>file<span style="color:#f92672">.</span>toPath<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>isLogFile<span style="color:#f92672">(</span>file<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.2 加载log  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#75715e">// if it&#39;s a log file, load the corresponding log segment      val baseOffset = offsetFromFile(file)  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">val</span> timeIndexFileNewlyCreated <span style="color:#66d9ef">=</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">LogFileUtils</span><span style="color:#f92672">.</span>timeIndexFile<span style="color:#f92672">(</span>dir<span style="color:#f92672">,</span> baseOffset<span style="color:#f92672">).</span>exists<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.3 调用LogSegment.open()  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">val</span> segment <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">LogSegment</span><span style="color:#f92672">.</span>open<span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>        dir<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        baseOffset<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        config<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        time<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">true</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#ae81ff">0</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">false</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.4 进行完整性检查  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">try</span> segment<span style="color:#f92672">.</span>sanityCheck<span style="color:#f92672">(</span>timeIndexFileNewlyCreated<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> <span style="color:#66d9ef">_:</span> <span style="color:#66d9ef">NoSuchFileException</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>hadCleanShutdown <span style="color:#f92672">||</span> segment<span style="color:#f92672">.</span>baseOffset <span style="color:#f92672">&lt;</span> recoveryPointCheckpoint<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>            error<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Could not find offset index file corresponding to log file&#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#e6db74">s&#34; </span><span style="color:#e6db74">${</span>segment<span style="color:#f92672">.</span>log<span style="color:#f92672">.</span>file<span style="color:#f92672">.</span>getAbsolutePath<span style="color:#e6db74">}</span><span style="color:#e6db74">, recovering segment and rebuilding index files...&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          recoverSegment<span style="color:#f92672">(</span>segment<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">CorruptIndexException</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          warn<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Found a corrupted index file corresponding to log file&#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">s&#34; </span><span style="color:#e6db74">${</span>segment<span style="color:#f92672">.</span>log<span style="color:#f92672">.</span>file<span style="color:#f92672">.</span>getAbsolutePath<span style="color:#e6db74">}</span><span style="color:#e6db74"> due to </span><span style="color:#e6db74">${</span>e<span style="color:#f92672">.</span>getMessage<span style="color:#e6db74">}</span><span style="color:#e6db74">}, recovering segment and&#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">&#34; rebuilding index files...&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          recoverSegment<span style="color:#f92672">(</span>segment<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.5 更新当前LogSegments  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      segments<span style="color:#f92672">.</span>add<span style="color:#f92672">(</span>segment<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="logsegment结构">LogSegment结构</h3>
+<p>LogSegment.open()是提供静态创建LogSegment的入口。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> LogSegment <span style="color:#a6e22e">open</span>(File dir, <span style="color:#66d9ef">long</span> baseOffset, LogConfig config, Time time, <span style="color:#66d9ef">boolean</span> fileAlreadyExists,  
+</span></span><span style="display:flex;"><span>                              <span style="color:#66d9ef">int</span> initFileSize, <span style="color:#66d9ef">boolean</span> preallocate, String fileSuffix) <span style="color:#66d9ef">throws</span> IOException {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> maxIndexSize <span style="color:#f92672">=</span> config.<span style="color:#a6e22e">maxIndexSize</span>;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> LogSegment(  
+</span></span><span style="display:flex;"><span>        FileRecords.<span style="color:#a6e22e">open</span>(LogFileUtils.<span style="color:#a6e22e">logFile</span>(dir, baseOffset, fileSuffix), fileAlreadyExists, initFileSize, preallocate),  
+</span></span><span style="display:flex;"><span>        LazyIndex.<span style="color:#a6e22e">forOffset</span>(LogFileUtils.<span style="color:#a6e22e">offsetIndexFile</span>(dir, baseOffset, fileSuffix), baseOffset, maxIndexSize),  
+</span></span><span style="display:flex;"><span>        LazyIndex.<span style="color:#a6e22e">forTime</span>(LogFileUtils.<span style="color:#a6e22e">timeIndexFile</span>(dir, baseOffset, fileSuffix), baseOffset, maxIndexSize),  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">new</span> TransactionIndex(baseOffset, LogFileUtils.<span style="color:#a6e22e">transactionIndexFile</span>(dir, baseOffset, fileSuffix)),  
+</span></span><span style="display:flex;"><span>        baseOffset,  
+</span></span><span style="display:flex;"><span>        config.<span style="color:#a6e22e">indexInterval</span>,  
+</span></span><span style="display:flex;"><span>        config.<span style="color:#a6e22e">randomSegmentJitter</span>(),  
+</span></span><span style="display:flex;"><span>        time);  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h4 id="成员对象">成员对象</h4>
+<p>org.apache.kafka.storage.internals.log.LogSegment中存在以下属性：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 日志消息文件对象，FileRecords是文件关联对象</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> FileRecords log;  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//三个索引文件对象</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> LazyIndex<span style="color:#f92672">&lt;</span>OffsetIndex<span style="color:#f92672">&gt;</span> lazyOffsetIndex;  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> LazyIndex<span style="color:#f92672">&lt;</span>TimeIndex<span style="color:#f92672">&gt;</span> lazyTimeIndex;  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> TransactionIndex txnIndex;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//起始offset</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> baseOffset;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//broker端参数log.index.interval.bytes值，用于控制LogSegment新增索引项的频率，默认写入4KB时新增一条索引项</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> indexIntervalBytes;  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//LogSegment新增数据的扰动值，打散磁盘IO</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> rollJitterMs; 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//写入日志的最新时间戳</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">volatile</span> OptionalLong rollingBasedTimestamp <span style="color:#f92672">=</span> OptionalLong.<span style="color:#a6e22e">empty</span>();
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//最后一次更新索引至今，写入的字节数 </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> bytesSinceLastIndexEntry <span style="color:#f92672">=</span> 0;
+</span></span></code></pre></div><h5 id="filerecords">FileRecords</h5>
+<p>log字段是FileRecords，该对象内部包括File对象、文件开始结束位置、文件大小、FileChannel，它的和新方法也较为简单：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">/**  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Append a set of records to the file. This method is not thread-safe and must be * protected with a lock. * * @param records The records to append  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * @return the number of bytes written to the underlying file  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> */</span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">append</span>(MemoryRecords records) <span style="color:#66d9ef">throws</span> IOException {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (records.<span style="color:#a6e22e">sizeInBytes</span>() <span style="color:#f92672">&gt;</span> Integer.<span style="color:#a6e22e">MAX_VALUE</span> <span style="color:#f92672">-</span> size.<span style="color:#a6e22e">get</span>())  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(<span style="color:#e6db74">&#34;Append of size &#34;</span> <span style="color:#f92672">+</span> records.<span style="color:#a6e22e">sizeInBytes</span>() <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">&#34; bytes is too large for segment with current file position at &#34;</span> <span style="color:#f92672">+</span> size.<span style="color:#a6e22e">get</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> written <span style="color:#f92672">=</span> records.<span style="color:#a6e22e">writeFullyTo</span>(channel);  
+</span></span><span style="display:flex;"><span>    size.<span style="color:#a6e22e">getAndAdd</span>(written);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> written;  
+</span></span><span style="display:flex;"><span>}  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/**  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Commit all written data to the physical disk */</span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">flush</span>() <span style="color:#66d9ef">throws</span> IOException {  
+</span></span><span style="display:flex;"><span>    channel.<span style="color:#a6e22e">force</span>(<span style="color:#66d9ef">true</span>);  
+</span></span><span style="display:flex;"><span>}  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/**  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Close this record set */</span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">close</span>() <span style="color:#66d9ef">throws</span> IOException {  
+</span></span><span style="display:flex;"><span>    flush();  
+</span></span><span style="display:flex;"><span>    trim();  
+</span></span><span style="display:flex;"><span>    channel.<span style="color:#a6e22e">close</span>();  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>在初始化LogSegment时，会调用FileRecords的open方法完成内部log字段的初始化：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> FileRecords <span style="color:#a6e22e">open</span>(File file,  
+</span></span><span style="display:flex;"><span>                               <span style="color:#66d9ef">boolean</span> mutable,  
+</span></span><span style="display:flex;"><span>                               <span style="color:#66d9ef">boolean</span> fileAlreadyExists,  
+</span></span><span style="display:flex;"><span>                               <span style="color:#66d9ef">int</span> initFileSize,  
+</span></span><span style="display:flex;"><span>                               <span style="color:#66d9ef">boolean</span> preallocate) <span style="color:#66d9ef">throws</span> IOException {  
+</span></span><span style="display:flex;"><span>    FileChannel channel <span style="color:#f92672">=</span> openChannel(file, mutable, fileAlreadyExists, initFileSize, preallocate);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> end <span style="color:#f92672">=</span> (<span style="color:#f92672">!</span>fileAlreadyExists <span style="color:#f92672">&amp;&amp;</span> preallocate) <span style="color:#f92672">?</span> 0 : Integer.<span style="color:#a6e22e">MAX_VALUE</span>;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> FileRecords(file, channel, 0, end, <span style="color:#66d9ef">false</span>);  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h5 id="index结构">Index结构</h5>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> LazyIndex<span style="color:#f92672">&lt;</span>OffsetIndex<span style="color:#f92672">&gt;</span> lazyOffsetIndex;  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> LazyIndex<span style="color:#f92672">&lt;</span>TimeIndex<span style="color:#f92672">&gt;</span> lazyTimeIndex;  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> TransactionIndex txnIndex;
+</span></span></code></pre></div><p>LogSegment有三个索引字段，其中offsetIndex和timeIndex使用LazyIndex包装类，以达到延迟初始化的效果，只有在第一次读取时，会将数据加载到内存中：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> T <span style="color:#a6e22e">get</span>() <span style="color:#66d9ef">throws</span> IOException {  
+</span></span><span style="display:flex;"><span>    IndexWrapper wrapper <span style="color:#f92672">=</span> indexWrapper;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (wrapper <span style="color:#66d9ef">instanceof</span> IndexValue<span style="color:#f92672">&lt;?&gt;</span>)  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> ((IndexValue<span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span>) wrapper).<span style="color:#a6e22e">index</span>;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        lock.<span style="color:#a6e22e">lock</span>();  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (indexWrapper <span style="color:#66d9ef">instanceof</span> IndexValue<span style="color:#f92672">&lt;?&gt;</span>)  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> ((IndexValue<span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span>) indexWrapper).<span style="color:#a6e22e">index</span>;  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (indexWrapper <span style="color:#66d9ef">instanceof</span> IndexFile) {  
+</span></span><span style="display:flex;"><span>                IndexFile indexFile <span style="color:#f92672">=</span> (IndexFile) indexWrapper;  
+</span></span><span style="display:flex;"><span>                IndexValue<span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span> indexValue <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> IndexValue<span style="color:#f92672">&lt;&gt;</span>(loadIndex(indexFile.<span style="color:#a6e22e">file</span>));  
+</span></span><span style="display:flex;"><span>                indexWrapper <span style="color:#f92672">=</span> indexValue;  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> indexValue.<span style="color:#a6e22e">index</span>;  
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">else</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalStateException(<span style="color:#e6db74">&#34;Unexpected type for indexWrapper &#34;</span> <span style="color:#f92672">+</span> indexWrapper.<span style="color:#a6e22e">getClass</span>());  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">finally</span> {  
+</span></span><span style="display:flex;"><span>            lock.<span style="color:#a6e22e">unlock</span>();  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>实际加载index文件使用mmap方式，将内核buffer映射到用户buffer，减少了内存拷贝的开销，这也是Kafka较为重要的优化点之一。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">createAndAssignMmap</span>() <span style="color:#66d9ef">throws</span> IOException {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">boolean</span> newlyCreated <span style="color:#f92672">=</span> file.<span style="color:#a6e22e">createNewFile</span>();  
+</span></span><span style="display:flex;"><span>    RandomAccessFile raf;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (writable)  
+</span></span><span style="display:flex;"><span>        raf <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> RandomAccessFile(file, <span style="color:#e6db74">&#34;rw&#34;</span>);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span>  
+</span></span><span style="display:flex;"><span>        raf <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> RandomAccessFile(file, <span style="color:#e6db74">&#34;r&#34;</span>);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* pre-allocate the file if necessary */</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (newlyCreated) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (maxIndexSize <span style="color:#f92672">&lt;</span> entrySize())  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalArgumentException(<span style="color:#e6db74">&#34;Invalid max index size: &#34;</span> <span style="color:#f92672">+</span> maxIndexSize);  
+</span></span><span style="display:flex;"><span>            raf.<span style="color:#a6e22e">setLength</span>(roundDownToExactMultiple(maxIndexSize, entrySize()));  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> length <span style="color:#f92672">=</span> raf.<span style="color:#a6e22e">length</span>();  
+</span></span><span style="display:flex;"><span>        MappedByteBuffer mmap <span style="color:#f92672">=</span> createMappedBuffer(raf, newlyCreated, length, writable, entrySize());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">length</span> <span style="color:#f92672">=</span> length;  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">mmap</span> <span style="color:#f92672">=</span> mmap;  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">finally</span> {  
+</span></span><span style="display:flex;"><span>        Utils.<span style="color:#a6e22e">closeQuietly</span>(raf, <span style="color:#e6db74">&#34;index &#34;</span> <span style="color:#f92672">+</span> file.<span style="color:#a6e22e">getName</span>());  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="offset初始化">Offset初始化</h3>
+<p>UnifiedLog在进行初始化时，同时也会更新内部的log start offset信息。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span>locally <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//更新log start offset
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">def</span> updateLocalLogStartOffset<span style="color:#f92672">(</span>offset<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_localLogStartOffset</span> <span style="color:#66d9ef">=</span> offset  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>highWatermark <span style="color:#f92672">&lt;</span> offset<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      updateHighWatermark<span style="color:#f92672">(</span>offset<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span><span style="color:#66d9ef">this</span><span style="color:#f92672">.</span>recoveryPoint <span style="color:#f92672">&lt;</span> offset<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      localLog<span style="color:#f92672">.</span>updateRecoveryPoint<span style="color:#f92672">(</span>offset<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  initializePartitionMetadata<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  updateLogStartOffset<span style="color:#f92672">(</span>logStartOffset<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  updateLocalLogStartOffset<span style="color:#f92672">(</span>math<span style="color:#f92672">.</span>max<span style="color:#f92672">(</span>logStartOffset<span style="color:#f92672">,</span> localLog<span style="color:#f92672">.</span>segments<span style="color:#f92672">.</span>firstSegmentBaseOffset<span style="color:#f92672">.</span>orElse<span style="color:#f92672">(</span><span style="color:#ae81ff">0L</span><span style="color:#f92672">)))</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(!</span>remoteLogEnabled<span style="color:#f92672">())</span>  
+</span></span><span style="display:flex;"><span>    logStartOffset <span style="color:#66d9ef">=</span> localLogStartOffset<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  maybeIncrementFirstUnstableOffset<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  initializeTopicId<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  logOffsetsListener<span style="color:#f92672">.</span>onHighWatermarkUpdated<span style="color:#f92672">(</span>highWatermarkMetadata<span style="color:#f92672">.</span>messageOffset<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div>
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+          <div class="post-comments">
+            <div id="disqus_thread"></div>
+<script>
+  window.addEventListener("load", () => {
+    (function() {
+      
+      var d = document,
+        s = d.createElement("script");
+      s.src = "https://evl1nker4.disqus.com/embed.js";
+      s.setAttribute("data-timestamp", +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  });
+</script>
+<noscript
+  >Please enable JavaScript to view the
+  <a href="https://disqus.com/?ref_noscript"
+    >comments powered by Disqus.</a
+  ></noscript
+>
+
+          </div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>
