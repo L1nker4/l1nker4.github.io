@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.145.0">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-6-network-model/" />
+  <link rel="canonical" href="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-6-network-model/" /><link rel="apple-touch-icon" href="/favicon.png" />
+  <link rel="icon" href="/favicon.png" />
+  <link rel="shortcut" href="/favicon.png" /><link rel="alternate" type="application/atom+xml" href="http://localhost:1313/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:1313\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Kafka源码分析(六) - 网络通信模块设计",
+      "headline" : "Kafka源码分析(六) - 网络通信模块设计",
+      "description" : "Intro Kafka的网络通信设计如图所示（图片引用自AutoMQ）：\n其中SocketServer负责处理外部连接，并将处理结果封装到Response返回。KafkaRequestHandlerPool作为I\/O处理线程池，执行请求的具体逻辑。二者之间通过RequestChannel进行交互。\nSocketServer SocketServer负责处理各个Broker之间的通信channel，采用Reactor处理模型，Acceptor负责从socket接受request，Handler负责处理接收来的request，这也是Kafka中的设计亮点之一。\n在实现上，分为data-plane和control-plane，防止数据类请求阻塞控制类请求：\n\/\/ data-plane private[network] val dataPlaneAcceptors = new ConcurrentHashMap[EndPoint, DataPlaneAcceptor]() val dataPlaneRequestChannel = new RequestChannel(maxQueuedRequests, DataPlaneAcceptor.MetricPrefix, time, apiVersionManager.newRequestMetrics) \/\/ control-plane private[network] var controlPlaneAcceptorOpt: Option[ControlPlaneAcceptor] = None val controlPlaneRequestChannelOpt: Option[RequestChannel] = config.controlPlaneListenerName.map(_ =\u0026gt; new RequestChannel(20, ControlPlaneAcceptor.MetricPrefix, time, apiVersionManager.newRequestMetrics)) private[network] val processors = new ArrayBuffer[Processor]() 从上述定义可以看出control-plane的线程数只有一个，这是因为控制类的请求数量较数据类请求少。\n初始化逻辑如下：\nprivate def createDataPlaneAcceptorAndProcessors(endpoint: EndPoint): Unit = synchronized { if (stopped) { throw new RuntimeException(\u0026#34;Can\u0026#39;t create new data plane acceptor and processors: SocketServer is stopped.\u0026#34;) } val parsedConfigs = config.valuesFromThisConfigWithPrefixOverride(endpoint.listenerName.configPrefix) connectionQuotas.addListener(config, endpoint.listenerName) val isPrivilegedListener = controlPlaneRequestChannelOpt.isEmpty \u0026amp;\u0026amp; config.interBrokerListenerName == endpoint.listenerName val dataPlaneAcceptor = createDataPlaneAcceptor(endpoint, isPrivilegedListener, dataPlaneRequestChannel) config.addReconfigurable(dataPlaneAcceptor) dataPlaneAcceptor.configure(parsedConfigs) dataPlaneAcceptors.put(endpoint, dataPlaneAcceptor) info(s\u0026#34;Created data-plane acceptor and processors for endpoint : ${endpoint.listenerName}\u0026#34;) } private def createControlPlaneAcceptorAndProcessor(endpoint: EndPoint): Unit = synchronized { if (stopped) { throw new RuntimeException(\u0026#34;Can\u0026#39;t create new control plane acceptor and processor: SocketServer is stopped.\u0026#34;) } connectionQuotas.addListener(config, endpoint.listenerName) val controlPlaneAcceptor = createControlPlaneAcceptor(endpoint, controlPlaneRequestChannelOpt.get) controlPlaneAcceptor.addProcessors(1) controlPlaneAcceptorOpt = Some(controlPlaneAcceptor) info(s\u0026#34;Created control-plane acceptor and processor for endpoint : ${endpoint.listenerName}\u0026#34;) } Acceptor Acceptor线程通过Selector \u002b Channel轮询获取acceptable connection，将接收的连接信息传递给下游Processor处理，作为Runnable任务，每个endpoint指定一个acceptor。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2025",
+      "datePublished": "2025-03-02 18:10:12 \u002b0800 CST",
+      "dateModified" : "2025-03-02 18:10:12 \u002b0800 CST",
+      "url" : "http:\/\/localhost:1313\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/kafka\/kafka-source-code-6-network-model\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Kafka源码分析(六) - 网络通信模块设计</title>
+  <meta property="og:title" content="Kafka源码分析(六) - 网络通信模块设计" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="Intro Kafka的网络通信设计如图所示（图片引用自AutoMQ）：
+其中SocketServer负责处理外部连接，并将处理结果封装到Response返回。KafkaRequestHandlerPool作为I/O处理线程池，执行请求的具体逻辑。二者之间通过RequestChannel进行交互。
+SocketServer SocketServer负责处理各个Broker之间的通信channel，采用Reactor处理模型，Acceptor负责从socket接受request，Handler负责处理接收来的request，这也是Kafka中的设计亮点之一。
+在实现上，分为data-plane和control-plane，防止数据类请求阻塞控制类请求：
+// data-plane private[network] val dataPlaneAcceptors = new ConcurrentHashMap[EndPoint, DataPlaneAcceptor]() val dataPlaneRequestChannel = new RequestChannel(maxQueuedRequests, DataPlaneAcceptor.MetricPrefix, time, apiVersionManager.newRequestMetrics) // control-plane private[network] var controlPlaneAcceptorOpt: Option[ControlPlaneAcceptor] = None val controlPlaneRequestChannelOpt: Option[RequestChannel] = config.controlPlaneListenerName.map(_ =&gt; new RequestChannel(20, ControlPlaneAcceptor.MetricPrefix, time, apiVersionManager.newRequestMetrics)) private[network] val processors = new ArrayBuffer[Processor]() 从上述定义可以看出control-plane的线程数只有一个，这是因为控制类的请求数量较数据类请求少。
+初始化逻辑如下：
+private def createDataPlaneAcceptorAndProcessors(endpoint: EndPoint): Unit = synchronized { if (stopped) { throw new RuntimeException(&#34;Can&#39;t create new data plane acceptor and processors: SocketServer is stopped.&#34;) } val parsedConfigs = config.valuesFromThisConfigWithPrefixOverride(endpoint.listenerName.configPrefix) connectionQuotas.addListener(config, endpoint.listenerName) val isPrivilegedListener = controlPlaneRequestChannelOpt.isEmpty &amp;&amp; config.interBrokerListenerName == endpoint.listenerName val dataPlaneAcceptor = createDataPlaneAcceptor(endpoint, isPrivilegedListener, dataPlaneRequestChannel) config.addReconfigurable(dataPlaneAcceptor) dataPlaneAcceptor.configure(parsedConfigs) dataPlaneAcceptors.put(endpoint, dataPlaneAcceptor) info(s&#34;Created data-plane acceptor and processors for endpoint : ${endpoint.listenerName}&#34;) } private def createControlPlaneAcceptorAndProcessor(endpoint: EndPoint): Unit = synchronized { if (stopped) { throw new RuntimeException(&#34;Can&#39;t create new control plane acceptor and processor: SocketServer is stopped.&#34;) } connectionQuotas.addListener(config, endpoint.listenerName) val controlPlaneAcceptor = createControlPlaneAcceptor(endpoint, controlPlaneRequestChannelOpt.get) controlPlaneAcceptor.addProcessors(1) controlPlaneAcceptorOpt = Some(controlPlaneAcceptor) info(s&#34;Created control-plane acceptor and processor for endpoint : ${endpoint.listenerName}&#34;) } Acceptor Acceptor线程通过Selector &#43; Channel轮询获取acceptable connection，将接收的连接信息传递给下游Processor处理，作为Runnable任务，每个endpoint指定一个acceptor。
+" />
+  <meta name="description" content="Intro Kafka的网络通信设计如图所示（图片引用自AutoMQ）：
+其中SocketServer负责处理外部连接，并将处理结果封装到Response返回。KafkaRequestHandlerPool作为I/O处理线程池，执行请求的具体逻辑。二者之间通过RequestChannel进行交互。
+SocketServer SocketServer负责处理各个Broker之间的通信channel，采用Reactor处理模型，Acceptor负责从socket接受request，Handler负责处理接收来的request，这也是Kafka中的设计亮点之一。
+在实现上，分为data-plane和control-plane，防止数据类请求阻塞控制类请求：
+// data-plane private[network] val dataPlaneAcceptors = new ConcurrentHashMap[EndPoint, DataPlaneAcceptor]() val dataPlaneRequestChannel = new RequestChannel(maxQueuedRequests, DataPlaneAcceptor.MetricPrefix, time, apiVersionManager.newRequestMetrics) // control-plane private[network] var controlPlaneAcceptorOpt: Option[ControlPlaneAcceptor] = None val controlPlaneRequestChannelOpt: Option[RequestChannel] = config.controlPlaneListenerName.map(_ =&gt; new RequestChannel(20, ControlPlaneAcceptor.MetricPrefix, time, apiVersionManager.newRequestMetrics)) private[network] val processors = new ArrayBuffer[Processor]() 从上述定义可以看出control-plane的线程数只有一个，这是因为控制类的请求数量较数据类请求少。
+初始化逻辑如下：
+private def createDataPlaneAcceptorAndProcessors(endpoint: EndPoint): Unit = synchronized { if (stopped) { throw new RuntimeException(&#34;Can&#39;t create new data plane acceptor and processors: SocketServer is stopped.&#34;) } val parsedConfigs = config.valuesFromThisConfigWithPrefixOverride(endpoint.listenerName.configPrefix) connectionQuotas.addListener(config, endpoint.listenerName) val isPrivilegedListener = controlPlaneRequestChannelOpt.isEmpty &amp;&amp; config.interBrokerListenerName == endpoint.listenerName val dataPlaneAcceptor = createDataPlaneAcceptor(endpoint, isPrivilegedListener, dataPlaneRequestChannel) config.addReconfigurable(dataPlaneAcceptor) dataPlaneAcceptor.configure(parsedConfigs) dataPlaneAcceptors.put(endpoint, dataPlaneAcceptor) info(s&#34;Created data-plane acceptor and processors for endpoint : ${endpoint.listenerName}&#34;) } private def createControlPlaneAcceptorAndProcessor(endpoint: EndPoint): Unit = synchronized { if (stopped) { throw new RuntimeException(&#34;Can&#39;t create new control plane acceptor and processor: SocketServer is stopped.&#34;) } connectionQuotas.addListener(config, endpoint.listenerName) val controlPlaneAcceptor = createControlPlaneAcceptor(endpoint, controlPlaneRequestChannelOpt.get) controlPlaneAcceptor.addProcessors(1) controlPlaneAcceptorOpt = Some(controlPlaneAcceptor) info(s&#34;Created control-plane acceptor and processor for endpoint : ${endpoint.listenerName}&#34;) } Acceptor Acceptor线程通过Selector &#43; Channel轮询获取acceptable connection，将接收的连接信息传递给下游Processor处理，作为Runnable任务，每个endpoint指定一个acceptor。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="/favicon.png" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:85%;background-color:inherit;border:0;font-family:SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4&#39;s Blog</a
+    >
+  </div>
+  <div class="header-subtitle">提升认知，解构世界</div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Kafka源码分析(六) - 网络通信模块设计</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2025-03-02 18:10:12 CST">
+                02 Mar 2025
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="intro">Intro</h1>
+<p>Kafka的网络通信设计如图所示（图片引用自<a href="https://www.automq.com/blog/understand-kafka-network-communication-and-thread-model">AutoMQ</a>）：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20250319145048.png" alt="image.png"></p>
+<p>其中<strong>SocketServer</strong>负责处理外部连接，并将处理结果封装到Response返回。<strong>KafkaRequestHandlerPool</strong>作为I/O处理线程池，执行请求的具体逻辑。二者之间通过RequestChannel进行交互。</p>
+<h1 id="socketserver">SocketServer</h1>
+<p>SocketServer负责处理各个Broker之间的通信channel，采用Reactor处理模型，Acceptor负责从socket接受request，Handler负责处理接收来的request，这也是Kafka中的设计亮点之一。</p>
+<p>在实现上，分为data-plane和control-plane，防止数据类请求阻塞控制类请求：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#75715e">// data-plane  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">network</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">val</span> dataPlaneAcceptors <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ConcurrentHashMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">EndPoint</span>, <span style="color:#66d9ef">DataPlaneAcceptor</span><span style="color:#f92672">]()</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">val</span> dataPlaneRequestChannel <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">RequestChannel</span><span style="color:#f92672">(</span>maxQueuedRequests<span style="color:#f92672">,</span> <span style="color:#a6e22e">DataPlaneAcceptor</span><span style="color:#f92672">.</span><span style="color:#a6e22e">MetricPrefix</span><span style="color:#f92672">,</span> time<span style="color:#f92672">,</span> apiVersionManager<span style="color:#f92672">.</span>newRequestMetrics<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// control-plane  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">network</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">var</span> controlPlaneAcceptorOpt<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">ControlPlaneAcceptor</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">None</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">val</span> controlPlaneRequestChannelOpt<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">RequestChannel</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> config<span style="color:#f92672">.</span>controlPlaneListenerName<span style="color:#f92672">.</span>map<span style="color:#f92672">(</span><span style="color:#66d9ef">_</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">RequestChannel</span><span style="color:#f92672">(</span><span style="color:#ae81ff">20</span><span style="color:#f92672">,</span> <span style="color:#a6e22e">ControlPlaneAcceptor</span><span style="color:#f92672">.</span><span style="color:#a6e22e">MetricPrefix</span><span style="color:#f92672">,</span> time<span style="color:#f92672">,</span> apiVersionManager<span style="color:#f92672">.</span>newRequestMetrics<span style="color:#f92672">))</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">network</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">val</span> processors <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ArrayBuffer</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Processor</span><span style="color:#f92672">]()</span>
+</span></span></code></pre></div><p>从上述定义可以看出control-plane的线程数只有一个，这是因为控制类的请求数量较数据类请求少。</p>
+<p>初始化逻辑如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> createDataPlaneAcceptorAndProcessors<span style="color:#f92672">(</span>endpoint<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">EndPoint</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> synchronized <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>stopped<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">RuntimeException</span><span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Can&#39;t create new data plane acceptor and processors: SocketServer is stopped.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> parsedConfigs <span style="color:#66d9ef">=</span> config<span style="color:#f92672">.</span>valuesFromThisConfigWithPrefixOverride<span style="color:#f92672">(</span>endpoint<span style="color:#f92672">.</span>listenerName<span style="color:#f92672">.</span>configPrefix<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  connectionQuotas<span style="color:#f92672">.</span>addListener<span style="color:#f92672">(</span>config<span style="color:#f92672">,</span> endpoint<span style="color:#f92672">.</span>listenerName<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> isPrivilegedListener <span style="color:#66d9ef">=</span> controlPlaneRequestChannelOpt<span style="color:#f92672">.</span>isEmpty <span style="color:#f92672">&amp;&amp;</span>  
+</span></span><span style="display:flex;"><span>    config<span style="color:#f92672">.</span>interBrokerListenerName <span style="color:#f92672">==</span> endpoint<span style="color:#f92672">.</span>listenerName  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> dataPlaneAcceptor <span style="color:#66d9ef">=</span> createDataPlaneAcceptor<span style="color:#f92672">(</span>endpoint<span style="color:#f92672">,</span> isPrivilegedListener<span style="color:#f92672">,</span> dataPlaneRequestChannel<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  config<span style="color:#f92672">.</span>addReconfigurable<span style="color:#f92672">(</span>dataPlaneAcceptor<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  dataPlaneAcceptor<span style="color:#f92672">.</span>configure<span style="color:#f92672">(</span>parsedConfigs<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  dataPlaneAcceptors<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>endpoint<span style="color:#f92672">,</span> dataPlaneAcceptor<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Created data-plane acceptor and processors for endpoint : </span><span style="color:#e6db74">${</span>endpoint<span style="color:#f92672">.</span>listenerName<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> createControlPlaneAcceptorAndProcessor<span style="color:#f92672">(</span>endpoint<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">EndPoint</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> synchronized <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>stopped<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">RuntimeException</span><span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Can&#39;t create new control plane acceptor and processor: SocketServer is stopped.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  connectionQuotas<span style="color:#f92672">.</span>addListener<span style="color:#f92672">(</span>config<span style="color:#f92672">,</span> endpoint<span style="color:#f92672">.</span>listenerName<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> controlPlaneAcceptor <span style="color:#66d9ef">=</span> createControlPlaneAcceptor<span style="color:#f92672">(</span>endpoint<span style="color:#f92672">,</span> controlPlaneRequestChannelOpt<span style="color:#f92672">.</span>get<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  controlPlaneAcceptor<span style="color:#f92672">.</span>addProcessors<span style="color:#f92672">(</span><span style="color:#ae81ff">1</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  controlPlaneAcceptorOpt <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>controlPlaneAcceptor<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Created control-plane acceptor and processor for endpoint : </span><span style="color:#e6db74">${</span>endpoint<span style="color:#f92672">.</span>listenerName<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="acceptor">Acceptor</h2>
+<p>Acceptor线程通过Selector + Channel轮询获取acceptable connection，将接收的连接信息传递给下游Processor处理，作为Runnable任务，每个endpoint指定一个acceptor。</p>
+<h3 id="初始化">初始化</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#75715e">//缓冲区大小
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> sendBufferSize <span style="color:#66d9ef">=</span> config<span style="color:#f92672">.</span>socketSendBufferBytes  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> recvBufferSize <span style="color:#66d9ef">=</span> config<span style="color:#f92672">.</span>socketReceiveBufferBytes  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> listenBacklogSize <span style="color:#66d9ef">=</span> config<span style="color:#f92672">.</span>socketListenBacklogSize  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//使用nio selector  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> nioSelector <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">NSelector</span><span style="color:#f92672">.</span>open<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">network</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">var</span> serverChannel<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ServerSocketChannel</span>  <span style="color:#f92672">=</span> <span style="color:#66d9ef">_</span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//创建serverChannel  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">network</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">val</span> localPort<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span>  <span style="color:#f92672">=</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>endPoint<span style="color:#f92672">.</span>port <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  endPoint<span style="color:#f92672">.</span>port  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  serverChannel <span style="color:#66d9ef">=</span> openServerSocket<span style="color:#f92672">(</span>endPoint<span style="color:#f92672">.</span>host<span style="color:#f92672">,</span> endPoint<span style="color:#f92672">.</span>port<span style="color:#f92672">,</span> listenBacklogSize<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> newPort <span style="color:#66d9ef">=</span> serverChannel<span style="color:#f92672">.</span>socket<span style="color:#f92672">().</span>getLocalPort  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Opened wildcard endpoint </span><span style="color:#e6db74">${</span>endPoint<span style="color:#f92672">.</span>host<span style="color:#e6db74">}</span><span style="color:#e6db74">:</span><span style="color:#e6db74">$newPort</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  newPort  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//processor线程池，由Acceptor维护
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">network</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">val</span> processors <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ArrayBuffer</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Processor</span><span style="color:#f92672">]()</span>
+</span></span></code></pre></div><h3 id="创建socket">创建Socket</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> openServerSocket<span style="color:#f92672">(</span>host<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span> port<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span> listenBacklogSize<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ServerSocketChannel</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 创建InetSocketAddress  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> socketAddress <span style="color:#66d9ef">=</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span><span style="color:#a6e22e">Utils</span><span style="color:#f92672">.</span>isBlank<span style="color:#f92672">(</span>host<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">InetSocketAddress</span><span style="color:#f92672">(</span>port<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">InetSocketAddress</span><span style="color:#f92672">(</span>host<span style="color:#f92672">,</span> port<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.2 开启serverChannel  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> serverChannel <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">ServerSocketChannel</span><span style="color:#f92672">.</span>open<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 设置serverChannel为非阻塞模式  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    serverChannel<span style="color:#f92672">.</span>configureBlocking<span style="color:#f92672">(</span><span style="color:#66d9ef">false</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.4 设置serverChannel的接收缓冲区大小  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>recvBufferSize <span style="color:#f92672">!=</span> <span style="color:#a6e22e">Selectable</span><span style="color:#f92672">.</span><span style="color:#a6e22e">USE_DEFAULT_BUFFER_SIZE</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      serverChannel<span style="color:#f92672">.</span>socket<span style="color:#f92672">().</span>setReceiveBufferSize<span style="color:#f92672">(</span>recvBufferSize<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.5 绑定serverChannel与InetSocketAddress  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    serverChannel<span style="color:#f92672">.</span>socket<span style="color:#f92672">.</span>bind<span style="color:#f92672">(</span>socketAddress<span style="color:#f92672">,</span> listenBacklogSize<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Awaiting socket connections on </span><span style="color:#e6db74">${</span>socketAddress<span style="color:#f92672">.</span>getHostString<span style="color:#e6db74">}</span><span style="color:#e6db74">:</span><span style="color:#e6db74">${</span>serverChannel<span style="color:#f92672">.</span>socket<span style="color:#f92672">.</span>getLocalPort<span style="color:#e6db74">}</span><span style="color:#e6db74">.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">SocketException</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">Utils</span><span style="color:#f92672">.</span>closeQuietly<span style="color:#f92672">(</span>serverChannel<span style="color:#f92672">,</span> <span style="color:#e6db74">&#34;server socket&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">KafkaException</span><span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Socket server failed to bind to </span><span style="color:#e6db74">${</span>socketAddress<span style="color:#f92672">.</span>getHostString<span style="color:#e6db74">}</span><span style="color:#e6db74">:</span><span style="color:#e6db74">$port</span><span style="color:#e6db74">: </span><span style="color:#e6db74">${</span>e<span style="color:#f92672">.</span>getMessage<span style="color:#e6db74">}</span><span style="color:#e6db74">.&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  serverChannel  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>start方法逻辑：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> start<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> synchronized <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(!</span>shouldRun<span style="color:#f92672">.</span>get<span style="color:#f92672">())</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ClosedChannelException</span><span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查初始化serverChannel  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>serverChannel <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      serverChannel <span style="color:#66d9ef">=</span> openServerSocket<span style="color:#f92672">(</span>endPoint<span style="color:#f92672">.</span>host<span style="color:#f92672">,</span> endPoint<span style="color:#f92672">.</span>port<span style="color:#f92672">,</span> listenBacklogSize<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Opened endpoint </span><span style="color:#e6db74">${</span>endPoint<span style="color:#f92672">.</span>host<span style="color:#e6db74">}</span><span style="color:#e6db74">:</span><span style="color:#e6db74">${</span>endPoint<span style="color:#f92672">.</span>port<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Starting processors for listener </span><span style="color:#e6db74">${</span>endPoint<span style="color:#f92672">.</span>listenerName<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 启动processors  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    processors<span style="color:#f92672">.</span>foreach<span style="color:#f92672">(</span><span style="color:#66d9ef">_</span><span style="color:#f92672">.</span>start<span style="color:#f92672">())</span>  
+</span></span><span style="display:flex;"><span>    debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Starting acceptor thread for listener </span><span style="color:#e6db74">${</span>endPoint<span style="color:#f92672">.</span>listenerName<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 启动acceptor线程  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    thread<span style="color:#f92672">.</span>start<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>    startedFuture<span style="color:#f92672">.</span>complete<span style="color:#f92672">(</span><span style="color:#66d9ef">null</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    started<span style="color:#f92672">.</span>set<span style="color:#f92672">(</span><span style="color:#66d9ef">true</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ClosedChannelException</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>      debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Refusing to start acceptor for </span><span style="color:#e6db74">${</span>endPoint<span style="color:#f92672">.</span>listenerName<span style="color:#e6db74">}</span><span style="color:#e6db74"> since the acceptor has already been shut down.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      startedFuture<span style="color:#f92672">.</span>completeExceptionally<span style="color:#f92672">(</span>e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> t<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>      error<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Unable to start acceptor for </span><span style="color:#e6db74">${</span>endPoint<span style="color:#f92672">.</span>listenerName<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> t<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      startedFuture<span style="color:#f92672">.</span>completeExceptionally<span style="color:#f92672">(</span><span style="color:#66d9ef">new</span> <span style="color:#a6e22e">RuntimeException</span><span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Unable to start acceptor for </span><span style="color:#e6db74">${</span>endPoint<span style="color:#f92672">.</span>listenerName<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> t<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="主体逻辑">主体逻辑</h3>
+<p>作为Runnable继承类，run方法如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> run<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 将serverChannel 注册到 nioSelector，并设置监听事件为 OP_ACCEPT，用于接收新连接  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  serverChannel<span style="color:#f92672">.</span>register<span style="color:#f92672">(</span>nioSelector<span style="color:#f92672">,</span> <span style="color:#a6e22e">SelectionKey</span><span style="color:#f92672">.</span><span style="color:#a6e22e">OP_ACCEPT</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 未调用shutdown时，循环处理connection  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">while</span> <span style="color:#f92672">(</span>shouldRun<span style="color:#f92672">.</span>get<span style="color:#f92672">())</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.3 接受新连接  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        acceptNewConnections<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>          
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.4 检查限流连接  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        closeThrottledConnections<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span> error<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Error occurred&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">finally</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    closeAll<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="处理连接">处理连接</h3>
+<p>Acceptor采用nioSelector处理连接事件：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> acceptNewConnections<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 调用select，最多阻塞500ms，等待新的连接事件  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> ready <span style="color:#66d9ef">=</span> nioSelector<span style="color:#f92672">.</span>select<span style="color:#f92672">(</span><span style="color:#ae81ff">500</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.2 若存在可处理的事件  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>ready <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 调用selectKeys，获取所有可处理的事件  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">val</span> keys <span style="color:#66d9ef">=</span> nioSelector<span style="color:#f92672">.</span>selectedKeys<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> iter <span style="color:#66d9ef">=</span> keys<span style="color:#f92672">.</span>iterator<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.1 迭代处理所有事件  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">while</span> <span style="color:#f92672">(</span>iter<span style="color:#f92672">.</span>hasNext <span style="color:#f92672">&amp;&amp;</span> shouldRun<span style="color:#f92672">.</span>get<span style="color:#f92672">())</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">val</span> key <span style="color:#66d9ef">=</span> iter<span style="color:#f92672">.</span>next  
+</span></span><span style="display:flex;"><span>        iter<span style="color:#f92672">.</span>remove<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//2.2 检查是否为可接受连接状态  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>key<span style="color:#f92672">.</span>isAcceptable<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          accept<span style="color:#f92672">(</span>key<span style="color:#f92672">).</span>foreach <span style="color:#f92672">{</span> socketChannel <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// Assign the channel to the next processor (using round-robin) to which the  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#75715e">// channel can be added without blocking. If newConnections queue is full on            // all processors, block until the last one is able to accept a connection.            var retriesLeft = synchronized(processors.length)  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">var</span> processor<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Processor</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">do</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#75715e">//2.3 采用轮询方式选取processor，来处理当前connection  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              retriesLeft <span style="color:#f92672">-=</span> <span style="color:#ae81ff">1</span>  
+</span></span><span style="display:flex;"><span>              processor <span style="color:#66d9ef">=</span> synchronized <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// adjust the index (if necessary) and retrieve the processor atomically for  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#75715e">// correct behaviour in case the number of processors is reduced dynamically                currentProcessorIndex = currentProcessorIndex % processors.length  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                processors<span style="color:#f92672">(</span>currentProcessorIndex<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>              currentProcessorIndex <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span> <span style="color:#66d9ef">while</span> <span style="color:#f92672">(!</span>assignNewConnection<span style="color:#f92672">(</span>socketChannel<span style="color:#f92672">,</span> processor<span style="color:#f92672">,</span> retriesLeft <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span><span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">IllegalStateException</span><span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Unrecognized key state for acceptor thread.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span> error<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Error while accepting connection&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>将connection转给Processor处理：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> assignNewConnection<span style="color:#f92672">(</span>socketChannel<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">SocketChannel</span><span style="color:#f92672">,</span> processor<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Processor</span><span style="color:#f92672">,</span> mayBlock<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>processor<span style="color:#f92672">.</span>accept<span style="color:#f92672">(</span>socketChannel<span style="color:#f92672">,</span> mayBlock<span style="color:#f92672">,</span> blockedPercentMeter<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Accepted connection from </span><span style="color:#e6db74">${</span>socketChannel<span style="color:#f92672">.</span>socket<span style="color:#f92672">.</span>getRemoteSocketAddress<span style="color:#e6db74">}</span><span style="color:#e6db74"> on&#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#e6db74">s&#34; </span><span style="color:#e6db74">${</span>socketChannel<span style="color:#f92672">.</span>socket<span style="color:#f92672">.</span>getLocalSocketAddress<span style="color:#e6db74">}</span><span style="color:#e6db74"> and assigned it to processor </span><span style="color:#e6db74">${</span>processor<span style="color:#f92672">.</span>id<span style="color:#e6db74">}</span><span style="color:#e6db74">,&#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#e6db74">s&#34; sendBufferSize [actual|requested]: [</span><span style="color:#e6db74">${</span>socketChannel<span style="color:#f92672">.</span>socket<span style="color:#f92672">.</span>getSendBufferSize<span style="color:#e6db74">}</span><span style="color:#e6db74">|</span><span style="color:#e6db74">$sendBufferSize</span><span style="color:#e6db74">]&#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#e6db74">s&#34; recvBufferSize [actual|requested]: [</span><span style="color:#e6db74">${</span>socketChannel<span style="color:#f92672">.</span>socket<span style="color:#f92672">.</span>getReceiveBufferSize<span style="color:#e6db74">}</span><span style="color:#e6db74">|</span><span style="color:#e6db74">$recvBufferSize</span><span style="color:#e6db74">]&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">true</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">false</span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="processor维护">Processor维护</h3>
+<p>Acceptor中维护了Processor线程池，因此创建、移除Processor逻辑也在其中，创建、移除会同步修改requestChannel中存储的processors：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span>  <span style="color:#66d9ef">def</span> addProcessors<span style="color:#f92672">(</span>toCreate<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> synchronized <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> listenerName <span style="color:#66d9ef">=</span> endPoint<span style="color:#f92672">.</span>listenerName  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> securityProtocol <span style="color:#66d9ef">=</span> endPoint<span style="color:#f92672">.</span>securityProtocol  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> listenerProcessors <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ArrayBuffer</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Processor</span><span style="color:#f92672">]()</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> <span style="color:#f92672">(</span><span style="color:#66d9ef">_</span> <span style="color:#66d9ef">&lt;-</span> <span style="color:#ae81ff">0</span> until toCreate<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> processor <span style="color:#66d9ef">=</span> newProcessor<span style="color:#f92672">(</span>socketServer<span style="color:#f92672">.</span>nextProcessorId<span style="color:#f92672">(),</span> listenerName<span style="color:#f92672">,</span> securityProtocol<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      listenerProcessors <span style="color:#f92672">+=</span> processor  
+</span></span><span style="display:flex;"><span>      requestChannel<span style="color:#f92672">.</span>addProcessor<span style="color:#f92672">(</span>processor<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>started<span style="color:#f92672">.</span>get<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        processor<span style="color:#f92672">.</span>start<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    processors <span style="color:#f92672">++=</span> listenerProcessors  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">def</span> newProcessor<span style="color:#f92672">(</span>id<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span> listenerName<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ListenerName</span><span style="color:#f92672">,</span> securityProtocol<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">SecurityProtocol</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Processor</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> name <span style="color:#66d9ef">=</span> <span style="color:#e6db74">s&#34;</span><span style="color:#e6db74">${</span>threadPrefix<span style="color:#f92672">()</span><span style="color:#e6db74">}</span><span style="color:#e6db74">-kafka-network-thread-</span><span style="color:#e6db74">$nodeId</span><span style="color:#e6db74">-</span><span style="color:#e6db74">${</span>endPoint<span style="color:#f92672">.</span>listenerName<span style="color:#e6db74">}</span><span style="color:#e6db74">-</span><span style="color:#e6db74">${</span>endPoint<span style="color:#f92672">.</span>securityProtocol<span style="color:#e6db74">}</span><span style="color:#e6db74">-</span><span style="color:#e6db74">$id</span><span style="color:#e6db74">&#34;</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">Processor</span><span style="color:#f92672">(</span>id<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  time<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  config<span style="color:#f92672">.</span>socketRequestMaxBytes<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  requestChannel<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  connectionQuotas<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  config<span style="color:#f92672">.</span>connectionsMaxIdleMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  config<span style="color:#f92672">.</span>failedAuthenticationDelayMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  listenerName<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  securityProtocol<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  config<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  metrics<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  credentialProvider<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  memoryPool<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  logContext<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  <span style="color:#a6e22e">Processor</span><span style="color:#f92672">.</span><span style="color:#a6e22e">ConnectionQueueSize</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  isPrivilegedListener<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  apiVersionManager<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  name<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">network</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">def</span> removeProcessors<span style="color:#f92672">(</span>removeCount<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> synchronized <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// Shutdown `removeCount` processors. Remove them from the processor list first so that no more  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// connections are assigned. Shutdown the removed processors, closing the selector and its connections.  // The processors are then removed from `requestChannel` and any pending responses to these processors are dropped.  val toRemove = processors.takeRight(removeCount)  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  processors<span style="color:#f92672">.</span>remove<span style="color:#f92672">(</span>processors<span style="color:#f92672">.</span>size <span style="color:#f92672">-</span> removeCount<span style="color:#f92672">,</span> removeCount<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  toRemove<span style="color:#f92672">.</span>foreach<span style="color:#f92672">(</span><span style="color:#66d9ef">_</span><span style="color:#f92672">.</span>close<span style="color:#f92672">())</span>  
+</span></span><span style="display:flex;"><span>  toRemove<span style="color:#f92672">.</span>foreach<span style="color:#f92672">(</span>processor <span style="color:#66d9ef">=&gt;</span> requestChannel<span style="color:#f92672">.</span>removeProcessor<span style="color:#f92672">(</span>processor<span style="color:#f92672">.</span>id<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="processor">Processor</h2>
+<p>Processer负责将连接信息添加到RequestChannel的类中，并负责将Response返回。</p>
+<p>Processor中包含三个队列：</p>
+<ul>
+<li><strong>newConnections</strong>：存储创建的新连接信息SocketChannel，接收到accept方法请求后，会将对象存储到该队列，调用configureNewConnections方法时从该队列中取出SocketChannel。</li>
+<li><strong>inflightResponses</strong>：将响应的Response信息返回后，存储在该队列中，用于部分Response回调处理。</li>
+<li><strong>responseQueue</strong>：存储需要进行响应的response对象。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> newConnections <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ArrayBlockingQueue</span><span style="color:#f92672">[</span><span style="color:#66d9ef">SocketChannel</span><span style="color:#f92672">](</span>connectionQueueSize<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> inflightResponses <span style="color:#66d9ef">=</span> mutable<span style="color:#f92672">.</span><span style="color:#a6e22e">Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span>, <span style="color:#66d9ef">RequestChannel.Response</span><span style="color:#f92672">]()</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> responseQueue <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">LinkedBlockingDeque</span><span style="color:#f92672">[</span><span style="color:#66d9ef">RequestChannel.Response</span><span style="color:#f92672">]()</span>
+</span></span></code></pre></div><p>Processor中的selector使用的Kafka自定义Selector：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">protected</span><span style="color:#f92672">[</span><span style="color:#66d9ef">network</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">def</span> createSelector<span style="color:#f92672">(</span>channelBuilder<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ChannelBuilder</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">KSelector</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  channelBuilder <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> reconfigurable<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Reconfigurable</span> <span style="color:#f92672">=&gt;</span> config<span style="color:#f92672">.</span>addReconfigurable<span style="color:#f92672">(</span>reconfigurable<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> <span style="color:#66d9ef">_</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">KSelector</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>    maxRequestSize<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    connectionsMaxIdleMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    failedAuthenticationDelayMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    metrics<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    time<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;socket-server&#34;</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    metricTags<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">false</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">true</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    channelBuilder<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    memoryPool<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    logContext<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="accept">accept</h3>
+<p>首先看下上文提到的accept方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> accept<span style="color:#f92672">(</span>socketChannel<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">SocketChannel</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>           mayBlock<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>           acceptorIdlePercentMeter<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">com.yammer.metrics.core.Meter</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 将SocketChannel存储到newConnections队列中  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> accepted <span style="color:#66d9ef">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>newConnections<span style="color:#f92672">.</span>offer<span style="color:#f92672">(</span>socketChannel<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">true</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.2 如果newConnections队列已满，put进行阻塞等待，并记录acceptorIdlePercentMeter  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>mayBlock<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> startNs <span style="color:#66d9ef">=</span> time<span style="color:#f92672">.</span>nanoseconds  
+</span></span><span style="display:flex;"><span>      newConnections<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>socketChannel<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      acceptorIdlePercentMeter<span style="color:#f92672">.</span>mark<span style="color:#f92672">(</span>time<span style="color:#f92672">.</span>nanoseconds<span style="color:#f92672">()</span> <span style="color:#f92672">-</span> startNs<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">true</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">false</span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//写入成功后唤醒processor线程  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>accepted<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    wakeup<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  accepted  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">def</span> wakeup<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> selector<span style="color:#f92672">.</span>wakeup<span style="color:#f92672">()</span>
+</span></span></code></pre></div><h3 id="主体逻辑-1">主体逻辑</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> run<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查是否shutdown  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">while</span> <span style="color:#f92672">(</span>shouldRun<span style="color:#f92672">.</span>get<span style="color:#f92672">())</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 1.2 创建新连接  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        configureNewConnections<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 1.3 发送Response，并将response放入inflightResponses队列  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        processNewResponses<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.4 获取SocketChannel中就绪的IO事件  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        poll<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.5 将Request放入Request队列  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        processCompletedReceives<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.6 处理Response回调  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        processCompletedSends<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.7 处理因发送失败而导致的连接断开  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        processDisconnected<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.8 检查限流连接并关闭  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        closeExcessConnections<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span> processException<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Processor got uncaught exception.&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">finally</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Closing selector - processor </span><span style="color:#e6db74">$id</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">CoreUtils</span><span style="color:#f92672">.</span>swallow<span style="color:#f92672">(</span>closeAll<span style="color:#f92672">(),</span> <span style="color:#66d9ef">this</span><span style="color:#f92672">,</span> <span style="color:#a6e22e">Level</span><span style="color:#f92672">.</span><span style="color:#a6e22e">ERROR</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="configurenewconnections">configureNewConnections</h3>
+<p>configureNewConnections</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> configureNewConnections<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">var</span> connectionsProcessed <span style="color:#66d9ef">=</span> <span style="color:#ae81ff">0</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 检查当前是否有未处理的connection并防止超额  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">while</span> <span style="color:#f92672">(</span>connectionsProcessed <span style="color:#f92672">&lt;</span> connectionQueueSize <span style="color:#f92672">&amp;&amp;</span> <span style="color:#f92672">!</span>newConnections<span style="color:#f92672">.</span>isEmpty<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> channel <span style="color:#66d9ef">=</span> newConnections<span style="color:#f92672">.</span>poll<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.2 将新的connection注册到selector中，更新计数  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Processor </span><span style="color:#e6db74">$id</span><span style="color:#e6db74"> listening to new connection from </span><span style="color:#e6db74">${</span>channel<span style="color:#f92672">.</span>socket<span style="color:#f92672">.</span>getRemoteSocketAddress<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      selector<span style="color:#f92672">.</span>register<span style="color:#f92672">(</span>connectionId<span style="color:#f92672">(</span>channel<span style="color:#f92672">.</span>socket<span style="color:#f92672">),</span> channel<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      connectionsProcessed <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// We explicitly catch all exceptions and close the socket to avoid a socket leak.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">val</span> remoteAddress <span style="color:#66d9ef">=</span> channel<span style="color:#f92672">.</span>socket<span style="color:#f92672">.</span>getRemoteSocketAddress  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// need to close the channel here to avoid a socket leak.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        connectionQuotas<span style="color:#f92672">.</span>closeChannel<span style="color:#f92672">(</span><span style="color:#66d9ef">this</span><span style="color:#f92672">,</span> listenerName<span style="color:#f92672">,</span> channel<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        processException<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Processor </span><span style="color:#e6db74">$id</span><span style="color:#e6db74"> closed connection from </span><span style="color:#e6db74">$remoteAddress</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="processnewresponses">processNewResponses</h3>
+<p>该方法将从responseQueue中获取Channel，并将response发送给request方，最后将Response存储到inflightResponses队列供后续使用。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> processNewResponses<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">var</span> currentResponse<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestChannel.Response</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 从responseQueue中获取待处理的response  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">while</span> <span style="color:#f92672">({</span>currentResponse <span style="color:#66d9ef">=</span> dequeueResponse<span style="color:#f92672">();</span> currentResponse <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">})</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> channelId <span style="color:#66d9ef">=</span> currentResponse<span style="color:#f92672">.</span>request<span style="color:#f92672">.</span>context<span style="color:#f92672">.</span>connectionId  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      currentResponse <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> response<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">NoOpResponse</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">// There is no response to send to the client, we need to read more pipelined requests  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          <span style="color:#75715e">// that are sitting in the server&#39;s socket buffer          updateRequestMetrics(response)  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          trace<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Socket server received empty response to send, registering for read: </span><span style="color:#e6db74">$response</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          tryUnmuteChannel<span style="color:#f92672">(</span>channelId<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> response<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">SendResponse</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          sendResponse<span style="color:#f92672">(</span>response<span style="color:#f92672">,</span> response<span style="color:#f92672">.</span>responseSend<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> response<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">CloseConnectionResponse</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          updateRequestMetrics<span style="color:#f92672">(</span>response<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          trace<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Closing socket connection actively according to the response code.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          close<span style="color:#f92672">(</span>channelId<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> <span style="color:#66d9ef">_:</span> <span style="color:#66d9ef">StartThrottlingResponse</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          handleChannelMuteEvent<span style="color:#f92672">(</span>channelId<span style="color:#f92672">,</span> <span style="color:#a6e22e">ChannelMuteEvent</span><span style="color:#f92672">.</span><span style="color:#a6e22e">THROTTLE_STARTED</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> <span style="color:#66d9ef">_:</span> <span style="color:#66d9ef">EndThrottlingResponse</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          handleChannelMuteEvent<span style="color:#f92672">(</span>channelId<span style="color:#f92672">,</span> <span style="color:#a6e22e">ChannelMuteEvent</span><span style="color:#f92672">.</span><span style="color:#a6e22e">THROTTLE_ENDED</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          tryUnmuteChannel<span style="color:#f92672">(</span>channelId<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> <span style="color:#66d9ef">_</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">IllegalArgumentException</span><span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Unknown response type: </span><span style="color:#e6db74">${</span>currentResponse<span style="color:#f92672">.</span>getClass<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        processChannelException<span style="color:#f92672">(</span>channelId<span style="color:#f92672">,</span> <span style="color:#e6db74">s&#34;Exception while processing response for </span><span style="color:#e6db74">$channelId</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>返回Response逻辑：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">protected</span><span style="color:#f92672">[</span><span style="color:#66d9ef">network</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">def</span> sendResponse<span style="color:#f92672">(</span>response<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestChannel.Response</span><span style="color:#f92672">,</span> responseSend<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Send</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> connectionId <span style="color:#66d9ef">=</span> response<span style="color:#f92672">.</span>request<span style="color:#f92672">.</span>context<span style="color:#f92672">.</span>connectionId  
+</span></span><span style="display:flex;"><span>  trace<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Socket server received response to send to </span><span style="color:#e6db74">$connectionId</span><span style="color:#e6db74">, registering for write and sending data: </span><span style="color:#e6db74">$response</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 根据id获取channel，更新metric  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>channel<span style="color:#f92672">(</span>connectionId<span style="color:#f92672">).</span>isEmpty<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    warn<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Attempting to send response via channel for which there is no open connection, connection id </span><span style="color:#e6db74">$connectionId</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    response<span style="color:#f92672">.</span>request<span style="color:#f92672">.</span>updateRequestMetrics<span style="color:#f92672">(</span><span style="color:#ae81ff">0L</span><span style="color:#f92672">,</span> response<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.2 如果connection可连接，则发送response  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>openOrClosingChannel<span style="color:#f92672">(</span>connectionId<span style="color:#f92672">).</span>isDefined<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 发送response  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    selector<span style="color:#f92672">.</span>send<span style="color:#f92672">(</span><span style="color:#66d9ef">new</span> <span style="color:#a6e22e">NetworkSend</span><span style="color:#f92672">(</span>connectionId<span style="color:#f92672">,</span> responseSend<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>    inflightResponses <span style="color:#f92672">+=</span> <span style="color:#f92672">(</span>connectionId <span style="color:#f92672">-&gt;</span> response<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="poll">poll</h3>
+<p>调用poll方法检查就绪事件：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> poll<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> pollTimeout <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>newConnections<span style="color:#f92672">.</span>isEmpty<span style="color:#f92672">)</span> <span style="color:#ae81ff">300</span> <span style="color:#66d9ef">else</span> <span style="color:#ae81ff">0</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">try</span> selector<span style="color:#f92672">.</span>poll<span style="color:#f92672">(</span>pollTimeout<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> e <span style="color:#66d9ef">@</span> <span style="color:#f92672">(</span><span style="color:#66d9ef">_:</span> <span style="color:#66d9ef">IllegalStateException</span> <span style="color:#66d9ef">|</span> <span style="color:#66d9ef">_</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">IOException</span><span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>   
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="processcompletedreceives">processCompletedReceives</h3>
+<p>processCompletedReceives负责接收待处理消息，并将其转发到RequestChannel。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> processCompletedReceives<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 获取已接受的消息，逐一处理  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  selector<span style="color:#f92672">.</span>completedReceives<span style="color:#f92672">.</span>forEach <span style="color:#f92672">{</span> receive <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.2 获取或关闭channel  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      openOrClosingChannel<span style="color:#f92672">(</span>receive<span style="color:#f92672">.</span>source<span style="color:#f92672">)</span> <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>channel<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">val</span> header <span style="color:#66d9ef">=</span> parseRequestHeader<span style="color:#f92672">(</span>receive<span style="color:#f92672">.</span>payload<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">//1.3 检查是否为SASL握手  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>header<span style="color:#f92672">.</span>apiKey <span style="color:#f92672">==</span> <span style="color:#a6e22e">ApiKeys</span><span style="color:#f92672">.</span><span style="color:#a6e22e">SASL_HANDSHAKE</span> <span style="color:#f92672">&amp;&amp;</span> channel<span style="color:#f92672">.</span>maybeBeginServerReauthentication<span style="color:#f92672">(</span>receive<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">()</span> <span style="color:#66d9ef">=&gt;</span> time<span style="color:#f92672">.</span>nanoseconds<span style="color:#f92672">()))</span>  
+</span></span><span style="display:flex;"><span>            trace<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Begin re-authentication: </span><span style="color:#e6db74">$channel</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//1.4 检查认证是否过期  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">val</span> nowNanos <span style="color:#66d9ef">=</span> time<span style="color:#f92672">.</span>nanoseconds<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>channel<span style="color:#f92672">.</span>serverAuthenticationSessionExpired<span style="color:#f92672">(</span>nowNanos<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#75715e">// be sure to decrease connection count and drop any in-flight responses  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Disconnecting expired channel: </span><span style="color:#e6db74">$channel</span><span style="color:#e6db74"> : </span><span style="color:#e6db74">$header</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>              close<span style="color:#f92672">(</span>channel<span style="color:#f92672">.</span>id<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>              expiredConnectionsKilledCount<span style="color:#f92672">.</span>record<span style="color:#f92672">(</span><span style="color:#66d9ef">null</span><span style="color:#f92672">,</span> <span style="color:#ae81ff">1</span><span style="color:#f92672">,</span> <span style="color:#ae81ff">0</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#66d9ef">val</span> connectionId <span style="color:#66d9ef">=</span> receive<span style="color:#f92672">.</span>source  
+</span></span><span style="display:flex;"><span>              <span style="color:#66d9ef">val</span> context <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">RequestContext</span><span style="color:#f92672">(</span>header<span style="color:#f92672">,</span> connectionId<span style="color:#f92672">,</span> channel<span style="color:#f92672">.</span>socketAddress<span style="color:#f92672">,</span> <span style="color:#a6e22e">Optional</span><span style="color:#f92672">.</span>of<span style="color:#f92672">(</span>channel<span style="color:#f92672">.</span>socketPort<span style="color:#f92672">()),</span>  
+</span></span><span style="display:flex;"><span>                channel<span style="color:#f92672">.</span>principal<span style="color:#f92672">,</span> listenerName<span style="color:#f92672">,</span> securityProtocol<span style="color:#f92672">,</span> channel<span style="color:#f92672">.</span>channelMetadataRegistry<span style="color:#f92672">.</span>clientInformation<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                isPrivilegedListener<span style="color:#f92672">,</span> channel<span style="color:#f92672">.</span>principalSerde<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#66d9ef">val</span> req <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">RequestChannel</span><span style="color:#f92672">.</span><span style="color:#a6e22e">Request</span><span style="color:#f92672">(</span>processor <span style="color:#66d9ef">=</span> id<span style="color:#f92672">,</span> context <span style="color:#66d9ef">=</span> context<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                startTimeNanos <span style="color:#66d9ef">=</span> nowNanos<span style="color:#f92672">,</span> memoryPool<span style="color:#f92672">,</span> receive<span style="color:#f92672">.</span>payload<span style="color:#f92672">,</span> requestChannel<span style="color:#f92672">.</span>metrics<span style="color:#f92672">,</span> <span style="color:#a6e22e">None</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#75715e">// KIP-511: ApiVersionsRequest is intercepted here to catch the client software name  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              <span style="color:#75715e">// and version. It is done here to avoid wiring things up to the api layer.              if (header.apiKey == ApiKeys.API_VERSIONS) {  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#66d9ef">val</span> apiVersionsRequest <span style="color:#66d9ef">=</span> req<span style="color:#f92672">.</span>body<span style="color:#f92672">[</span><span style="color:#66d9ef">ApiVersionsRequest</span><span style="color:#f92672">]</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>apiVersionsRequest<span style="color:#f92672">.</span>isValid<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>                  channel<span style="color:#f92672">.</span>channelMetadataRegistry<span style="color:#f92672">.</span>registerClientInformation<span style="color:#f92672">(</span><span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ClientInformation</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>                    apiVersionsRequest<span style="color:#f92672">.</span>data<span style="color:#f92672">.</span>clientSoftwareName<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                    apiVersionsRequest<span style="color:#f92672">.</span>data<span style="color:#f92672">.</span>clientSoftwareVersion<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>              <span style="color:#75715e">//1.5 将构造好的Request发送到requestChannel  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              requestChannel<span style="color:#f92672">.</span>sendRequest<span style="color:#f92672">(</span>req<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>              selector<span style="color:#f92672">.</span>mute<span style="color:#f92672">(</span>connectionId<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>              handleChannelMuteEvent<span style="color:#f92672">(</span>connectionId<span style="color:#f92672">,</span> <span style="color:#a6e22e">ChannelMuteEvent</span><span style="color:#f92672">.</span><span style="color:#a6e22e">REQUEST_RECEIVED</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">None</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">// This should never happen since completed receives are processed immediately after `poll()`  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">IllegalStateException</span><span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Channel </span><span style="color:#e6db74">${</span>receive<span style="color:#f92672">.</span>source<span style="color:#e6db74">}</span><span style="color:#e6db74"> removed from selector before processing completed receive&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// note that even though we got an exception, we can assume that receive.source is valid.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#75715e">// Issues with constructing a valid receive object were handled earlier      case e: Throwable =&gt;  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        processChannelException<span style="color:#f92672">(</span>receive<span style="color:#f92672">.</span>source<span style="color:#f92672">,</span> <span style="color:#e6db74">s&#34;Exception while processing request from </span><span style="color:#e6db74">${</span>receive<span style="color:#f92672">.</span>source<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  selector<span style="color:#f92672">.</span>clearCompletedReceives<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="processcompletedsends">processCompletedSends</h3>
+<p>从inflightResponses取出Response执行对应的回调逻辑：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> processCompletedSends<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  selector<span style="color:#f92672">.</span>completedSends<span style="color:#f92672">.</span>forEach <span style="color:#f92672">{</span> send <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> response <span style="color:#66d9ef">=</span> inflightResponses<span style="color:#f92672">.</span>remove<span style="color:#f92672">(</span>send<span style="color:#f92672">.</span>destinationId<span style="color:#f92672">).</span>getOrElse <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">IllegalStateException</span><span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Send for </span><span style="color:#e6db74">${</span>send<span style="color:#f92672">.</span>destinationId<span style="color:#e6db74">}</span><span style="color:#e6db74"> completed, but not in `inflightResponses`&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>        
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// Invoke send completion callback, and then update request metrics since there might be some  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#75715e">// request metrics got updated during callback      response.onComplete.foreach(onComplete =&gt; onComplete(send))  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      updateRequestMetrics<span style="color:#f92672">(</span>response<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// Try unmuting the channel. If there was no quota violation and the channel has not been throttled,  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#75715e">// it will be unmuted immediately. If the channel has been throttled, it will unmuted only if the throttling      // delay has already passed by now.      handleChannelMuteEvent(send.destinationId, ChannelMuteEvent.RESPONSE_SENT)  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      tryUnmuteChannel<span style="color:#f92672">(</span>send<span style="color:#f92672">.</span>destinationId<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span> processChannelException<span style="color:#f92672">(</span>send<span style="color:#f92672">.</span>destinationId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">s&#34;Exception while processing completed send to </span><span style="color:#e6db74">${</span>send<span style="color:#f92672">.</span>destinationId<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  selector<span style="color:#f92672">.</span>clearCompletedSends<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="processdisconnected">processDisconnected</h3>
+<p>processDisconnected用于处理已断开连接：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> processDisconnected<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  selector<span style="color:#f92672">.</span>disconnected<span style="color:#f92672">.</span>keySet<span style="color:#f92672">.</span>forEach <span style="color:#f92672">{</span> connectionId <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> remoteHost <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">ConnectionId</span><span style="color:#f92672">.</span>fromString<span style="color:#f92672">(</span>connectionId<span style="color:#f92672">).</span>getOrElse <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">IllegalStateException</span><span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;connectionId has unexpected format: </span><span style="color:#e6db74">$connectionId</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}.</span>remoteHost  
+</span></span><span style="display:flex;"><span>      inflightResponses<span style="color:#f92672">.</span>remove<span style="color:#f92672">(</span>connectionId<span style="color:#f92672">).</span>foreach<span style="color:#f92672">(</span>updateRequestMetrics<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// the channel has been closed by the selector but the quotas still need to be updated  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      connectionQuotas<span style="color:#f92672">.</span>dec<span style="color:#f92672">(</span>listenerName<span style="color:#f92672">,</span> <span style="color:#a6e22e">InetAddress</span><span style="color:#f92672">.</span>getByName<span style="color:#f92672">(</span>remoteHost<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span> processException<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Exception while processing disconnection of </span><span style="color:#e6db74">$connectionId</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h1 id="requestchannel">RequestChannel</h1>
+<p><strong>RequestChannel</strong>负责接收Processor传递过来的Request请求，并传递给KafkaRequestHandler进行处理，核心属性如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#75715e">//请求队列  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> requestQueue <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ArrayBlockingQueue</span><span style="color:#f92672">[</span><span style="color:#66d9ef">BaseRequest</span><span style="color:#f92672">](</span>queueSize<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//SocketServer中的processor  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> processors <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ConcurrentHashMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Int</span>, <span style="color:#66d9ef">Processor</span><span style="color:#f92672">]()</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> requestQueueSizeMetricName <span style="color:#66d9ef">=</span> metricNamePrefix<span style="color:#f92672">.</span>concat<span style="color:#f92672">(</span><span style="color:#a6e22e">RequestQueueSizeMetric</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> responseQueueSizeMetricName <span style="color:#66d9ef">=</span> metricNamePrefix<span style="color:#f92672">.</span>concat<span style="color:#f92672">(</span><span style="color:#a6e22e">ResponseQueueSizeMetric</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> callbackQueue <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ArrayBlockingQueue</span><span style="color:#f92672">[</span><span style="color:#66d9ef">BaseRequest</span><span style="color:#f92672">](</span>queueSize<span style="color:#f92672">)</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> sendRequest<span style="color:#f92672">(</span>request<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestChannel.Request</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  requestQueue<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>request<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">def</span> receiveRequest<span style="color:#f92672">(</span>timeout<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestChannel.BaseRequest</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> callbackRequest <span style="color:#66d9ef">=</span> callbackQueue<span style="color:#f92672">.</span>poll<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>callbackRequest <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    callbackRequest  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> request <span style="color:#66d9ef">=</span> requestQueue<span style="color:#f92672">.</span>poll<span style="color:#f92672">(</span>timeout<span style="color:#f92672">,</span> <span style="color:#a6e22e">TimeUnit</span><span style="color:#f92672">.</span><span style="color:#a6e22e">MILLISECONDS</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    request <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">WakeupRequest</span> <span style="color:#66d9ef">=&gt;</span> callbackQueue<span style="color:#f92672">.</span>poll<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#66d9ef">_</span> <span style="color:#66d9ef">=&gt;</span> request  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h1 id="kafkarequesthandlerpool">KafkaRequestHandlerPool</h1>
+<p><strong>KafkaRequestHandlerPool</strong>是请求I/O处理线程池，负责创建、维护、销毁KafkaRequestHandler，<strong>KafkaRequestHandler</strong>作为请求I/O处理线程类，负责从SocketServer的RequestChannel的请求队列中获取请求对象，并处理。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">KafkaRequestHandlerPool</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> brokerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> requestChannel<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestChannel</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> apis<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ApiRequestHandler</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  time<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Time</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  numThreads<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  requestHandlerAvgIdleMetricName<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  logAndThreadNamePrefix <span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  nodeName<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span> <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;broker&#34;</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">)</span> <span style="color:#66d9ef">extends</span> <span style="color:#a6e22e">Logging</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> metricsGroup <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">KafkaMetricsGroup</span><span style="color:#f92672">(</span><span style="color:#66d9ef">this</span><span style="color:#f92672">.</span>getClass<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> threadPoolSize<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">AtomicInteger</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">AtomicInteger</span><span style="color:#f92672">(</span>numThreads<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* a meter to track the average free capacity of the request handlers */</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> aggregateIdleMeter <span style="color:#66d9ef">=</span> metricsGroup<span style="color:#f92672">.</span>newMeter<span style="color:#f92672">(</span>requestHandlerAvgIdleMetricName<span style="color:#f92672">,</span> <span style="color:#e6db74">&#34;percent&#34;</span><span style="color:#f92672">,</span> <span style="color:#a6e22e">TimeUnit</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NANOSECONDS</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span>logIdent <span style="color:#66d9ef">=</span> <span style="color:#e6db74">&#34;[&#34;</span> <span style="color:#f92672">+</span> logAndThreadNamePrefix <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; Kafka Request Handler on Broker &#34;</span> <span style="color:#f92672">+</span> brokerId <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34;], &#34;</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> runnables <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> mutable<span style="color:#f92672">.</span><span style="color:#a6e22e">ArrayBuffer</span><span style="color:#f92672">[</span><span style="color:#66d9ef">KafkaRequestHandler</span><span style="color:#f92672">](</span>numThreads<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> <span style="color:#f92672">(</span>i <span style="color:#66d9ef">&lt;-</span> <span style="color:#ae81ff">0</span> until numThreads<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    createHandler<span style="color:#f92672">(</span>i<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>初始化步骤位于：kafka.server.BrokerServer#startup / kafka.server.KafkaServer#startup</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span>dataPlaneRequestHandlerPool <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">KafkaRequestHandlerPool</span><span style="color:#f92672">(</span>config<span style="color:#f92672">.</span>nodeId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  socketServer<span style="color:#f92672">.</span>dataPlaneRequestChannel<span style="color:#f92672">,</span> dataPlaneRequestProcessor<span style="color:#f92672">,</span> time<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  config<span style="color:#f92672">.</span>numIoThreads<span style="color:#f92672">,</span> <span style="color:#e6db74">s&#34;</span><span style="color:#e6db74">${</span><span style="color:#a6e22e">DataPlaneAcceptor</span><span style="color:#f92672">.</span><span style="color:#a6e22e">MetricPrefix</span><span style="color:#e6db74">}</span><span style="color:#e6db74">RequestHandlerAvgIdlePercent&#34;</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">DataPlaneAcceptor</span><span style="color:#f92672">.</span><span style="color:#a6e22e">ThreadPrefix</span><span style="color:#f92672">)</span>
+</span></span></code></pre></div><p>可以看出KafkaRequestHandlerPool中的I/O处理线程数量，是由配置项<code>num.io.threads</code>确定。</p>
+<h2 id="线程池管理">线程池管理</h2>
+<p>创建线程：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> createHandler<span style="color:#f92672">(</span>id<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> synchronized <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  runnables <span style="color:#f92672">+=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">KafkaRequestHandler</span><span style="color:#f92672">(</span>id<span style="color:#f92672">,</span> brokerId<span style="color:#f92672">,</span> aggregateIdleMeter<span style="color:#f92672">,</span> threadPoolSize<span style="color:#f92672">,</span> requestChannel<span style="color:#f92672">,</span> apis<span style="color:#f92672">,</span> time<span style="color:#f92672">,</span> nodeName<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">KafkaThread</span><span style="color:#f92672">.</span>daemon<span style="color:#f92672">(</span>logAndThreadNamePrefix <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34;-kafka-request-handler-&#34;</span> <span style="color:#f92672">+</span> id<span style="color:#f92672">,</span> runnables<span style="color:#f92672">(</span>id<span style="color:#f92672">)).</span>start<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>线程池扩缩容：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> resizeThreadPool<span style="color:#f92672">(</span>newSize<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> synchronized <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> currentSize <span style="color:#66d9ef">=</span> threadPoolSize<span style="color:#f92672">.</span>get  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Resizing request handler thread pool size from </span><span style="color:#e6db74">$currentSize</span><span style="color:#e6db74"> to </span><span style="color:#e6db74">$newSize</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>newSize <span style="color:#f92672">&gt;</span> currentSize<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> <span style="color:#f92672">(</span>i <span style="color:#66d9ef">&lt;-</span> currentSize until newSize<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      createHandler<span style="color:#f92672">(</span>i<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>newSize <span style="color:#f92672">&lt;</span> currentSize<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> <span style="color:#f92672">(</span>i <span style="color:#66d9ef">&lt;-</span> <span style="color:#ae81ff">1</span> to <span style="color:#f92672">(</span>currentSize <span style="color:#f92672">-</span> newSize<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      runnables<span style="color:#f92672">.</span>remove<span style="color:#f92672">(</span>currentSize <span style="color:#f92672">-</span> i<span style="color:#f92672">).</span>stop<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  threadPoolSize<span style="color:#f92672">.</span>set<span style="color:#f92672">(</span>newSize<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>shutdown：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> shutdown<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> synchronized <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;shutting down&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> <span style="color:#f92672">(</span>handler <span style="color:#66d9ef">&lt;-</span> runnables<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    handler<span style="color:#f92672">.</span>initiateShutdown<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> <span style="color:#f92672">(</span>handler <span style="color:#66d9ef">&lt;-</span> runnables<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    handler<span style="color:#f92672">.</span>awaitShutdown<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;shut down completely&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="kafkarequesthandler">KafkaRequestHandler</h2>
+<p>KafkaRequestHandler作为Runnable对象，内部属性如下：</p>
+<ul>
+<li>threadRequestChannel：存储当前绑定的RequestChannel</li>
+<li>threadCurrentRequest：存储当前循环处理的Request信息</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">KafkaRequestHandler</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>  id<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  brokerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> aggregateIdleMeter<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Meter</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> totalHandlerThreads<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">AtomicInteger</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> requestChannel<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestChannel</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  apis<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ApiRequestHandler</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  time<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Time</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  nodeName<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span> <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;broker&#34;</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">)</span> <span style="color:#66d9ef">extends</span> <span style="color:#a6e22e">Runnable</span> <span style="color:#66d9ef">with</span> <span style="color:#a6e22e">Logging</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span>logIdent <span style="color:#66d9ef">=</span> <span style="color:#e6db74">s&#34;[Kafka Request Handler </span><span style="color:#e6db74">$id</span><span style="color:#e6db74"> on </span><span style="color:#e6db74">${</span>nodeName<span style="color:#f92672">.</span>capitalize<span style="color:#e6db74">}</span><span style="color:#e6db74"> </span><span style="color:#e6db74">$brokerId</span><span style="color:#e6db74">], &#34;</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> shutdownComplete <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">CountDownLatch</span><span style="color:#f92672">(</span><span style="color:#ae81ff">1</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> requestLocal <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">RequestLocal</span><span style="color:#f92672">.</span>withThreadConfinedCaching  
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">@volatile</span> <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">var</span> stopped <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">false</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">object</span> <span style="color:#a6e22e">KafkaRequestHandler</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// Support for scheduling callbacks on a request thread.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> threadRequestChannel <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ThreadLocal</span><span style="color:#f92672">[</span><span style="color:#66d9ef">RequestChannel</span><span style="color:#f92672">]</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> threadCurrentRequest <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ThreadLocal</span><span style="color:#f92672">[</span><span style="color:#66d9ef">RequestChannel.Request</span><span style="color:#f92672">]</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h3 id="主体逻辑-2">主体逻辑</h3>
+<p>从run方法中可以看出，处理的请求分为三类：shutdown请求、callback请求、普通请求。普通请求通过KafkaApis.handle方法处理。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> run<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 设置当前线程的RequestChannel  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  threadRequestChannel<span style="color:#f92672">.</span>set<span style="color:#f92672">(</span>requestChannel<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.2 线程未关闭的情况，循环处理请求  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">while</span> <span style="color:#f92672">(!</span>stopped<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 从requestChannel中获取请求  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">val</span> req <span style="color:#66d9ef">=</span> requestChannel<span style="color:#f92672">.</span>receiveRequest<span style="color:#f92672">(</span><span style="color:#ae81ff">300</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> endTime <span style="color:#66d9ef">=</span> time<span style="color:#f92672">.</span>nanoseconds  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> idleTime <span style="color:#66d9ef">=</span> endTime <span style="color:#f92672">-</span> startSelectTime  
+</span></span><span style="display:flex;"><span>    aggregateIdleMeter<span style="color:#f92672">.</span>mark<span style="color:#f92672">(</span>idleTime <span style="color:#f92672">/</span> totalHandlerThreads<span style="color:#f92672">.</span>get<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    req <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//2.1 处理shutdown请求  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">RequestChannel</span><span style="color:#f92672">.</span><span style="color:#a6e22e">ShutdownRequest</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Kafka request handler </span><span style="color:#e6db74">$id</span><span style="color:#e6db74"> on broker </span><span style="color:#e6db74">$brokerId</span><span style="color:#e6db74"> received shut down command&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        completeShutdown<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//2.2 处理回调请求  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> callback<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestChannel.CallbackRequest</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">val</span> originalRequest <span style="color:#66d9ef">=</span> callback<span style="color:#f92672">.</span>originalRequest  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>originalRequest<span style="color:#f92672">.</span>callbackRequestDequeueTimeNanos<span style="color:#f92672">.</span>isDefined<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">val</span> prevCallbacksTimeNanos <span style="color:#66d9ef">=</span> originalRequest<span style="color:#f92672">.</span>callbackRequestCompleteTimeNanos<span style="color:#f92672">.</span>getOrElse<span style="color:#f92672">(</span><span style="color:#ae81ff">0L</span><span style="color:#f92672">)</span> <span style="color:#f92672">-</span> originalRequest<span style="color:#f92672">.</span>callbackRequestDequeueTimeNanos<span style="color:#f92672">.</span>getOrElse<span style="color:#f92672">(</span><span style="color:#ae81ff">0L</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>            originalRequest<span style="color:#f92672">.</span>callbackRequestCompleteTimeNanos <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">None</span>  
+</span></span><span style="display:flex;"><span>            originalRequest<span style="color:#f92672">.</span>callbackRequestDequeueTimeNanos <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>time<span style="color:#f92672">.</span>nanoseconds<span style="color:#f92672">()</span> <span style="color:#f92672">-</span> prevCallbacksTimeNanos<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>            originalRequest<span style="color:#f92672">.</span>callbackRequestDequeueTimeNanos <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>time<span style="color:#f92672">.</span>nanoseconds<span style="color:#f92672">())</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>            
+</span></span><span style="display:flex;"><span>          threadCurrentRequest<span style="color:#f92672">.</span>set<span style="color:#f92672">(</span>originalRequest<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          callback<span style="color:#f92672">.</span>fun<span style="color:#f92672">(</span>requestLocal<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">FatalExitError</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>            completeShutdown<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">Exit</span><span style="color:#f92672">.</span>exit<span style="color:#f92672">(</span>e<span style="color:#f92672">.</span>statusCode<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span> error<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Exception when handling request&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span> <span style="color:#66d9ef">finally</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">// When handling requests, we try to complete actions after, so we should try to do so here as well.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          apis<span style="color:#f92672">.</span>tryCompleteActions<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>originalRequest<span style="color:#f92672">.</span>callbackRequestCompleteTimeNanos<span style="color:#f92672">.</span>isEmpty<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>            originalRequest<span style="color:#f92672">.</span>callbackRequestCompleteTimeNanos <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>time<span style="color:#f92672">.</span>nanoseconds<span style="color:#f92672">())</span>  
+</span></span><span style="display:flex;"><span>          threadCurrentRequest<span style="color:#f92672">.</span>remove<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//2.3 处理普通请求  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> request<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestChannel.Request</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">//2.4 由apis处理请求  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          request<span style="color:#f92672">.</span>requestDequeueTimeNanos <span style="color:#66d9ef">=</span> endTime  
+</span></span><span style="display:flex;"><span>          trace<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Kafka request handler </span><span style="color:#e6db74">$id</span><span style="color:#e6db74"> on broker </span><span style="color:#e6db74">$brokerId</span><span style="color:#e6db74"> handling request </span><span style="color:#e6db74">$request</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          threadCurrentRequest<span style="color:#f92672">.</span>set<span style="color:#f92672">(</span>request<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          apis<span style="color:#f92672">.</span>handle<span style="color:#f92672">(</span>request<span style="color:#f92672">,</span> requestLocal<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">FatalExitError</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>            completeShutdown<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">Exit</span><span style="color:#f92672">.</span>exit<span style="color:#f92672">(</span>e<span style="color:#f92672">.</span>statusCode<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span> error<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Exception when handling request&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span> <span style="color:#66d9ef">finally</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">// 移除thread local信息  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          threadCurrentRequest<span style="color:#f92672">.</span>remove<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>          request<span style="color:#f92672">.</span>releaseBuffer<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">RequestChannel</span><span style="color:#f92672">.</span><span style="color:#a6e22e">WakeupRequest</span> <span style="color:#66d9ef">=&gt;</span>   
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// We should handle this in receiveRequest by polling callbackQueue.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        warn<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Received a wakeup request outside of typical usage.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#66d9ef">null</span> <span style="color:#66d9ef">=&gt;</span> <span style="color:#75715e">// continue  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>
+</span></span></code></pre></div><h1 id="reference">Reference</h1>
+<p><a href="https://www.automq.com/blog/understand-kafka-network-communication-and-thread-model">https://www.automq.com/blog/understand-kafka-network-communication-and-thread-model</a></p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+          <div class="post-comments">
+            <div id="disqus_thread"></div>
+<script>
+  window.addEventListener("load", () => {
+    (function() {
+      
+      var d = document,
+        s = d.createElement("script");
+      s.src = "https://evl1nker4.disqus.com/embed.js";
+      s.setAttribute("data-timestamp", +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  });
+</script>
+<noscript
+  >Please enable JavaScript to view the
+  <a href="https://disqus.com/?ref_noscript"
+    >comments powered by Disqus.</a
+  ></noscript
+>
+
+          </div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>
