@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.145.0">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-7-transaction-design/" />
+  <link rel="canonical" href="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-7-transaction-design/" /><link rel="apple-touch-icon" href="/favicon.png" />
+  <link rel="icon" href="/favicon.png" />
+  <link rel="shortcut" href="/favicon.png" /><link rel="alternate" type="application/atom+xml" href="http://localhost:1313/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:1313\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Kafka源码分析(七) - 事务设计",
+      "headline" : "Kafka源码分析(七) - 事务设计",
+      "description" : "1. Intro Kafka事务主要适用于以下两种场景：\nmulti-produce场景：Producer需要将多批次消息进行原子性提交。 consume-transform-produce场景：消费上游数据后，经过处理，生产下游数据。该场景实现可以参考kafka.examples.ExactlyOnceMessageProcessor，事务可以保证消费和生产的原子性。 consume-transform-produce场景案例：\n@Override public void run() { int retries = 0; int processedRecords = 0; long remainingRecords = Long.MAX_VALUE; \/\/ it is recommended to have a relatively short txn timeout in order to clear pending offsets faster int transactionTimeoutMs = 10_000; \/\/ consumer must be in read_committed mode, which means it won\u0026#39;t be able to read uncommitted data boolean readCommitted = true; try (KafkaProducer\u0026lt;Integer, String\u0026gt; producer = new Producer(\u0026#34;processor-producer\u0026#34;, bootstrapServers, outputTopic, true, transactionalId, true, -1, transactionTimeoutMs, null).createKafkaProducer(); KafkaConsumer\u0026lt;Integer, String\u0026gt; consumer = new Consumer(\u0026#34;processor-consumer\u0026#34;, bootstrapServers, inputTopic, \u0026#34;processor-group\u0026#34;, Optional.of(groupInstanceId), readCommitted, -1, null).createKafkaConsumer()) { \/\/ called first and once to fence zombies and abort any pending transaction producer.initTransactions(); consumer.subscribe(singleton(inputTopic), this); Utils.printOut(\u0026#34;Processing new records\u0026#34;); while (!closed \u0026amp;\u0026amp; remainingRecords \u0026gt; 0) { try { ConsumerRecords\u0026lt;Integer, String\u0026gt; records = consumer.poll(ofMillis(200)); if (!records.isEmpty()) { \/\/ begin a new transaction session producer.beginTransaction(); for (ConsumerRecord\u0026lt;Integer, String\u0026gt; record : records) { \/\/ process the record and send downstream ProducerRecord\u0026lt;Integer, String\u0026gt; newRecord = new ProducerRecord\u0026lt;\u0026gt;(outputTopic, record.key(), record.value() \u002b \u0026#34;-ok\u0026#34;); producer.send(newRecord); } \/\/ checkpoint the progress by sending offsets to group coordinator broker \/\/ note that this API is only available for broker \u0026gt;= 2.5 producer.sendOffsetsToTransaction(getOffsetsToCommit(consumer), consumer.groupMetadata()); \/\/ commit the transaction including offsets producer.commitTransaction(); processedRecords \u002b= records.count(); retries = 0; } } catch (AuthorizationException | UnsupportedVersionException | ProducerFencedException | FencedInstanceIdException | OutOfOrderSequenceException | SerializationException e) { \/\/ we can\u0026#39;t recover from these exceptions Utils.printErr(e.getMessage()); shutdown(); } catch (OffsetOutOfRangeException | NoOffsetForPartitionException e) { \/\/ invalid or no offset found without auto.reset.policy Utils.printOut(\u0026#34;Invalid or no offset found, using latest\u0026#34;); consumer.seekToEnd(emptyList()); consumer.commitSync(); retries = 0; } catch (KafkaException e) { \/\/ abort the transaction Utils.printOut(\u0026#34;Aborting transaction: %s\u0026#34;, e.getMessage()); producer.abortTransaction(); retries = maybeRetry(retries, consumer); } remainingRecords = getRemainingRecords(consumer); if (remainingRecords != Long.MAX_VALUE) { Utils.printOut(\u0026#34;Remaining records: %d\u0026#34;, remainingRecords); } } } catch (Throwable e) { Utils.printErr(\u0026#34;Unhandled exception\u0026#34;); e.printStackTrace(); } Utils.printOut(\u0026#34;Processed %d records\u0026#34;, processedRecords); shutdown(); } 1.1. 客户端配置项 Producer配置项：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2025",
+      "datePublished": "2025-04-05 11:25:13 \u002b0800 CST",
+      "dateModified" : "2025-04-05 11:25:13 \u002b0800 CST",
+      "url" : "http:\/\/localhost:1313\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/kafka\/kafka-source-code-7-transaction-design\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Kafka源码分析(七) - 事务设计</title>
+  <meta property="og:title" content="Kafka源码分析(七) - 事务设计" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="1. Intro Kafka事务主要适用于以下两种场景：
+multi-produce场景：Producer需要将多批次消息进行原子性提交。 consume-transform-produce场景：消费上游数据后，经过处理，生产下游数据。该场景实现可以参考kafka.examples.ExactlyOnceMessageProcessor，事务可以保证消费和生产的原子性。 consume-transform-produce场景案例：
+@Override public void run() { int retries = 0; int processedRecords = 0; long remainingRecords = Long.MAX_VALUE; // it is recommended to have a relatively short txn timeout in order to clear pending offsets faster int transactionTimeoutMs = 10_000; // consumer must be in read_committed mode, which means it won&#39;t be able to read uncommitted data boolean readCommitted = true; try (KafkaProducer&lt;Integer, String&gt; producer = new Producer(&#34;processor-producer&#34;, bootstrapServers, outputTopic, true, transactionalId, true, -1, transactionTimeoutMs, null).createKafkaProducer(); KafkaConsumer&lt;Integer, String&gt; consumer = new Consumer(&#34;processor-consumer&#34;, bootstrapServers, inputTopic, &#34;processor-group&#34;, Optional.of(groupInstanceId), readCommitted, -1, null).createKafkaConsumer()) { // called first and once to fence zombies and abort any pending transaction producer.initTransactions(); consumer.subscribe(singleton(inputTopic), this); Utils.printOut(&#34;Processing new records&#34;); while (!closed &amp;&amp; remainingRecords &gt; 0) { try { ConsumerRecords&lt;Integer, String&gt; records = consumer.poll(ofMillis(200)); if (!records.isEmpty()) { // begin a new transaction session producer.beginTransaction(); for (ConsumerRecord&lt;Integer, String&gt; record : records) { // process the record and send downstream ProducerRecord&lt;Integer, String&gt; newRecord = new ProducerRecord&lt;&gt;(outputTopic, record.key(), record.value() &#43; &#34;-ok&#34;); producer.send(newRecord); } // checkpoint the progress by sending offsets to group coordinator broker // note that this API is only available for broker &gt;= 2.5 producer.sendOffsetsToTransaction(getOffsetsToCommit(consumer), consumer.groupMetadata()); // commit the transaction including offsets producer.commitTransaction(); processedRecords &#43;= records.count(); retries = 0; } } catch (AuthorizationException | UnsupportedVersionException | ProducerFencedException | FencedInstanceIdException | OutOfOrderSequenceException | SerializationException e) { // we can&#39;t recover from these exceptions Utils.printErr(e.getMessage()); shutdown(); } catch (OffsetOutOfRangeException | NoOffsetForPartitionException e) { // invalid or no offset found without auto.reset.policy Utils.printOut(&#34;Invalid or no offset found, using latest&#34;); consumer.seekToEnd(emptyList()); consumer.commitSync(); retries = 0; } catch (KafkaException e) { // abort the transaction Utils.printOut(&#34;Aborting transaction: %s&#34;, e.getMessage()); producer.abortTransaction(); retries = maybeRetry(retries, consumer); } remainingRecords = getRemainingRecords(consumer); if (remainingRecords != Long.MAX_VALUE) { Utils.printOut(&#34;Remaining records: %d&#34;, remainingRecords); } } } catch (Throwable e) { Utils.printErr(&#34;Unhandled exception&#34;); e.printStackTrace(); } Utils.printOut(&#34;Processed %d records&#34;, processedRecords); shutdown(); } 1.1. 客户端配置项 Producer配置项：
+" />
+  <meta name="description" content="1. Intro Kafka事务主要适用于以下两种场景：
+multi-produce场景：Producer需要将多批次消息进行原子性提交。 consume-transform-produce场景：消费上游数据后，经过处理，生产下游数据。该场景实现可以参考kafka.examples.ExactlyOnceMessageProcessor，事务可以保证消费和生产的原子性。 consume-transform-produce场景案例：
+@Override public void run() { int retries = 0; int processedRecords = 0; long remainingRecords = Long.MAX_VALUE; // it is recommended to have a relatively short txn timeout in order to clear pending offsets faster int transactionTimeoutMs = 10_000; // consumer must be in read_committed mode, which means it won&#39;t be able to read uncommitted data boolean readCommitted = true; try (KafkaProducer&lt;Integer, String&gt; producer = new Producer(&#34;processor-producer&#34;, bootstrapServers, outputTopic, true, transactionalId, true, -1, transactionTimeoutMs, null).createKafkaProducer(); KafkaConsumer&lt;Integer, String&gt; consumer = new Consumer(&#34;processor-consumer&#34;, bootstrapServers, inputTopic, &#34;processor-group&#34;, Optional.of(groupInstanceId), readCommitted, -1, null).createKafkaConsumer()) { // called first and once to fence zombies and abort any pending transaction producer.initTransactions(); consumer.subscribe(singleton(inputTopic), this); Utils.printOut(&#34;Processing new records&#34;); while (!closed &amp;&amp; remainingRecords &gt; 0) { try { ConsumerRecords&lt;Integer, String&gt; records = consumer.poll(ofMillis(200)); if (!records.isEmpty()) { // begin a new transaction session producer.beginTransaction(); for (ConsumerRecord&lt;Integer, String&gt; record : records) { // process the record and send downstream ProducerRecord&lt;Integer, String&gt; newRecord = new ProducerRecord&lt;&gt;(outputTopic, record.key(), record.value() &#43; &#34;-ok&#34;); producer.send(newRecord); } // checkpoint the progress by sending offsets to group coordinator broker // note that this API is only available for broker &gt;= 2.5 producer.sendOffsetsToTransaction(getOffsetsToCommit(consumer), consumer.groupMetadata()); // commit the transaction including offsets producer.commitTransaction(); processedRecords &#43;= records.count(); retries = 0; } } catch (AuthorizationException | UnsupportedVersionException | ProducerFencedException | FencedInstanceIdException | OutOfOrderSequenceException | SerializationException e) { // we can&#39;t recover from these exceptions Utils.printErr(e.getMessage()); shutdown(); } catch (OffsetOutOfRangeException | NoOffsetForPartitionException e) { // invalid or no offset found without auto.reset.policy Utils.printOut(&#34;Invalid or no offset found, using latest&#34;); consumer.seekToEnd(emptyList()); consumer.commitSync(); retries = 0; } catch (KafkaException e) { // abort the transaction Utils.printOut(&#34;Aborting transaction: %s&#34;, e.getMessage()); producer.abortTransaction(); retries = maybeRetry(retries, consumer); } remainingRecords = getRemainingRecords(consumer); if (remainingRecords != Long.MAX_VALUE) { Utils.printOut(&#34;Remaining records: %d&#34;, remainingRecords); } } } catch (Throwable e) { Utils.printErr(&#34;Unhandled exception&#34;); e.printStackTrace(); } Utils.printOut(&#34;Processed %d records&#34;, processedRecords); shutdown(); } 1.1. 客户端配置项 Producer配置项：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="/favicon.png" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:85%;background-color:inherit;border:0;font-family:SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4&#39;s Blog</a
+    >
+  </div>
+  <div class="header-subtitle">提升认知，解构世界，行有不得，反求诸己</div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Kafka源码分析(七) - 事务设计</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2025-04-05 11:25:13 CST">
+                05 Apr 2025
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="1-intro">1. Intro</h1>
+<p>Kafka事务主要适用于以下两种场景：</p>
+<ol>
+<li>multi-produce场景：Producer需要将多批次消息进行原子性提交。</li>
+<li>consume-transform-produce场景：消费上游数据后，经过处理，生产下游数据。该场景实现可以参考<code>kafka.examples.ExactlyOnceMessageProcessor</code>，事务可以保证消费和生产的原子性。</li>
+</ol>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20250402110429.png" alt="consume-transform-produce场景"></p>
+<p>consume-transform-produce场景案例：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#a6e22e">@Override</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">run</span>() {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> retries <span style="color:#f92672">=</span> 0;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> processedRecords <span style="color:#f92672">=</span> 0;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> remainingRecords <span style="color:#f92672">=</span> Long.<span style="color:#a6e22e">MAX_VALUE</span>;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// it is recommended to have a relatively short txn timeout in order to clear pending offsets faster  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> transactionTimeoutMs <span style="color:#f92672">=</span> 10_000;  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// consumer must be in read_committed mode, which means it won&#39;t be able to read uncommitted data  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">boolean</span> readCommitted <span style="color:#f92672">=</span> <span style="color:#66d9ef">true</span>;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> (KafkaProducer<span style="color:#f92672">&lt;</span>Integer, String<span style="color:#f92672">&gt;</span> producer <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Producer(<span style="color:#e6db74">&#34;processor-producer&#34;</span>, bootstrapServers, outputTopic,  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">true</span>, transactionalId, <span style="color:#66d9ef">true</span>, <span style="color:#f92672">-</span>1, transactionTimeoutMs, <span style="color:#66d9ef">null</span>).<span style="color:#a6e22e">createKafkaProducer</span>();  
+</span></span><span style="display:flex;"><span>         KafkaConsumer<span style="color:#f92672">&lt;</span>Integer, String<span style="color:#f92672">&gt;</span> consumer <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Consumer(<span style="color:#e6db74">&#34;processor-consumer&#34;</span>, bootstrapServers, inputTopic,  
+</span></span><span style="display:flex;"><span>             <span style="color:#e6db74">&#34;processor-group&#34;</span>, Optional.<span style="color:#a6e22e">of</span>(groupInstanceId), readCommitted, <span style="color:#f92672">-</span>1, <span style="color:#66d9ef">null</span>).<span style="color:#a6e22e">createKafkaConsumer</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// called first and once to fence zombies and abort any pending transaction  </span>
+</span></span><span style="display:flex;"><span>        producer.<span style="color:#a6e22e">initTransactions</span>();  
+</span></span><span style="display:flex;"><span>        consumer.<span style="color:#a6e22e">subscribe</span>(singleton(inputTopic), <span style="color:#66d9ef">this</span>);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        Utils.<span style="color:#a6e22e">printOut</span>(<span style="color:#e6db74">&#34;Processing new records&#34;</span>);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (<span style="color:#f92672">!</span>closed <span style="color:#f92672">&amp;&amp;</span> remainingRecords <span style="color:#f92672">&gt;</span> 0) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>                ConsumerRecords<span style="color:#f92672">&lt;</span>Integer, String<span style="color:#f92672">&gt;</span> records <span style="color:#f92672">=</span> consumer.<span style="color:#a6e22e">poll</span>(ofMillis(200));  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>records.<span style="color:#a6e22e">isEmpty</span>()) {  
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// begin a new transaction session  </span>
+</span></span><span style="display:flex;"><span>                    producer.<span style="color:#a6e22e">beginTransaction</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">for</span> (ConsumerRecord<span style="color:#f92672">&lt;</span>Integer, String<span style="color:#f92672">&gt;</span> record : records) {  
+</span></span><span style="display:flex;"><span>                        <span style="color:#75715e">// process the record and send downstream  </span>
+</span></span><span style="display:flex;"><span>                        ProducerRecord<span style="color:#f92672">&lt;</span>Integer, String<span style="color:#f92672">&gt;</span> newRecord <span style="color:#f92672">=</span>  
+</span></span><span style="display:flex;"><span>                            <span style="color:#66d9ef">new</span> ProducerRecord<span style="color:#f92672">&lt;&gt;</span>(outputTopic, record.<span style="color:#a6e22e">key</span>(), record.<span style="color:#a6e22e">value</span>() <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34;-ok&#34;</span>);  
+</span></span><span style="display:flex;"><span>                        producer.<span style="color:#a6e22e">send</span>(newRecord);  
+</span></span><span style="display:flex;"><span>                    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// checkpoint the progress by sending offsets to group coordinator broker  </span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// note that this API is only available for broker &gt;= 2.5                    </span>
+</span></span><span style="display:flex;"><span>	            producer.<span style="color:#a6e22e">sendOffsetsToTransaction</span>(getOffsetsToCommit(consumer), consumer.<span style="color:#a6e22e">groupMetadata</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">// commit the transaction including offsets  </span>
+</span></span><span style="display:flex;"><span>                    producer.<span style="color:#a6e22e">commitTransaction</span>();  
+</span></span><span style="display:flex;"><span>                    processedRecords <span style="color:#f92672">+=</span> records.<span style="color:#a6e22e">count</span>();  
+</span></span><span style="display:flex;"><span>                    retries <span style="color:#f92672">=</span> 0;  
+</span></span><span style="display:flex;"><span>                }  
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">catch</span> (AuthorizationException <span style="color:#f92672">|</span> UnsupportedVersionException <span style="color:#f92672">|</span> ProducerFencedException  
+</span></span><span style="display:flex;"><span>                     <span style="color:#f92672">|</span> FencedInstanceIdException <span style="color:#f92672">|</span> OutOfOrderSequenceException <span style="color:#f92672">|</span> SerializationException e) {  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// we can&#39;t recover from these exceptions  </span>
+</span></span><span style="display:flex;"><span>                Utils.<span style="color:#a6e22e">printErr</span>(e.<span style="color:#a6e22e">getMessage</span>());  
+</span></span><span style="display:flex;"><span>                shutdown();  
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">catch</span> (OffsetOutOfRangeException <span style="color:#f92672">|</span> NoOffsetForPartitionException e) {  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// invalid or no offset found without auto.reset.policy  </span>
+</span></span><span style="display:flex;"><span>                Utils.<span style="color:#a6e22e">printOut</span>(<span style="color:#e6db74">&#34;Invalid or no offset found, using latest&#34;</span>);  
+</span></span><span style="display:flex;"><span>                consumer.<span style="color:#a6e22e">seekToEnd</span>(emptyList());  
+</span></span><span style="display:flex;"><span>                consumer.<span style="color:#a6e22e">commitSync</span>();  
+</span></span><span style="display:flex;"><span>                retries <span style="color:#f92672">=</span> 0;  
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">catch</span> (KafkaException e) {  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// abort the transaction  </span>
+</span></span><span style="display:flex;"><span>                Utils.<span style="color:#a6e22e">printOut</span>(<span style="color:#e6db74">&#34;Aborting transaction: %s&#34;</span>, e.<span style="color:#a6e22e">getMessage</span>());  
+</span></span><span style="display:flex;"><span>                producer.<span style="color:#a6e22e">abortTransaction</span>();  
+</span></span><span style="display:flex;"><span>                retries <span style="color:#f92672">=</span> maybeRetry(retries, consumer);  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            remainingRecords <span style="color:#f92672">=</span> getRemainingRecords(consumer);  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (remainingRecords <span style="color:#f92672">!=</span> Long.<span style="color:#a6e22e">MAX_VALUE</span>) {  
+</span></span><span style="display:flex;"><span>                Utils.<span style="color:#a6e22e">printOut</span>(<span style="color:#e6db74">&#34;Remaining records: %d&#34;</span>, remainingRecords);  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">catch</span> (Throwable e) {  
+</span></span><span style="display:flex;"><span>        Utils.<span style="color:#a6e22e">printErr</span>(<span style="color:#e6db74">&#34;Unhandled exception&#34;</span>);  
+</span></span><span style="display:flex;"><span>        e.<span style="color:#a6e22e">printStackTrace</span>();  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>    Utils.<span style="color:#a6e22e">printOut</span>(<span style="color:#e6db74">&#34;Processed %d records&#34;</span>, processedRecords);  
+</span></span><span style="display:flex;"><span>    shutdown();  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="11-客户端配置项">1.1. 客户端配置项</h2>
+<p>Producer配置项：</p>
+<ol>
+<li><code>enable.idempotence</code>：默认false，开启后会设置acks=all, retries=Integer.MAX_VALUE,max.inflight.requests.per.connection=1</li>
+<li><code>transactional.id</code>：事务ID，用于标识事务，允许跨多个client</li>
+</ol>
+<p>Consumer配置项：</p>
+<ol>
+<li><code>isolation.level</code>：默认值为<code>read_uncommitted</code>
+<ul>
+<li>read_uncommitted：允许消费暂未提交事务的message</li>
+<li>read_commited：允许消费除未提交事务以外的message</li>
+</ul>
+</li>
+</ol>
+<h1 id="2-设计">2. 设计</h1>
+<h2 id="21-事务流程">2.1. 事务流程</h2>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20250402165515.png" alt="流程图"></p>
+<ol>
+<li>client发送FindCoordinatorRequest请求给broker端，获取Transaction Coordinator服务地址。</li>
+<li>client调用initializeTransactions方法发送InitProducerIdRequest请求给Transaction Coordinator，用以获取producerId。</li>
+<li>client调用beginTransaction方法，开启一次事务，client本地会改变事务状态，并不会影响Transaction Coordinator服务。</li>
+<li>事务过程：
+<ol>
+<li>client开启事务后，当新的TopicPartition写入数据时，Producer会向Transaction Coordinator发送AddPartitionsToTxnRequest，Transaction Coordinator记录对应的事务分区</li>
+<li>client向TopicPartition的leader endpoint发送ProduceRequest</li>
+<li>client调用sendOffsetsToTransaction方法向Transaction Coordinator发送AddOffsetsToTxnRequest，TC会将对应的消费记录存储到事务日志中。</li>
+<li>client完成向Transaction Coordinator发送消费记录后，client将会发送TxnOffsetCommitRequest给consumer coordinator</li>
+</ol>
+</li>
+<li>事务提交 or 事务回滚
+<ol>
+<li>调用commitTransaction/abortTransaction方法，向Transaction Coordinator发送EndTxnRequest</li>
+<li>Transaction Coordinator向TopicPartition的leader endpoint发送WriteTxnMarkerRequest，Broker端会根据情况选择commit或rollback</li>
+<li>Transaction Coordinator将事务结果写入事务日志中</li>
+</ol>
+</li>
+</ol>
+<h1 id="3-producer端实现">3. Producer端实现</h1>
+<h2 id="31-接口概述">3.1. 接口概述</h2>
+<p>Java客户端中KafkaProducer提供了以下接口，供用户实现事务需求：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">interface</span> <span style="color:#a6e22e">Producer</span><span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> <span style="color:#66d9ef">extends</span> Closeable {  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//初始化事务，申请producer id等事务字段</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">initTransactions</span>();  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//开启事务，改变事务状态</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">beginTransaction</span>() <span style="color:#66d9ef">throws</span> ProducerFencedException;  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//提交消费位置，offsets是每个分区的消费位置，consumerGroupId为消费组id，允许将consumer的消费进度和producer绑定在同一个事务</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">sendOffsetsToTransaction</span>(Map<span style="color:#f92672">&lt;</span>TopicPartition, OffsetAndMetadata<span style="color:#f92672">&gt;</span> offsets,  
+</span></span><span style="display:flex;"><span>						  ConsumerGroupMetadata groupMetadata) <span style="color:#66d9ef">throws</span> ProducerFencedException;  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//发送事务提交请求</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">commitTransaction</span>() <span style="color:#66d9ef">throws</span> ProducerFencedException;  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//发送事务回滚请求</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">abortTransaction</span>() <span style="color:#66d9ef">throws</span> ProducerFencedException;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>上述方法通过transactionManager对象，向Transaction Coordinator发送事务请求，并处理响应结果，主要包含以下几类请求：</p>
+<ol>
+<li>FindCoordinatorRequest：寻找Transaction Coordinator服务地址，用于sender线程发送事务请求前，或者其他响应结果返回coordinator错误等信息时调用。</li>
+<li>InitProducerIdRequest：事务初始化请求</li>
+<li>TxnOffsetCommitRequest：事务消费offset提交请求</li>
+<li>AddPartitionsToTxnRequest：事务分区上传请求</li>
+<li>EndTxnRequest：事务提交/回滚请i去</li>
+</ol>
+<p>上述几类请求，都使用抽象类TxnRequestHandler进行包装，并处理来自Transaction Coordinator的响应结果。队列请求由Sender线程进行异步发送。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//向broker transaction coordinator发送请求的优先级队列  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> PriorityQueue<span style="color:#f92672">&lt;</span>TxnRequestHandler<span style="color:#f92672">&gt;</span> pendingRequests;
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">abstract</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">TxnRequestHandler</span> <span style="color:#66d9ef">implements</span> RequestCompletionHandler {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">final</span> TransactionalRequestResult result;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">boolean</span> isRetry <span style="color:#f92672">=</span> <span style="color:#66d9ef">false</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">abstract</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">handleResponse</span>(AbstractResponse responseBody);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20250402133808.png" alt="事务请求handler"></p>
+<h2 id="32-initializetransactions">3.2. initializeTransactions</h2>
+<p>initializeTransactions方法提供给Producer初始化事务：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">synchronized</span> TransactionalRequestResult <span style="color:#a6e22e">initializeTransactions</span>(ProducerIdAndEpoch producerIdAndEpoch) {  
+</span></span><span style="display:flex;"><span>    maybeFailWithError();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查ProducerIdAndEpoch是否为空  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">boolean</span> isEpochBump <span style="color:#f92672">=</span> producerIdAndEpoch <span style="color:#f92672">!=</span> ProducerIdAndEpoch.<span style="color:#a6e22e">NONE</span>;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//通过handleCachedTransactionRequestResult方法处理事务请求结果  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> handleCachedTransactionRequestResult(() <span style="color:#f92672">-&gt;</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// If this is an epoch bump, we will transition the state as part of handling the EndTxnRequest  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>isEpochBump) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//1.2 初始化事务状态为INITIALIZING  </span>
+</span></span><span style="display:flex;"><span>            transitionTo(State.<span style="color:#a6e22e">INITIALIZING</span>);  
+</span></span><span style="display:flex;"><span>            log.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Invoking InitProducerId for the first time in order to acquire a producer ID&#34;</span>);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            log.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Invoking InitProducerId with current producer ID and epoch {} in order to bump the epoch&#34;</span>, producerIdAndEpoch);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.3 向broker端发送InitProducerIdRequest请求  </span>
+</span></span><span style="display:flex;"><span>        InitProducerIdRequestData requestData <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> InitProducerIdRequestData()  
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">setTransactionalId</span>(transactionalId)  
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">setTransactionTimeoutMs</span>(transactionTimeoutMs)  
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">setProducerId</span>(producerIdAndEpoch.<span style="color:#a6e22e">producerId</span>)  
+</span></span><span style="display:flex;"><span>                .<span style="color:#a6e22e">setProducerEpoch</span>(producerIdAndEpoch.<span style="color:#a6e22e">epoch</span>);  
+</span></span><span style="display:flex;"><span>        InitProducerIdHandler handler <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> InitProducerIdHandler(<span style="color:#66d9ef">new</span> InitProducerIdRequest.<span style="color:#a6e22e">Builder</span>(requestData),  
+</span></span><span style="display:flex;"><span>                isEpochBump);  
+</span></span><span style="display:flex;"><span>        enqueueRequest(handler);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> handler.<span style="color:#a6e22e">result</span>;  
+</span></span><span style="display:flex;"><span>    }, State.<span style="color:#a6e22e">INITIALIZING</span>, <span style="color:#e6db74">&#34;initTransactions&#34;</span>);  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>InitProducerIdHandler对响应结果的处理较为简单：</p>
+<ol>
+<li>如果请求成功，读取ProducerIdAndEpoch，并设置事务状态为READY</li>
+<li>如果是transaction coordinator类错误，则发送则发送FindCoordinatorRequest后重新发送InitProducerIdRequest</li>
+<li>如果响应中的错误是RetriableException，则重新发送InitProducerIdRequest</li>
+<li>其他类型错误抛出异常</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">handleResponse</span>(AbstractResponse response) {  
+</span></span><span style="display:flex;"><span>    InitProducerIdResponse initProducerIdResponse <span style="color:#f92672">=</span> (InitProducerIdResponse) response;  
+</span></span><span style="display:flex;"><span>    Errors error <span style="color:#f92672">=</span> initProducerIdResponse.<span style="color:#a6e22e">error</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 如果请求成功，读取ProducerIdAndEpoch，并设置事务状态为READY  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">NONE</span>) {  
+</span></span><span style="display:flex;"><span>        ProducerIdAndEpoch producerIdAndEpoch <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> ProducerIdAndEpoch(initProducerIdResponse.<span style="color:#a6e22e">data</span>().<span style="color:#a6e22e">producerId</span>(),  
+</span></span><span style="display:flex;"><span>                initProducerIdResponse.<span style="color:#a6e22e">data</span>().<span style="color:#a6e22e">producerEpoch</span>());  
+</span></span><span style="display:flex;"><span>        setProducerIdAndEpoch(producerIdAndEpoch);  
+</span></span><span style="display:flex;"><span>        transitionTo(State.<span style="color:#a6e22e">READY</span>);  
+</span></span><span style="display:flex;"><span>        lastError <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>;  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">isEpochBump</span>) {  
+</span></span><span style="display:flex;"><span>            resetSequenceNumbers();  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        result.<span style="color:#a6e22e">done</span>();  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">NOT_COORDINATOR</span> <span style="color:#f92672">||</span> error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">COORDINATOR_NOT_AVAILABLE</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.2 如果响应中的错误是NOT_COORDINATOR或COORDINATOR_NOT_AVAILABLE，则发送FindCoordinatorRequest后重新发送InitProducerIdRequest  </span>
+</span></span><span style="display:flex;"><span>        lookupCoordinator(FindCoordinatorRequest.<span style="color:#a6e22e">CoordinatorType</span>.<span style="color:#a6e22e">TRANSACTION</span>, transactionalId);  
+</span></span><span style="display:flex;"><span>        reenqueue();  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (error.<span style="color:#a6e22e">exception</span>() <span style="color:#66d9ef">instanceof</span> RetriableException) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.3 如果响应中的错误是RetriableException，则重新发送InitProducerIdRequest  </span>
+</span></span><span style="display:flex;"><span>        reenqueue();  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">TRANSACTIONAL_ID_AUTHORIZATION_FAILED</span> <span style="color:#f92672">||</span>  
+</span></span><span style="display:flex;"><span>            error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">CLUSTER_AUTHORIZATION_FAILED</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.4 其它类型的错误，抛出异常  </span>
+</span></span><span style="display:flex;"><span>        log.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Abortable authorization error: {}.  Transition the producer state to {}&#34;</span>, error.<span style="color:#a6e22e">message</span>(), State.<span style="color:#a6e22e">ABORTABLE_ERROR</span>);  
+</span></span><span style="display:flex;"><span>        lastError <span style="color:#f92672">=</span> error.<span style="color:#a6e22e">exception</span>();  
+</span></span><span style="display:flex;"><span>        abortableError(error.<span style="color:#a6e22e">exception</span>());  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">INVALID_PRODUCER_EPOCH</span> <span style="color:#f92672">||</span> error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">PRODUCER_FENCED</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// We could still receive INVALID_PRODUCER_EPOCH from old versioned transaction coordinator,  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// just treat it the same as PRODUCE_FENCED.        fatalError(Errors.PRODUCER_FENCED.exception());  </span>
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">TRANSACTION_ABORTABLE</span>) {  
+</span></span><span style="display:flex;"><span>        abortableError(error.<span style="color:#a6e22e">exception</span>());  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        fatalError(<span style="color:#66d9ef">new</span> KafkaException(<span style="color:#e6db74">&#34;Unexpected error in InitProducerIdResponse; &#34;</span> <span style="color:#f92672">+</span> error.<span style="color:#a6e22e">message</span>()));  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="33-begintransaction">3.3. beginTransaction</h2>
+<p>beginTransaction方法用于开启事务，实现逻辑较为简单：将事务状态置为IN_TRANSACTION。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">synchronized</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">beginTransaction</span>() {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 确保transactionalId事务id不为空  </span>
+</span></span><span style="display:flex;"><span>    ensureTransactional();  
+</span></span><span style="display:flex;"><span>    throwIfPendingState(<span style="color:#e6db74">&#34;beginTransaction&#34;</span>);  
+</span></span><span style="display:flex;"><span>    maybeFailWithError();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//状态置为IN_TRANSACTION  </span>
+</span></span><span style="display:flex;"><span>    transitionTo(State.<span style="color:#a6e22e">IN_TRANSACTION</span>);  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="34-addpartitionstotransactionhandler">3.4. addPartitionsToTransactionHandler</h2>
+<p>在消息发送流程org.apache.kafka.clients.producer.KafkaProducer#doSend中，开启了事务的情况下，会将topicPartition存储在transactionManager的newPartitionsInTransaction中：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> Future<span style="color:#f92672">&lt;</span>RecordMetadata<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">doSend</span>(ProducerRecord<span style="color:#f92672">&lt;</span>K, V<span style="color:#f92672">&gt;</span> record, Callback callback) {
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> (transactionManager <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>	    transactionManager.<span style="color:#a6e22e">maybeAddPartition</span>(appendCallbacks.<span style="color:#a6e22e">topicPartition</span>());  
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">synchronized</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">maybeAddPartition</span>(TopicPartition topicPartition) {  
+</span></span><span style="display:flex;"><span>    maybeFailWithError();  
+</span></span><span style="display:flex;"><span>    throwIfPendingState(<span style="color:#e6db74">&#34;send&#34;</span>);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (isTransactional()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>hasProducerId()) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalStateException(<span style="color:#e6db74">&#34;Cannot add partition &#34;</span> <span style="color:#f92672">+</span> topicPartition <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">&#34; to transaction before completing a call to initTransactions&#34;</span>);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (currentState <span style="color:#f92672">!=</span> State.<span style="color:#a6e22e">IN_TRANSACTION</span>) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalStateException(<span style="color:#e6db74">&#34;Cannot add partition &#34;</span> <span style="color:#f92672">+</span> topicPartition <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">&#34; to transaction while in state  &#34;</span> <span style="color:#f92672">+</span> currentState);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (isPartitionAdded(topicPartition) <span style="color:#f92672">||</span> isPartitionPendingAdd(topicPartition)) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span>;  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            log.<span style="color:#a6e22e">debug</span>(<span style="color:#e6db74">&#34;Begin adding new partition {} to transaction&#34;</span>, topicPartition);  
+</span></span><span style="display:flex;"><span>            txnPartitionMap.<span style="color:#a6e22e">getOrCreate</span>(topicPartition);  
+</span></span><span style="display:flex;"><span>            newPartitionsInTransaction.<span style="color:#a6e22e">add</span>(topicPartition);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>TransactionManager提供了以下容器用于存储各种状态的TopicPartition：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//待封装成Request的TopicPartition</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Set<span style="color:#f92672">&lt;</span>TopicPartition<span style="color:#f92672">&gt;</span> newPartitionsInTransaction;  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//已封装成Request的TopicPartition，待发送到broker</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Set<span style="color:#f92672">&lt;</span>TopicPartition<span style="color:#f92672">&gt;</span> pendingPartitionsInTransaction; 
+</span></span><span style="display:flex;"><span><span style="color:#75715e">////已经上传的TopicPartition</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Set<span style="color:#f92672">&lt;</span>TopicPartition<span style="color:#f92672">&gt;</span> partitionsInTransaction;
+</span></span></code></pre></div><p>addPartitionsToTransactionHandler方法会将newPartitionsInTransaction封装到AddPartitionsToTxnRequest中：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> TxnRequestHandler <span style="color:#a6e22e">addPartitionsToTransactionHandler</span>() {  
+</span></span><span style="display:flex;"><span>    pendingPartitionsInTransaction.<span style="color:#a6e22e">addAll</span>(newPartitionsInTransaction);  
+</span></span><span style="display:flex;"><span>    newPartitionsInTransaction.<span style="color:#a6e22e">clear</span>();  
+</span></span><span style="display:flex;"><span>    AddPartitionsToTxnRequest.<span style="color:#a6e22e">Builder</span> builder <span style="color:#f92672">=</span>  
+</span></span><span style="display:flex;"><span>        AddPartitionsToTxnRequest.<span style="color:#a6e22e">Builder</span>.<span style="color:#a6e22e">forClient</span>(transactionalId,  
+</span></span><span style="display:flex;"><span>            producerIdAndEpoch.<span style="color:#a6e22e">producerId</span>,  
+</span></span><span style="display:flex;"><span>            producerIdAndEpoch.<span style="color:#a6e22e">epoch</span>,  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">new</span> ArrayList<span style="color:#f92672">&lt;&gt;</span>(pendingPartitionsInTransaction));  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> AddPartitionsToTxnHandler(builder);  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>AddPartitionsToTxnRequest请求的发送时机有以下两种情况：</p>
+<ol>
+<li>提交/结束事务时，检查newPartitionsInTransaction是否为空</li>
+<li>Sender线程发送事务请求时，nextRequest方法中会检查是否需要发送AddPartitionsToTxnRequest</li>
+</ol>
+<p>AddPartitionsToTxnHandler中对于响应的处理逻辑较为简单，除去异常处理逻辑后，主要是处理partition容器的相关逻辑：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">handleResponse</span>(AbstractResponse response) {  
+</span></span><span style="display:flex;"><span>    AddPartitionsToTxnResponse addPartitionsToTxnResponse <span style="color:#f92672">=</span> (AddPartitionsToTxnResponse) response;  
+</span></span><span style="display:flex;"><span>    Map<span style="color:#f92672">&lt;</span>TopicPartition, Errors<span style="color:#f92672">&gt;</span> errors <span style="color:#f92672">=</span> addPartitionsToTxnResponse.<span style="color:#a6e22e">errors</span>().<span style="color:#a6e22e">get</span>(AddPartitionsToTxnResponse.<span style="color:#a6e22e">V3_AND_BELOW_TXN_ID</span>);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">boolean</span> hasPartitionErrors <span style="color:#f92672">=</span> <span style="color:#66d9ef">false</span>;  
+</span></span><span style="display:flex;"><span>    Set<span style="color:#f92672">&lt;</span>String<span style="color:#f92672">&gt;</span> unauthorizedTopics <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> HashSet<span style="color:#f92672">&lt;&gt;</span>();  
+</span></span><span style="display:flex;"><span>    retryBackoffMs <span style="color:#f92672">=</span> TransactionManager.<span style="color:#a6e22e">this</span>.<span style="color:#a6e22e">retryBackoffMs</span>;  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    Set<span style="color:#f92672">&lt;</span>TopicPartition<span style="color:#f92672">&gt;</span> partitions <span style="color:#f92672">=</span> errors.<span style="color:#a6e22e">keySet</span>();  
+</span></span><span style="display:flex;"><span>    pendingPartitionsInTransaction.<span style="color:#a6e22e">removeAll</span>(partitions);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>unauthorizedTopics.<span style="color:#a6e22e">isEmpty</span>()) {  
+</span></span><span style="display:flex;"><span>        abortableError(<span style="color:#66d9ef">new</span> TopicAuthorizationException(unauthorizedTopics));  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (hasPartitionErrors) {  
+</span></span><span style="display:flex;"><span>        abortableError(<span style="color:#66d9ef">new</span> KafkaException(<span style="color:#e6db74">&#34;Could not add partitions to transaction due to errors: &#34;</span> <span style="color:#f92672">+</span> errors));  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        log.<span style="color:#a6e22e">debug</span>(<span style="color:#e6db74">&#34;Successfully added partitions {} to transaction&#34;</span>, partitions);  
+</span></span><span style="display:flex;"><span>        partitionsInTransaction.<span style="color:#a6e22e">addAll</span>(partitions);  
+</span></span><span style="display:flex;"><span>        transactionStarted <span style="color:#f92672">=</span> <span style="color:#66d9ef">true</span>;  
+</span></span><span style="display:flex;"><span>        result.<span style="color:#a6e22e">done</span>();  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="35-sendoffsetstotransaction">3.5. sendOffsetsToTransaction</h2>
+<p>sendOffsetsToTransaction方法允许在 Kafka 事务中提交消费者的偏移量，确保消息处理和偏移量提交是一个原子操作。发送AddOffsetsToTxnRequest：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">synchronized</span> TransactionalRequestResult <span style="color:#a6e22e">sendOffsetsToTransaction</span>(<span style="color:#66d9ef">final</span> Map<span style="color:#f92672">&lt;</span>TopicPartition, OffsetAndMetadata<span style="color:#f92672">&gt;</span> offsets,  
+</span></span><span style="display:flex;"><span>                                                                        <span style="color:#66d9ef">final</span> ConsumerGroupMetadata groupMetadata) {  
+</span></span><span style="display:flex;"><span>    ensureTransactional();  
+</span></span><span style="display:flex;"><span>    throwIfPendingState(<span style="color:#e6db74">&#34;sendOffsetsToTransaction&#34;</span>);  
+</span></span><span style="display:flex;"><span>    maybeFailWithError();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//检查是否为IN_TRANSACTION状态  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (currentState <span style="color:#f92672">!=</span> State.<span style="color:#a6e22e">IN_TRANSACTION</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalStateException(<span style="color:#e6db74">&#34;Cannot send offsets if a transaction is not in progress &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">&#34;(currentState= &#34;</span> <span style="color:#f92672">+</span> currentState <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34;)&#34;</span>);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//发送AddOffsetsToTxnRequest到broker端  </span>
+</span></span><span style="display:flex;"><span>    log.<span style="color:#a6e22e">debug</span>(<span style="color:#e6db74">&#34;Begin adding offsets {} for consumer group {} to transaction&#34;</span>, offsets, groupMetadata);  
+</span></span><span style="display:flex;"><span>    AddOffsetsToTxnRequest.<span style="color:#a6e22e">Builder</span> builder <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> AddOffsetsToTxnRequest.<span style="color:#a6e22e">Builder</span>(  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">new</span> AddOffsetsToTxnRequestData()  
+</span></span><span style="display:flex;"><span>            .<span style="color:#a6e22e">setTransactionalId</span>(transactionalId)  
+</span></span><span style="display:flex;"><span>            .<span style="color:#a6e22e">setProducerId</span>(producerIdAndEpoch.<span style="color:#a6e22e">producerId</span>)  
+</span></span><span style="display:flex;"><span>            .<span style="color:#a6e22e">setProducerEpoch</span>(producerIdAndEpoch.<span style="color:#a6e22e">epoch</span>)  
+</span></span><span style="display:flex;"><span>            .<span style="color:#a6e22e">setGroupId</span>(groupMetadata.<span style="color:#a6e22e">groupId</span>())  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>    AddOffsetsToTxnHandler handler <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> AddOffsetsToTxnHandler(builder, offsets, groupMetadata);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    enqueueRequest(handler);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> handler.<span style="color:#a6e22e">result</span>;  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>AddOffsetsToTxnHandler响应的处理逻辑很简单：如果请求成功，发送TxnOffsetCommitRequest给Group Coordinator。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">handleResponse</span>(AbstractResponse response) {  
+</span></span><span style="display:flex;"><span>    AddOffsetsToTxnResponse addOffsetsToTxnResponse <span style="color:#f92672">=</span> (AddOffsetsToTxnResponse) response;  
+</span></span><span style="display:flex;"><span>    Errors error <span style="color:#f92672">=</span> Errors.<span style="color:#a6e22e">forCode</span>(addOffsetsToTxnResponse.<span style="color:#a6e22e">data</span>().<span style="color:#a6e22e">errorCode</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">NONE</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.1 请求成功的情况  </span>
+</span></span><span style="display:flex;"><span>        log.<span style="color:#a6e22e">debug</span>(<span style="color:#e6db74">&#34;Successfully added partition for consumer group {} to transaction&#34;</span>, builder.<span style="color:#a6e22e">data</span>.<span style="color:#a6e22e">groupId</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.2 成功后会发送TxnOffsetCommitRequest  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// note the result is not completed until the TxnOffsetCommit returns</span>
+</span></span><span style="display:flex;"><span>        pendingRequests.<span style="color:#a6e22e">add</span>(txnOffsetCommitHandler(result, offsets, groupMetadata));  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        transactionStarted <span style="color:#f92672">=</span> <span style="color:#66d9ef">true</span>;  
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="36-begincommit--beginabort">3.6. beginCommit &amp;&amp; beginAbort</h2>
+<p>事务提交或回滚逻辑都是通过beginCompletingTransaction方法完成，区别在于事务状态的修改，beginCompletingTransaction方法会提前检查最近一次请求error是否为InvalidPidMappingException，若是则初始化事务状态，其他情况发送EndTxnRequest：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> TransactionalRequestResult <span style="color:#a6e22e">beginCompletingTransaction</span>(TransactionResult transactionResult) {  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查是否需要发送AddPartitionsToTxnRequest  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>newPartitionsInTransaction.<span style="color:#a6e22e">isEmpty</span>())  
+</span></span><span style="display:flex;"><span>        enqueueRequest(addPartitionsToTransactionHandler());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// If the error is an INVALID_PRODUCER_ID_MAPPING error, the server will not accept an EndTxnRequest, so skip  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// directly to InitProducerId. Otherwise, we must first abort the transaction, because the producer will be    // fenced if we directly call InitProducerId.  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 如果是INVALID_PRODUCER_ID_MAPPING，broker不会接受EndTxnRequest请求，直接转为初始化initializeTransactions   </span>
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>(lastError <span style="color:#66d9ef">instanceof</span> InvalidPidMappingException)) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.3 向broker端发送EndTxnRequest请求  </span>
+</span></span><span style="display:flex;"><span>        EndTxnRequest.<span style="color:#a6e22e">Builder</span> builder <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> EndTxnRequest.<span style="color:#a6e22e">Builder</span>(  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">new</span> EndTxnRequestData()  
+</span></span><span style="display:flex;"><span>                        .<span style="color:#a6e22e">setTransactionalId</span>(transactionalId)  
+</span></span><span style="display:flex;"><span>                        .<span style="color:#a6e22e">setProducerId</span>(producerIdAndEpoch.<span style="color:#a6e22e">producerId</span>)  
+</span></span><span style="display:flex;"><span>                        .<span style="color:#a6e22e">setProducerEpoch</span>(producerIdAndEpoch.<span style="color:#a6e22e">epoch</span>)  
+</span></span><span style="display:flex;"><span>                        .<span style="color:#a6e22e">setCommitted</span>(transactionResult.<span style="color:#a6e22e">id</span>));  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        EndTxnHandler handler <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> EndTxnHandler(builder);  
+</span></span><span style="display:flex;"><span>        enqueueRequest(handler);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>epochBumpRequired) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> handler.<span style="color:#a6e22e">result</span>;  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> initializeTransactions(<span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">producerIdAndEpoch</span>);  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>EndTxnHandler中，会将TransactionManager状态改为READY。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">handleResponse</span>(AbstractResponse response) {  
+</span></span><span style="display:flex;"><span>    EndTxnResponse endTxnResponse <span style="color:#f92672">=</span> (EndTxnResponse) response;  
+</span></span><span style="display:flex;"><span>    Errors error <span style="color:#f92672">=</span> endTxnResponse.<span style="color:#a6e22e">error</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">NONE</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.1 请求成功，更新事务状态为READY  </span>
+</span></span><span style="display:flex;"><span>        completeTransaction();  
+</span></span><span style="display:flex;"><span>        result.<span style="color:#a6e22e">done</span>();  
+</span></span><span style="display:flex;"><span>    } 
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h1 id="4-broker端实现">4. Broker端实现</h1>
+<h2 id="41-transactionmetadata">4.1. TransactionMetadata</h2>
+<p>TransactionMetadata是一次事务的元数据，包含以下字段：</p>
+<ul>
+<li>transactionalId：事务唯一标识</li>
+<li>producerId：生产者id</li>
+<li>txnTimeoutMs：事务超时时间</li>
+<li>TransactionState：事务状态</li>
+<li>topicPartitions：本次事务涉及的TopicPartition</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">transaction</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">TransactionMetadata</span><span style="color:#f92672">(</span><span style="color:#66d9ef">val</span> transactionalId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                               <span style="color:#66d9ef">var</span> producerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                               <span style="color:#66d9ef">var</span> lastProducerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                               <span style="color:#66d9ef">var</span> producerEpoch<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Short</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                               <span style="color:#66d9ef">var</span> lastProducerEpoch<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Short</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                               <span style="color:#66d9ef">var</span> txnTimeoutMs<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                               <span style="color:#66d9ef">var</span> state<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">TransactionState</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                               <span style="color:#66d9ef">val</span> topicPartitions<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">mutable.Set</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicPartition</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                                               <span style="color:#a6e22e">@volatile</span> <span style="color:#66d9ef">var</span> txnStartTimestamp<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span> <span style="color:#f92672">=</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                               <span style="color:#a6e22e">@volatile</span> <span style="color:#66d9ef">var</span> txnLastUpdateTimestamp<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">)</span> <span style="color:#66d9ef">extends</span> <span style="color:#a6e22e">Logging</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// pending state is used to indicate the state that this transaction is going to  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// transit to, and for blocking future attempts to transit it again if it is not legal;  // initialized as the same as the current state  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">var</span> pendingState<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TransactionState</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">None</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="42-transactionstatemanager">4.2. TransactionStateManager</h2>
+<p>负责管理：</p>
+<ol>
+<li>事务日志</li>
+<li>事务metadata</li>
+<li>事务过期逻辑</li>
+</ol>
+<h2 id="43-handlefindcoordinator">4.3. handleFindCoordinator</h2>
+<p>FindCoordinatorRequest是client端用于寻找Coordinator的请求，在broker端由kafka.server.KafkaApis#getCoordinator方法用于处理FindCoordinator请求（包含Group和Transaction两种类型），去除掉了参数校验的逻辑：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> getCoordinator<span style="color:#f92672">(</span>request<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestChannel.Request</span><span style="color:#f92672">,</span> keyType<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Byte</span><span style="color:#f92672">,</span> key<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#f92672">(</span><span style="color:#66d9ef">Errors</span><span style="color:#f92672">,</span> <span style="color:#66d9ef">Node</span><span style="color:#f92672">)</span> <span style="color:#66d9ef">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> <span style="color:#f92672">(</span>partition<span style="color:#f92672">,</span> internalTopicName<span style="color:#f92672">)</span> <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">CoordinatorType</span><span style="color:#f92672">.</span>forId<span style="color:#f92672">(</span>keyType<span style="color:#f92672">)</span> <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">CoordinatorType</span><span style="color:#f92672">.</span><span style="color:#a6e22e">GROUP</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">(</span>groupCoordinator<span style="color:#f92672">.</span>partitionFor<span style="color:#f92672">(</span>key<span style="color:#f92672">),</span> <span style="color:#a6e22e">GROUP_METADATA_TOPIC_NAME</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">CoordinatorType</span><span style="color:#f92672">.</span><span style="color:#a6e22e">TRANSACTION</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">(</span>txnCoordinator<span style="color:#f92672">.</span>partitionFor<span style="color:#f92672">(</span>key<span style="color:#f92672">),</span> <span style="color:#a6e22e">TRANSACTION_STATE_TOPIC_NAME</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">CoordinatorType</span><span style="color:#f92672">.</span><span style="color:#a6e22e">SHARE</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// When share coordinator support is implemented in KIP-932, a proper check will go here  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">return</span> <span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">COORDINATOR_NOT_AVAILABLE</span><span style="color:#f92672">,</span> <span style="color:#a6e22e">Node</span><span style="color:#f92672">.</span>noNode<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> topicMetadata <span style="color:#66d9ef">=</span> metadataCache<span style="color:#f92672">.</span>getTopicMetadata<span style="color:#f92672">(</span><span style="color:#a6e22e">Set</span><span style="color:#f92672">(</span>internalTopicName<span style="color:#f92672">),</span> request<span style="color:#f92672">.</span>context<span style="color:#f92672">.</span>listenerName<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>topicMetadata<span style="color:#f92672">.</span>headOption<span style="color:#f92672">.</span>isEmpty<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> controllerMutationQuota <span style="color:#66d9ef">=</span> quotas<span style="color:#f92672">.</span>controllerMutation<span style="color:#f92672">.</span>newPermissiveQuotaFor<span style="color:#f92672">(</span>request<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      autoTopicCreationManager<span style="color:#f92672">.</span>createTopics<span style="color:#f92672">(</span><span style="color:#a6e22e">Seq</span><span style="color:#f92672">(</span>internalTopicName<span style="color:#f92672">).</span>toSet<span style="color:#f92672">,</span> controllerMutationQuota<span style="color:#f92672">,</span> <span style="color:#a6e22e">None</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">COORDINATOR_NOT_AVAILABLE</span><span style="color:#f92672">,</span> <span style="color:#a6e22e">Node</span><span style="color:#f92672">.</span>noNode<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>topicMetadata<span style="color:#f92672">.</span>head<span style="color:#f92672">.</span>errorCode <span style="color:#f92672">!=</span> <span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NONE</span><span style="color:#f92672">.</span>code<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">COORDINATOR_NOT_AVAILABLE</span><span style="color:#f92672">,</span> <span style="color:#a6e22e">Node</span><span style="color:#f92672">.</span>noNode<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">val</span> coordinatorEndpoint <span style="color:#66d9ef">=</span> topicMetadata<span style="color:#f92672">.</span>head<span style="color:#f92672">.</span>partitions<span style="color:#f92672">.</span>asScala  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">.</span>find<span style="color:#f92672">(</span><span style="color:#66d9ef">_</span><span style="color:#f92672">.</span>partitionIndex <span style="color:#f92672">==</span> partition<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">.</span>filter<span style="color:#f92672">(</span><span style="color:#66d9ef">_</span><span style="color:#f92672">.</span>leaderId <span style="color:#f92672">!=</span> <span style="color:#a6e22e">MetadataResponse</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NO_LEADER_ID</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">.</span>flatMap<span style="color:#f92672">(</span>metadata <span style="color:#66d9ef">=&gt;</span> metadataCache<span style="color:#f92672">.</span>  
+</span></span><span style="display:flex;"><span>              getAliveBrokerNode<span style="color:#f92672">(</span>metadata<span style="color:#f92672">.</span>leaderId<span style="color:#f92672">,</span> request<span style="color:#f92672">.</span>context<span style="color:#f92672">.</span>listenerName<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        coordinatorEndpoint <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>endpoint<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NONE</span><span style="color:#f92672">,</span> endpoint<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#66d9ef">_</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">COORDINATOR_NOT_AVAILABLE</span><span style="color:#f92672">,</span> <span style="color:#a6e22e">Node</span><span style="color:#f92672">.</span>noNode<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>事务Coordinator定位逻辑通过传入transactionalId的hashcode对配置项<code>transaction.state.log.num.partitions</code>取模：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> partitionFor<span style="color:#f92672">(</span>transactionalId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">Utils</span><span style="color:#f92672">.</span>abs<span style="color:#f92672">(</span>transactionalId<span style="color:#f92672">.</span>hashCode<span style="color:#f92672">)</span> <span style="color:#f92672">%</span> transactionTopicPartitionCount
+</span></span></code></pre></div><p>该配置默认值为50：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> String TRANSACTIONS_TOPIC_PARTITIONS_CONFIG <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;transaction.state.log.num.partitions&#34;</span>;  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> TRANSACTIONS_TOPIC_PARTITIONS_DEFAULT <span style="color:#f92672">=</span> 50;
+</span></span></code></pre></div><h2 id="44-handleinitproducerid">4.4. handleInitProducerId</h2>
+<p>broker端处理InitProducerIdRequest的流程如下：</p>
+<ol>
+<li>检查传入的transactionalId是否为空，若为空直接生成producerId并返回</li>
+<li>如果不为空，检查是否存在该transactionalId对应的事务信息</li>
+<li>如果不存在事务信息，则生成新的producerId，并更新事务信息到transaction metadata</li>
+<li>调用prepareInitProducerIdTransit方法，初始化事务状态</li>
+<li>如果当前事务状态为PrepareEpochFence，说明事务已经被新的producer使用，返回error，并结束该事务。</li>
+<li>提交事务信息到事务日志</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> handleInitProducerId<span style="color:#f92672">(</span>transactionalId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         transactionTimeoutMs<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         expectedProducerIdAndEpoch<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">ProducerIdAndEpoch</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                         responseCallback<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">InitProducerIdCallback</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         requestLocal<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestLocal</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">RequestLocal</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NoCaching</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 检查传入的transactionalId是否为空  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>transactionalId <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// if the transactional id is null, then always blindly accept the request  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// and return a new producerId from the producerId manager  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//1.2 生成新的producerId    producerIdManager.generateProducerId() match {  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Success</span><span style="color:#f92672">(</span>producerId<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        responseCallback<span style="color:#f92672">(</span><span style="color:#a6e22e">InitProducerIdResult</span><span style="color:#f92672">(</span>producerId<span style="color:#f92672">,</span> producerEpoch <span style="color:#66d9ef">=</span> <span style="color:#ae81ff">0</span><span style="color:#f92672">,</span> <span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NONE</span><span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Failure</span><span style="color:#f92672">(</span>exception<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        responseCallback<span style="color:#f92672">(</span>initTransactionError<span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span>forException<span style="color:#f92672">(</span>exception<span style="color:#f92672">)))</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>transactionalId<span style="color:#f92672">.</span>isEmpty<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// if transactional id is empty then return error as invalid request. This is  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// to make TransactionCoordinator&#39;s behavior consistent with producer client    responseCallback(initTransactionError(Errors.INVALID_REQUEST))  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(!</span>txnManager<span style="color:#f92672">.</span>validateTransactionTimeoutMs<span style="color:#f92672">(</span>transactionTimeoutMs<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// check transactionTimeoutMs is not larger than the broker configured maximum allowed value  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    responseCallback<span style="color:#f92672">(</span>initTransactionError<span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">INVALID_TRANSACTION_TIMEOUT</span><span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.1 检查是否存在该transactionalId对应的事务信息  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">val</span> coordinatorEpochAndMetadata <span style="color:#66d9ef">=</span> txnManager<span style="color:#f92672">.</span>getTransactionState<span style="color:#f92672">(</span>transactionalId<span style="color:#f92672">).</span>flatMap <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">None</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//2.2 如果不存在事务信息，生成新的producerId，并更新事务信息到metadata  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        producerIdManager<span style="color:#f92672">.</span>generateProducerId<span style="color:#f92672">()</span> <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Success</span><span style="color:#f92672">(</span>producerId<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">val</span> createdMetadata <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">TransactionMetadata</span><span style="color:#f92672">(</span>transactionalId <span style="color:#66d9ef">=</span> transactionalId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>              producerId <span style="color:#66d9ef">=</span> producerId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>              lastProducerId <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">RecordBatch</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NO_PRODUCER_ID</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>              producerEpoch <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">RecordBatch</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NO_PRODUCER_EPOCH</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>              lastProducerEpoch <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">RecordBatch</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NO_PRODUCER_EPOCH</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>              txnTimeoutMs <span style="color:#66d9ef">=</span> transactionTimeoutMs<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>              state <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">Empty</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>              topicPartitions <span style="color:#66d9ef">=</span> collection<span style="color:#f92672">.</span>mutable<span style="color:#f92672">.</span><span style="color:#a6e22e">Set</span><span style="color:#f92672">.</span>empty<span style="color:#f92672">[</span><span style="color:#66d9ef">TopicPartition</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>              txnLastUpdateTimestamp <span style="color:#66d9ef">=</span> time<span style="color:#f92672">.</span>milliseconds<span style="color:#f92672">())</span>  
+</span></span><span style="display:flex;"><span>            txnManager<span style="color:#f92672">.</span>putTransactionStateIfNotExists<span style="color:#f92672">(</span>createdMetadata<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Failure</span><span style="color:#f92672">(</span>exception<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">Left</span><span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span>forException<span style="color:#f92672">(</span>exception<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>epochAndTxnMetadata<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span> <span style="color:#a6e22e">Right</span><span style="color:#f92672">(</span>epochAndTxnMetadata<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> result<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ApiResult</span><span style="color:#f92672">[(</span><span style="color:#66d9ef">Int</span>, <span style="color:#66d9ef">TxnTransitMetadata</span><span style="color:#f92672">)]</span> <span style="color:#66d9ef">=</span> coordinatorEpochAndMetadata<span style="color:#f92672">.</span>flatMap <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      existingEpochAndMetadata <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">val</span> coordinatorEpoch <span style="color:#66d9ef">=</span> existingEpochAndMetadata<span style="color:#f92672">.</span>coordinatorEpoch  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">val</span> txnMetadata <span style="color:#66d9ef">=</span> existingEpochAndMetadata<span style="color:#f92672">.</span>transactionMetadata  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//3.1 调用prepareInitProducerIdTransit方法，初始化事务  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        txnMetadata<span style="color:#f92672">.</span>inLock <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          prepareInitProducerIdTransit<span style="color:#f92672">(</span>transactionalId<span style="color:#f92672">,</span> transactionTimeoutMs<span style="color:#f92672">,</span> coordinatorEpoch<span style="color:#f92672">,</span> txnMetadata<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            expectedProducerIdAndEpoch<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    result <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Left</span><span style="color:#f92672">(</span>error<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        responseCallback<span style="color:#f92672">(</span>initTransactionError<span style="color:#f92672">(</span>error<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Right</span><span style="color:#f92672">((</span>coordinatorEpoch<span style="color:#f92672">,</span> newMetadata<span style="color:#f92672">))</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//4.1 如果当前事务状态为PrepareEpochFence，说明事务已经被新的producer使用，直接返回error  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>newMetadata<span style="color:#f92672">.</span>txnState <span style="color:#f92672">==</span> <span style="color:#a6e22e">PrepareEpochFence</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">// abort the ongoing transaction and then return CONCURRENT_TRANSACTIONS to let client wait and retry  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          <span style="color:#66d9ef">def</span> sendRetriableErrorCallback<span style="color:#f92672">(</span>error<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Errors</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>error <span style="color:#f92672">!=</span> <span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NONE</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>              responseCallback<span style="color:#f92672">(</span>initTransactionError<span style="color:#f92672">(</span>error<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>              responseCallback<span style="color:#f92672">(</span>initTransactionError<span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">CONCURRENT_TRANSACTIONS</span><span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">//4.2 结束当前事务  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          endTransaction<span style="color:#f92672">(</span>transactionalId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            newMetadata<span style="color:#f92672">.</span>producerId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            newMetadata<span style="color:#f92672">.</span>producerEpoch<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">TransactionResult</span><span style="color:#f92672">.</span><span style="color:#a6e22e">ABORT</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            isFromClient <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">false</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            sendRetriableErrorCallback<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            requestLocal<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">def</span> sendPidResponseCallback<span style="color:#f92672">(</span>error<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Errors</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>error <span style="color:#f92672">==</span> <span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NONE</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>              info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Initialized transactionalId </span><span style="color:#e6db74">$transactionalId</span><span style="color:#e6db74"> with producerId </span><span style="color:#e6db74">${</span>newMetadata<span style="color:#f92672">.</span>producerId<span style="color:#e6db74">}</span><span style="color:#e6db74"> and producer &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">s&#34;epoch </span><span style="color:#e6db74">${</span>newMetadata<span style="color:#f92672">.</span>producerEpoch<span style="color:#e6db74">}</span><span style="color:#e6db74"> on partition &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">s&#34;</span><span style="color:#e6db74">${</span><span style="color:#a6e22e">Topic</span><span style="color:#f92672">.</span><span style="color:#a6e22e">TRANSACTION_STATE_TOPIC_NAME</span><span style="color:#e6db74">}</span><span style="color:#e6db74">-</span><span style="color:#e6db74">${</span>txnManager<span style="color:#f92672">.</span>partitionFor<span style="color:#f92672">(</span>transactionalId<span style="color:#f92672">)</span><span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>              responseCallback<span style="color:#f92672">(</span>initTransactionMetadata<span style="color:#f92672">(</span>newMetadata<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>              info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Returning </span><span style="color:#e6db74">$error</span><span style="color:#e6db74"> error code to client for </span><span style="color:#e6db74">$transactionalId</span><span style="color:#e6db74">&#39;s InitProducerId request&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>              responseCallback<span style="color:#f92672">(</span>initTransactionError<span style="color:#f92672">(</span>error<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">//5.1 提交事务信息到事务日志  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          txnManager<span style="color:#f92672">.</span>appendTransactionToLog<span style="color:#f92672">(</span>transactionalId<span style="color:#f92672">,</span> coordinatorEpoch<span style="color:#f92672">,</span> newMetadata<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            sendPidResponseCallback<span style="color:#f92672">,</span> requestLocal <span style="color:#66d9ef">=</span> requestLocal<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="45-handleaddpartitionstotransaction">4.5. handleAddPartitionsToTransaction</h2>
+<p>AddPartitionsToTxnRequest和AddOffsetsToTxnRequest请求都是由handleAddPartitionsToTransaction方法进行处理，区别在于后者的TopicPartition对象为<code>__consumer_offsets</code>，而前者是具体的业务topic。</p>
+<p>它的处理逻辑较为简单：</p>
+<ol>
+<li>将TopicPartition写入内存metadata中</li>
+<li>将事务metadata写入事务日志持久化</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> handleAddPartitionsToTransaction<span style="color:#f92672">(</span>transactionalId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                     producerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                     producerEpoch<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Short</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                     partitions<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">collection.Set</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicPartition</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                                     responseCallback<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">AddPartitionsCallback</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                     requestLocal<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestLocal</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">RequestLocal</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NoCaching</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>transactionalId <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> transactionalId<span style="color:#f92672">.</span>isEmpty<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Returning </span><span style="color:#e6db74">${</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">INVALID_REQUEST</span><span style="color:#e6db74">}</span><span style="color:#e6db74"> error code to client for </span><span style="color:#e6db74">$transactionalId</span><span style="color:#e6db74">&#39;s AddPartitions request&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    responseCallback<span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">INVALID_REQUEST</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> result<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ApiResult</span><span style="color:#f92672">[(</span><span style="color:#66d9ef">Int</span>, <span style="color:#66d9ef">TxnTransitMetadata</span><span style="color:#f92672">)]</span> <span style="color:#66d9ef">=</span> txnManager<span style="color:#f92672">.</span>getTransactionState<span style="color:#f92672">(</span>transactionalId<span style="color:#f92672">).</span>flatMap <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">None</span> <span style="color:#66d9ef">=&gt;</span> <span style="color:#a6e22e">Left</span><span style="color:#f92672">(</span><span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">INVALID_PRODUCER_ID_MAPPING</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>epochAndMetadata<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">val</span> coordinatorEpoch <span style="color:#66d9ef">=</span> epochAndMetadata<span style="color:#f92672">.</span>coordinatorEpoch  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">val</span> txnMetadata <span style="color:#66d9ef">=</span> epochAndMetadata<span style="color:#f92672">.</span>transactionMetadata  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// generate the new transaction metadata with added partitions  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        txnMetadata<span style="color:#f92672">.</span>inLock <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">Right</span><span style="color:#f92672">(</span>coordinatorEpoch<span style="color:#f92672">,</span> txnMetadata<span style="color:#f92672">.</span>prepareAddPartitions<span style="color:#f92672">(</span>partitions<span style="color:#f92672">.</span>toSet<span style="color:#f92672">,</span> time<span style="color:#f92672">.</span>milliseconds<span style="color:#f92672">()))</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    result <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Left</span><span style="color:#f92672">(</span>err<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Returning </span><span style="color:#e6db74">$err</span><span style="color:#e6db74"> error code to client for </span><span style="color:#e6db74">$transactionalId</span><span style="color:#e6db74">&#39;s AddPartitions request&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        responseCallback<span style="color:#f92672">(</span>err<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>	  <span style="color:#75715e">////2.1 将事务信息写入事务日志中
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Right</span><span style="color:#f92672">((</span>coordinatorEpoch<span style="color:#f92672">,</span> newMetadata<span style="color:#f92672">))</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        txnManager<span style="color:#f92672">.</span>appendTransactionToLog<span style="color:#f92672">(</span>transactionalId<span style="color:#f92672">,</span> coordinatorEpoch<span style="color:#f92672">,</span> newMetadata<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          responseCallback<span style="color:#f92672">,</span> requestLocal <span style="color:#66d9ef">=</span> requestLocal<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="46-handletxncommitoffsets">4.6. handleTxnCommitOffsets</h2>
+<p>TxnOffsetCommitRequest的请求处理逻辑由Group Coordinator进行处理，</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> handleTxnCommitOffsets<span style="color:#f92672">(</span>groupId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                           transactionalId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                           producerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                           producerEpoch<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Short</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                           memberId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                           groupInstanceId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                           generationId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                           offsetMetadata<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">immutable.Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicIdPartition</span>, <span style="color:#66d9ef">OffsetAndMetadata</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                           responseCallback<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">immutable.Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicIdPartition</span>, <span style="color:#66d9ef">Errors</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=&gt;</span> <span style="color:#a6e22e">Unit</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                           requestLocal<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestLocal</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">RequestLocal</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NoCaching</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                           apiVersion<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Short</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  validateGroupStatus<span style="color:#f92672">(</span>groupId<span style="color:#f92672">,</span> <span style="color:#a6e22e">ApiKeys</span><span style="color:#f92672">.</span><span style="color:#a6e22e">TXN_OFFSET_COMMIT</span><span style="color:#f92672">)</span> <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 验证消费者组的状态  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>error<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span> responseCallback<span style="color:#f92672">(</span>offsetMetadata<span style="color:#f92672">.</span>map <span style="color:#f92672">{</span> <span style="color:#66d9ef">case</span> <span style="color:#f92672">(</span>k<span style="color:#f92672">,</span> <span style="color:#66d9ef">_</span><span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span> k <span style="color:#f92672">-&gt;</span> error <span style="color:#f92672">})</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">None</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.2 获取消费者组信息  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">val</span> group <span style="color:#66d9ef">=</span> groupManager<span style="color:#f92672">.</span>getGroup<span style="color:#f92672">(</span>groupId<span style="color:#f92672">).</span>getOrElse <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        groupManager<span style="color:#f92672">.</span>addGroup<span style="color:#f92672">(</span><span style="color:#66d9ef">new</span> <span style="color:#a6e22e">GroupMetadata</span><span style="color:#f92672">(</span>groupId<span style="color:#f92672">,</span> <span style="color:#a6e22e">Empty</span><span style="color:#f92672">,</span> time<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//1.3 获取偏移主题分区信息  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">val</span> offsetTopicPartition <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">TopicPartition</span><span style="color:#f92672">(</span><span style="color:#a6e22e">Topic</span><span style="color:#f92672">.</span><span style="color:#a6e22e">GROUP_METADATA_TOPIC_NAME</span><span style="color:#f92672">,</span> partitionFor<span style="color:#f92672">(</span>group<span style="color:#f92672">.</span>groupId<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">def</span> postVerificationCallback<span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>        newRequestLocal<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestLocal</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        errorAndGuard<span style="color:#66d9ef">:</span> <span style="color:#f92672">(</span><span style="color:#66d9ef">Errors</span><span style="color:#f92672">,</span> <span style="color:#66d9ef">VerificationGuard</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">val</span> <span style="color:#f92672">(</span>error<span style="color:#f92672">,</span> verificationGuard<span style="color:#f92672">)</span> <span style="color:#66d9ef">=</span> errorAndGuard  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>error <span style="color:#f92672">!=</span> <span style="color:#a6e22e">Errors</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NONE</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">val</span> finalError <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">GroupMetadataManager</span><span style="color:#f92672">.</span>maybeConvertOffsetCommitError<span style="color:#f92672">(</span>error<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          responseCallback<span style="color:#f92672">(</span>offsetMetadata<span style="color:#f92672">.</span>map <span style="color:#f92672">{</span> <span style="color:#66d9ef">case</span> <span style="color:#f92672">(</span>k<span style="color:#f92672">,</span> <span style="color:#66d9ef">_</span><span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span> k <span style="color:#f92672">-&gt;</span> finalError <span style="color:#f92672">})</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">//2.1 存储事务提交偏移  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          doTxnCommitOffsets<span style="color:#f92672">(</span>group<span style="color:#f92672">,</span> memberId<span style="color:#f92672">,</span> groupInstanceId<span style="color:#f92672">,</span> generationId<span style="color:#f92672">,</span> producerId<span style="color:#f92672">,</span> producerEpoch<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            offsetTopicPartition<span style="color:#f92672">,</span> offsetMetadata<span style="color:#f92672">,</span> newRequestLocal<span style="color:#f92672">,</span> responseCallback<span style="color:#f92672">,</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>verificationGuard<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> transactionSupportedOperation <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>apiVersion <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">4</span><span style="color:#f92672">)</span> genericError <span style="color:#66d9ef">else</span> defaultError  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//3.1 检查topicPartition是否支持事务性写入  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      groupManager<span style="color:#f92672">.</span>replicaManager<span style="color:#f92672">.</span>maybeStartTransactionVerificationForPartition<span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>        topicPartition <span style="color:#66d9ef">=</span> offsetTopicPartition<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        transactionalId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        producerId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        producerEpoch<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">RecordBatch</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NO_SEQUENCE</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Wrap the callback to be handled on an arbitrary request handler thread  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// when transaction verification is complete. The request local passed in        // is only used when the callback is executed immediately.        
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">KafkaRequestHandler</span><span style="color:#f92672">.</span>wrapAsyncCallback<span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>          postVerificationCallback<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>          requestLocal  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">),</span>  
+</span></span><span style="display:flex;"><span>        transactionSupportedOperation  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>在实际写入消费记录时，会检查是否为事务提交：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>isTxnOffsetCommit<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  addProducerGroup<span style="color:#f92672">(</span>producerId<span style="color:#f92672">,</span> group<span style="color:#f92672">.</span>groupId<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  group<span style="color:#f92672">.</span>prepareTxnOffsetCommit<span style="color:#f92672">(</span>producerId<span style="color:#f92672">,</span> filteredOffsetMetadata<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  group<span style="color:#f92672">.</span>prepareOffsetCommit<span style="color:#f92672">(</span>filteredOffsetMetadata<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>提交的消费位移记录会暂时保存在map中，等执行结束/回滚事务时再执行相应操作：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> pendingTransactionalOffsetCommits <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> mutable<span style="color:#f92672">.</span><span style="color:#a6e22e">HashMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Long</span>, <span style="color:#66d9ef">mutable.Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicPartition</span>, <span style="color:#66d9ef">CommitRecordMetadataAndOffset</span><span style="color:#f92672">]]()</span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">def</span> prepareTxnOffsetCommit<span style="color:#f92672">(</span>producerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">,</span> offsets<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Map</span><span style="color:#f92672">[</span><span style="color:#66d9ef">TopicIdPartition</span>, <span style="color:#66d9ef">OffsetAndMetadata</span><span style="color:#f92672">])</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  trace<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;TxnOffsetCommit for producer </span><span style="color:#e6db74">$producerId</span><span style="color:#e6db74"> and group </span><span style="color:#e6db74">$groupId</span><span style="color:#e6db74"> with offsets </span><span style="color:#e6db74">$offsets</span><span style="color:#e6db74"> is pending&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  receivedTransactionalOffsetCommits <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">true</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> producerOffsets <span style="color:#66d9ef">=</span> pendingTransactionalOffsetCommits<span style="color:#f92672">.</span>getOrElseUpdate<span style="color:#f92672">(</span>producerId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    mutable<span style="color:#f92672">.</span><span style="color:#a6e22e">Map</span><span style="color:#f92672">.</span>empty<span style="color:#f92672">[</span><span style="color:#66d9ef">TopicPartition</span>, <span style="color:#66d9ef">CommitRecordMetadataAndOffset</span><span style="color:#f92672">])</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  offsets<span style="color:#f92672">.</span>forKeyValue <span style="color:#f92672">{</span> <span style="color:#f92672">(</span>topicIdPartition<span style="color:#f92672">,</span> offsetAndMetadata<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>    producerOffsets<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>topicIdPartition<span style="color:#f92672">.</span>topicPartition<span style="color:#f92672">,</span> <span style="color:#a6e22e">CommitRecordMetadataAndOffset</span><span style="color:#f92672">(</span><span style="color:#a6e22e">None</span><span style="color:#f92672">,</span> offsetAndMetadata<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="47-handleendtransaction">4.7. handleEndTransaction</h2>
+<p>EndTxnRequest请求由handleEndTransaction方法进行处理，主要分为以下步骤：</p>
+<ol>
+<li>更新事务元数据中的事务状态</li>
+<li>向TopicPartition的leader endpoint发送WriteTxnMarkerRequest</li>
+<li>将事务结果写入事务日志中</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> handleEndTransaction<span style="color:#f92672">(</span>transactionalId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         producerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         producerEpoch<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Short</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         txnMarkerResult<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">TransactionResult</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         responseCallback<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">EndTxnCallback</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                         requestLocal<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestLocal</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">RequestLocal</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NoCaching</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  endTransaction<span style="color:#f92672">(</span>transactionalId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    producerId<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    producerEpoch<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    txnMarkerResult<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    isFromClient <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">true</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    responseCallback<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    requestLocal<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="48-schedulehandletxncompletion">4.8. scheduleHandleTxnCompletion</h2>
+<p>WriteTxnMarkerRequest请求由leader partition所在的broker处理，异步执行更新group metadata中的消费进度kafka.coordinator.group.GroupMetadata#offsets。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> scheduleHandleTxnCompletion<span style="color:#f92672">(</span>producerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">,</span> completedPartitions<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Set</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Int</span><span style="color:#f92672">],</span> isCommit<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">CompletableFuture</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Void</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> future <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">CompletableFuture</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Void</span><span style="color:#f92672">]()</span>  
+</span></span><span style="display:flex;"><span>  scheduler<span style="color:#f92672">.</span>scheduleOnce<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;handleTxnCompletion-</span><span style="color:#e6db74">$producerId</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> <span style="color:#f92672">()</span> <span style="color:#66d9ef">=&gt;</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      handleTxnCompletion<span style="color:#f92672">(</span>producerId<span style="color:#f92672">,</span> completedPartitions<span style="color:#f92672">,</span> isCommit<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      future<span style="color:#f92672">.</span>complete<span style="color:#f92672">(</span><span style="color:#66d9ef">null</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span> future<span style="color:#f92672">.</span>completeExceptionally<span style="color:#f92672">(</span>e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">})</span>  
+</span></span><span style="display:flex;"><span>  future  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">group</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">def</span> handleTxnCompletion<span style="color:#f92672">(</span>producerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">,</span> completedPartitions<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Set</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Int</span><span style="color:#f92672">],</span> isCommit<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> pendingGroups <span style="color:#66d9ef">=</span> groupsBelongingToPartitions<span style="color:#f92672">(</span>producerId<span style="color:#f92672">,</span> completedPartitions<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  pendingGroups<span style="color:#f92672">.</span>foreach <span style="color:#f92672">{</span> groupId <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>    getGroup<span style="color:#f92672">(</span>groupId<span style="color:#f92672">)</span> <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>group<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span> group<span style="color:#f92672">.</span>inLock <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">(!</span>group<span style="color:#f92672">.</span>is<span style="color:#f92672">(</span><span style="color:#a6e22e">Dead</span><span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          group<span style="color:#f92672">.</span>completePendingTxnOffsetCommit<span style="color:#f92672">(</span>producerId<span style="color:#f92672">,</span> isCommit<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          removeProducerGroup<span style="color:#f92672">(</span>producerId<span style="color:#f92672">,</span> groupId<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#66d9ef">_</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Group </span><span style="color:#e6db74">$groupId</span><span style="color:#e6db74"> has moved away from </span><span style="color:#e6db74">$brokerId</span><span style="color:#e6db74"> after transaction marker was written but before the &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#e6db74">s&#34;cache was updated. The cache on the new group owner will be updated instead.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h1 id="5-reference">5. Reference</h1>
+<p><a href="https://nlogn.art/dive-into-kafka-design-part-3.html">深入 Kafka Core 的设计（事务篇） – K&rsquo;s Blog</a></p>
+<p><a href="https://developer.confluent.io/courses/architecture/transactions/">Kafka Transactional Support: How It Enables Exactly-Once Semantics</a></p>
+<p><a href="https://www.confluent.io/blog/transactions-apache-kafka/">Transactions in Apache Kafka | Confluent</a></p>
+<p><a href="https://matt33.com/2018/11/04/kafka-transaction/">Kafka Exactly-Once 之事务性实现 | Matt&rsquo;s Blog</a></p>
+<p><a href="https://zhmin.github.io/posts/kafka-transaction/">Kafka 事务实现原理 | 学习笔记</a></p>
+<p><a href="https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging">KIP-98 - Exactly Once Delivery and Transactional Messaging - Apache Kafka - Apache Software Foundation</a></p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+          <div class="post-comments">
+            <div id="disqus_thread"></div>
+<script>
+  window.addEventListener("load", () => {
+    (function() {
+      
+      var d = document,
+        s = d.createElement("script");
+      s.src = "https://evl1nker4.disqus.com/embed.js";
+      s.setAttribute("data-timestamp", +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  });
+</script>
+<noscript
+  >Please enable JavaScript to view the
+  <a href="https://disqus.com/?ref_noscript"
+    >comments powered by Disqus.</a
+  ></noscript
+>
+
+          </div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>
