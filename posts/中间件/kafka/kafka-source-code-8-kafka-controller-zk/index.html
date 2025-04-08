@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.145.0">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-8-kafka-controller-zk/" />
+  <link rel="canonical" href="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-8-kafka-controller-zk/" /><link rel="apple-touch-icon" href="/favicon.png" />
+  <link rel="icon" href="/favicon.png" />
+  <link rel="shortcut" href="/favicon.png" /><link rel="alternate" type="application/atom+xml" href="http://localhost:1313/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:1313\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Kafka源码分析(八)- KafkaController管理(ZK架构)",
+      "headline" : "Kafka源码分析(八)- KafkaController管理(ZK架构)",
+      "description" : "1. Intro Controller节点作为Kafka集群的管理节点，它负责为所有partition选举leader副本，并且负责存储和管理集群metadata。本文主要对core模块kafka.controller作简要分析。\n核心属性如下：\ncontrollerContext：集群metadata对象 controllerChannelManager：Controller端channel管理器，负责向其他Broker发送请求 kafkaScheduler：定时调度器 eventManager：Controller事件管理器，负责管理事件处理线程。 replicaStateMachine：副本状态机，负责副本状态转换。 partitionStateMachine：分区状态机，负责分区状态转换。 topicDeletionManager：主题删除管理器，负责删除主题及日志。 val controllerContext = new ControllerContext var controllerChannelManager = new ControllerChannelManager( () =\u0026gt; controllerContext.epoch, config, time, metrics, stateChangeLogger, threadNamePrefix ) \/\/ have a separate scheduler for the controller to be able to start and stop independently of the kafka server \/\/ visible for testing private[controller] val kafkaScheduler = new KafkaScheduler(1) \/\/ visible for testing private[controller] val eventManager = new ControllerEventManager(config.brokerId, this, time, controllerContext.stats.rateAndTimeMetrics) private val brokerRequestBatch = new ControllerBrokerRequestBatch(config, controllerChannelManager, eventManager, controllerContext, stateChangeLogger) val replicaStateMachine: ReplicaStateMachine = new ZkReplicaStateMachine(config, stateChangeLogger, controllerContext, zkClient, new ControllerBrokerRequestBatch(config, controllerChannelManager, eventManager, controllerContext, stateChangeLogger)) val partitionStateMachine: PartitionStateMachine = new ZkPartitionStateMachine(config, stateChangeLogger, controllerContext, zkClient, new ControllerBrokerRequestBatch(config, controllerChannelManager, eventManager, controllerContext, stateChangeLogger)) private val topicDeletionManager = new TopicDeletionManager(config, controllerContext, replicaStateMachine, partitionStateMachine, new ControllerDeletionClient(this, zkClient)) 2. metadata管理 通过kafka.controller.ControllerContext可以看到集群的所有metadata信息，核心字段如下：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2025",
+      "datePublished": "2025-04-08 10:38:13 \u002b0800 CST",
+      "dateModified" : "2025-04-08 10:38:13 \u002b0800 CST",
+      "url" : "http:\/\/localhost:1313\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/kafka\/kafka-source-code-8-kafka-controller-zk\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Kafka源码分析(八)- KafkaController管理(ZK架构)</title>
+  <meta property="og:title" content="Kafka源码分析(八)- KafkaController管理(ZK架构)" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="1. Intro Controller节点作为Kafka集群的管理节点，它负责为所有partition选举leader副本，并且负责存储和管理集群metadata。本文主要对core模块kafka.controller作简要分析。
+核心属性如下：
+controllerContext：集群metadata对象 controllerChannelManager：Controller端channel管理器，负责向其他Broker发送请求 kafkaScheduler：定时调度器 eventManager：Controller事件管理器，负责管理事件处理线程。 replicaStateMachine：副本状态机，负责副本状态转换。 partitionStateMachine：分区状态机，负责分区状态转换。 topicDeletionManager：主题删除管理器，负责删除主题及日志。 val controllerContext = new ControllerContext var controllerChannelManager = new ControllerChannelManager( () =&gt; controllerContext.epoch, config, time, metrics, stateChangeLogger, threadNamePrefix ) // have a separate scheduler for the controller to be able to start and stop independently of the kafka server // visible for testing private[controller] val kafkaScheduler = new KafkaScheduler(1) // visible for testing private[controller] val eventManager = new ControllerEventManager(config.brokerId, this, time, controllerContext.stats.rateAndTimeMetrics) private val brokerRequestBatch = new ControllerBrokerRequestBatch(config, controllerChannelManager, eventManager, controllerContext, stateChangeLogger) val replicaStateMachine: ReplicaStateMachine = new ZkReplicaStateMachine(config, stateChangeLogger, controllerContext, zkClient, new ControllerBrokerRequestBatch(config, controllerChannelManager, eventManager, controllerContext, stateChangeLogger)) val partitionStateMachine: PartitionStateMachine = new ZkPartitionStateMachine(config, stateChangeLogger, controllerContext, zkClient, new ControllerBrokerRequestBatch(config, controllerChannelManager, eventManager, controllerContext, stateChangeLogger)) private val topicDeletionManager = new TopicDeletionManager(config, controllerContext, replicaStateMachine, partitionStateMachine, new ControllerDeletionClient(this, zkClient)) 2. metadata管理 通过kafka.controller.ControllerContext可以看到集群的所有metadata信息，核心字段如下：
+" />
+  <meta name="description" content="1. Intro Controller节点作为Kafka集群的管理节点，它负责为所有partition选举leader副本，并且负责存储和管理集群metadata。本文主要对core模块kafka.controller作简要分析。
+核心属性如下：
+controllerContext：集群metadata对象 controllerChannelManager：Controller端channel管理器，负责向其他Broker发送请求 kafkaScheduler：定时调度器 eventManager：Controller事件管理器，负责管理事件处理线程。 replicaStateMachine：副本状态机，负责副本状态转换。 partitionStateMachine：分区状态机，负责分区状态转换。 topicDeletionManager：主题删除管理器，负责删除主题及日志。 val controllerContext = new ControllerContext var controllerChannelManager = new ControllerChannelManager( () =&gt; controllerContext.epoch, config, time, metrics, stateChangeLogger, threadNamePrefix ) // have a separate scheduler for the controller to be able to start and stop independently of the kafka server // visible for testing private[controller] val kafkaScheduler = new KafkaScheduler(1) // visible for testing private[controller] val eventManager = new ControllerEventManager(config.brokerId, this, time, controllerContext.stats.rateAndTimeMetrics) private val brokerRequestBatch = new ControllerBrokerRequestBatch(config, controllerChannelManager, eventManager, controllerContext, stateChangeLogger) val replicaStateMachine: ReplicaStateMachine = new ZkReplicaStateMachine(config, stateChangeLogger, controllerContext, zkClient, new ControllerBrokerRequestBatch(config, controllerChannelManager, eventManager, controllerContext, stateChangeLogger)) val partitionStateMachine: PartitionStateMachine = new ZkPartitionStateMachine(config, stateChangeLogger, controllerContext, zkClient, new ControllerBrokerRequestBatch(config, controllerChannelManager, eventManager, controllerContext, stateChangeLogger)) private val topicDeletionManager = new TopicDeletionManager(config, controllerContext, replicaStateMachine, partitionStateMachine, new ControllerDeletionClient(this, zkClient)) 2. metadata管理 通过kafka.controller.ControllerContext可以看到集群的所有metadata信息，核心字段如下：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="/favicon.png" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:85%;background-color:inherit;border:0;font-family:SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4&#39;s Blog</a
+    >
+  </div>
+  <div class="header-subtitle">提升认知，解构世界，行有不得，反求诸己</div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Kafka源码分析(八)- KafkaController管理(ZK架构)</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2025-04-08 10:38:13 CST">
+                08 Apr 2025
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="1-intro">1. Intro</h1>
+<p>Controller节点作为Kafka集群的管理节点，它负责为所有partition选举leader副本，并且负责存储和管理集群metadata。本文主要对core模块kafka.controller作简要分析。</p>
+<p>核心属性如下：</p>
+<ul>
+<li><strong>controllerContext</strong>：集群metadata对象</li>
+<li><strong>controllerChannelManager</strong>：Controller端channel管理器，负责向其他Broker发送请求</li>
+<li><strong>kafkaScheduler</strong>：定时调度器</li>
+<li><strong>eventManager</strong>：Controller事件管理器，负责管理事件处理线程。</li>
+<li><strong>replicaStateMachine</strong>：副本状态机，负责副本状态转换。</li>
+<li><strong>partitionStateMachine</strong>：分区状态机，负责分区状态转换。</li>
+<li><strong>topicDeletionManager</strong>：主题删除管理器，负责删除主题及日志。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">val</span> controllerContext <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ControllerContext</span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">var</span> controllerChannelManager <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ControllerChannelManager</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">()</span> <span style="color:#66d9ef">=&gt;</span> controllerContext<span style="color:#f92672">.</span>epoch<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  config<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  time<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  metrics<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  stateChangeLogger<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  threadNamePrefix  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// have a separate scheduler for the controller to be able to start and stop independently of the kafka server  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// visible for testing  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">controller</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">val</span> kafkaScheduler <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">KafkaScheduler</span><span style="color:#f92672">(</span><span style="color:#ae81ff">1</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// visible for testing  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">controller</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">val</span> eventManager <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ControllerEventManager</span><span style="color:#f92672">(</span>config<span style="color:#f92672">.</span>brokerId<span style="color:#f92672">,</span> <span style="color:#66d9ef">this</span><span style="color:#f92672">,</span> time<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  controllerContext<span style="color:#f92672">.</span>stats<span style="color:#f92672">.</span>rateAndTimeMetrics<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> brokerRequestBatch <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ControllerBrokerRequestBatch</span><span style="color:#f92672">(</span>config<span style="color:#f92672">,</span> controllerChannelManager<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  eventManager<span style="color:#f92672">,</span> controllerContext<span style="color:#f92672">,</span> stateChangeLogger<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">val</span> replicaStateMachine<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ReplicaStateMachine</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ZkReplicaStateMachine</span><span style="color:#f92672">(</span>config<span style="color:#f92672">,</span> stateChangeLogger<span style="color:#f92672">,</span> controllerContext<span style="color:#f92672">,</span> zkClient<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ControllerBrokerRequestBatch</span><span style="color:#f92672">(</span>config<span style="color:#f92672">,</span> controllerChannelManager<span style="color:#f92672">,</span> eventManager<span style="color:#f92672">,</span> controllerContext<span style="color:#f92672">,</span> stateChangeLogger<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">val</span> partitionStateMachine<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">PartitionStateMachine</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ZkPartitionStateMachine</span><span style="color:#f92672">(</span>config<span style="color:#f92672">,</span> stateChangeLogger<span style="color:#f92672">,</span> controllerContext<span style="color:#f92672">,</span> zkClient<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ControllerBrokerRequestBatch</span><span style="color:#f92672">(</span>config<span style="color:#f92672">,</span> controllerChannelManager<span style="color:#f92672">,</span> eventManager<span style="color:#f92672">,</span> controllerContext<span style="color:#f92672">,</span> stateChangeLogger<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> topicDeletionManager <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">TopicDeletionManager</span><span style="color:#f92672">(</span>config<span style="color:#f92672">,</span> controllerContext<span style="color:#f92672">,</span> replicaStateMachine<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  partitionStateMachine<span style="color:#f92672">,</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ControllerDeletionClient</span><span style="color:#f92672">(</span><span style="color:#66d9ef">this</span><span style="color:#f92672">,</span> zkClient<span style="color:#f92672">))</span>
+</span></span></code></pre></div><h1 id="2-metadata管理">2. metadata管理</h1>
+<p>通过kafka.controller.ControllerContext可以看到集群的所有metadata信息，核心字段如下：</p>
+<ul>
+<li><strong>ControllerStats</strong>：Controller的统计指标</li>
+<li><strong>offlinePartitionCount</strong>：当前集群中不可用partition数量</li>
+<li><strong>shuttingDownBrokerIds</strong>：正在关闭的broker id列表</li>
+<li><strong>liveBrokers</strong>：当前运行中的Broker对象</li>
+<li><strong>liveBrokerEpochs</strong>：保存运行中Broker的Epoch信息，集群选举时用于判断。</li>
+<li>epoch、epochZkVersion：当前集群controller的epoch值。其中epoch是ZK中<code>/controller_epoch</code>节点的值，epochZkVersion是<code>/controller_epoch</code>节点的dataVersion值。</li>
+<li><strong>allTopics</strong>：存储当前集群所有的topic名称</li>
+<li><strong>partitionAssignments</strong>：保存所有partition副本分配情况，结构为<code>mutable.Map.empty[String, mutable.Map[Int, ReplicaAssignment]]</code>，第一层key为topicName，第二层key为partition序号，第二层value为ReplicaAssignment对象</li>
+</ul>
+<h2 id="21-initializecontrollercontext">2.1. initializeControllerContext</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> initializeControllerContext<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// 1.1 获取所有broker和epoch信息  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> curBrokerAndEpochs <span style="color:#66d9ef">=</span> zkClient<span style="color:#f92672">.</span>getAllBrokerAndEpochsInCluster  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> <span style="color:#f92672">(</span>compatibleBrokerAndEpochs<span style="color:#f92672">,</span> incompatibleBrokerAndEpochs<span style="color:#f92672">)</span> <span style="color:#66d9ef">=</span> partitionOnFeatureCompatibility<span style="color:#f92672">(</span>curBrokerAndEpochs<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>incompatibleBrokerAndEpochs<span style="color:#f92672">.</span>nonEmpty<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    warn<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Ignoring registration of new brokers due to incompatibilities with finalized features: &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>      incompatibleBrokerAndEpochs<span style="color:#f92672">.</span>map <span style="color:#f92672">{</span> <span style="color:#66d9ef">case</span> <span style="color:#f92672">(</span>broker<span style="color:#f92672">,</span> <span style="color:#66d9ef">_</span><span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span> broker<span style="color:#f92672">.</span>id <span style="color:#f92672">}.</span>toSeq<span style="color:#f92672">.</span>sorted<span style="color:#f92672">.</span>mkString<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;,&#34;</span><span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  controllerContext<span style="color:#f92672">.</span>setLiveBrokers<span style="color:#f92672">(</span>compatibleBrokerAndEpochs<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Initialized broker epochs cache: </span><span style="color:#e6db74">${</span>controllerContext<span style="color:#f92672">.</span>liveBrokerIdAndEpochs<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  controllerContext<span style="color:#f92672">.</span>setAllTopics<span style="color:#f92672">(</span>zkClient<span style="color:#f92672">.</span>getAllTopicsInCluster<span style="color:#f92672">(</span><span style="color:#66d9ef">true</span><span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>  registerPartitionModificationsHandlers<span style="color:#f92672">(</span>controllerContext<span style="color:#f92672">.</span>allTopics<span style="color:#f92672">.</span>toSeq<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> replicaAssignmentAndTopicIds <span style="color:#66d9ef">=</span> zkClient<span style="color:#f92672">.</span>getReplicaAssignmentAndTopicIdForTopics<span style="color:#f92672">(</span>controllerContext<span style="color:#f92672">.</span>allTopics<span style="color:#f92672">.</span>toSet<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  processTopicIds<span style="color:#f92672">(</span>replicaAssignmentAndTopicIds<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  replicaAssignmentAndTopicIds<span style="color:#f92672">.</span>foreach <span style="color:#f92672">{</span> <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">TopicIdReplicaAssignment</span><span style="color:#f92672">(</span><span style="color:#66d9ef">_</span><span style="color:#f92672">,</span> <span style="color:#66d9ef">_</span><span style="color:#f92672">,</span> assignments<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>    assignments<span style="color:#f92672">.</span>foreach <span style="color:#f92672">{</span> <span style="color:#66d9ef">case</span> <span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">,</span> replicaAssignment<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>      controllerContext<span style="color:#f92672">.</span>updatePartitionFullReplicaAssignment<span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">,</span> replicaAssignment<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>replicaAssignment<span style="color:#f92672">.</span>isBeingReassigned<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        controllerContext<span style="color:#f92672">.</span>partitionsBeingReassigned<span style="color:#f92672">.</span>add<span style="color:#f92672">(</span>topicPartition<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  controllerContext<span style="color:#f92672">.</span>clearPartitionLeadershipInfo<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  controllerContext<span style="color:#f92672">.</span>shuttingDownBrokerIds<span style="color:#f92672">.</span>clear<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// register broker modifications handlers  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  registerBrokerModificationsHandler<span style="color:#f92672">(</span>controllerContext<span style="color:#f92672">.</span>liveOrShuttingDownBrokerIds<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// update the leader and isr cache for all existing partitions from Zookeeper  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  updateLeaderAndIsrCache<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// start the channel manager  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  controllerChannelManager<span style="color:#f92672">.</span>startup<span style="color:#f92672">(</span>controllerContext<span style="color:#f92672">.</span>liveOrShuttingDownBrokers<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Currently active brokers in the cluster: </span><span style="color:#e6db74">${</span>controllerContext<span style="color:#f92672">.</span>liveBrokerIds<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Currently shutting brokers in the cluster: </span><span style="color:#e6db74">${</span>controllerContext<span style="color:#f92672">.</span>shuttingDownBrokerIds<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Current list of topics in the cluster: </span><span style="color:#e6db74">${</span>controllerContext<span style="color:#f92672">.</span>allTopics<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h1 id="3-controller通信逻辑">3. Controller通信逻辑</h1>
+<p>ControllerChannelManager用来管理Controller与其他Broker通信channel，与每一个Broker创建通信线程用于消息传递。</p>
+<p>其中brokerStateInfo用于存储Broker Id到ControllerBrokerStateInfo结构的映射：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">val</span> brokerStateInfo <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> mutable<span style="color:#f92672">.</span><span style="color:#a6e22e">HashMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Int</span>, <span style="color:#66d9ef">ControllerBrokerStateInfo</span><span style="color:#f92672">]</span>
+</span></span></code></pre></div><p>ControllerBrokerStateInfo结构如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">case</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ControllerBrokerStateInfo</span><span style="color:#f92672">(</span>networkClient<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">NetworkClient</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                     brokerNode<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Node</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                     messageQueue<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">BlockingQueue</span><span style="color:#f92672">[</span><span style="color:#66d9ef">QueueItem</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                                     requestSendThread<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">RequestSendThread</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                     queueSizeGauge<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Gauge</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Int</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>                                     requestRateAndTimeMetrics<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Timer</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                                     reconfigurableChannelBuilder<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">Reconfigurable</span><span style="color:#f92672">])</span>
+</span></span></code></pre></div><p>关键字段：</p>
+<ul>
+<li><strong>brokerNode</strong>：目标Broker节点，封装了Broker的连接信息，比如host、port等信息</li>
+<li><strong>messageQueue</strong>：请求消息阻塞队列</li>
+<li><strong>requestSendThread</strong>：Controller使用该线程给目标Broker发送请求</li>
+</ul>
+<h2 id="31-requestsendthread">3.1. RequestSendThread</h2>
+<p>RequestSendThread的构造方法如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">RequestSendThread</span><span style="color:#f92672">(</span><span style="color:#66d9ef">val</span> controllerId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">,</span>    <span style="color:#75715e">//controller的broker id  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                        controllerEpoch<span style="color:#66d9ef">:</span> <span style="color:#f92672">()</span> <span style="color:#f92672">=&gt;</span> <span style="color:#a6e22e">Int</span><span style="color:#f92672">,</span>     <span style="color:#75715e">//当前controller epoch  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                        <span style="color:#66d9ef">val</span> queue<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">BlockingQueue</span><span style="color:#f92672">[</span><span style="color:#66d9ef">QueueItem</span><span style="color:#f92672">],</span>  <span style="color:#75715e">//请求阻塞队列  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                        <span style="color:#66d9ef">val</span> networkClient<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">NetworkClient</span><span style="color:#f92672">,</span> <span style="color:#75715e">//执行网络IO的客户端  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                        <span style="color:#66d9ef">val</span> brokerNode<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Node</span><span style="color:#f92672">,</span>     <span style="color:#75715e">//broker节点  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                        <span style="color:#66d9ef">val</span> config<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">KafkaConfig</span><span style="color:#f92672">,</span>    <span style="color:#75715e">//配置信息  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                        <span style="color:#66d9ef">val</span> time<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Time</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                        <span style="color:#66d9ef">val</span> requestRateAndQueueTimeMetrics<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Timer</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                        <span style="color:#66d9ef">val</span> stateChangeLogger<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">StateChangeLogger</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                        name<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">)</span>
+</span></span></code></pre></div><p>线程处理逻辑如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> doWork<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">def</span> backoff<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> pause<span style="color:#f92672">(</span><span style="color:#ae81ff">100</span><span style="color:#f92672">,</span> <span style="color:#a6e22e">TimeUnit</span><span style="color:#f92672">.</span><span style="color:#a6e22e">MILLISECONDS</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 从阻塞队列中获取请求  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> <span style="color:#a6e22e">QueueItem</span><span style="color:#f92672">(</span>apiKey<span style="color:#f92672">,</span> requestBuilder<span style="color:#f92672">,</span> callback<span style="color:#f92672">,</span> enqueueTimeMs<span style="color:#f92672">)</span> <span style="color:#66d9ef">=</span> queue<span style="color:#f92672">.</span>take<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.2 更新监控指标  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  requestRateAndQueueTimeMetrics<span style="color:#f92672">.</span>update<span style="color:#f92672">(</span>time<span style="color:#f92672">.</span>milliseconds<span style="color:#f92672">()</span> <span style="color:#f92672">-</span> enqueueTimeMs<span style="color:#f92672">,</span> <span style="color:#a6e22e">TimeUnit</span><span style="color:#f92672">.</span><span style="color:#a6e22e">MILLISECONDS</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">var</span> clientResponse<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ClientResponse</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> isSendSuccessful <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">false</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span> <span style="color:#f92672">(</span>isRunning <span style="color:#f92672">&amp;&amp;</span> <span style="color:#f92672">!</span>isSendSuccessful<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// if a broker goes down for a long time, then at some point the controller&#39;s zookeeper listener will trigger a  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#75715e">// removeBroker which will invoke shutdown() on this thread. At that point, we will stop retrying.      try {  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">//2.1 检查与broker是否已经建立连接  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">(!</span>brokerReady<span style="color:#f92672">())</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          isSendSuccessful <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">false</span>  
+</span></span><span style="display:flex;"><span>          backoff<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">//2.2 发送请求，等待接收response  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          <span style="color:#66d9ef">val</span> clientRequest <span style="color:#66d9ef">=</span> networkClient<span style="color:#f92672">.</span>newClientRequest<span style="color:#f92672">(</span>brokerNode<span style="color:#f92672">.</span>idString<span style="color:#f92672">,</span> requestBuilder<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>            time<span style="color:#f92672">.</span>milliseconds<span style="color:#f92672">(),</span> <span style="color:#66d9ef">true</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          clientResponse <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">NetworkClientUtils</span><span style="color:#f92672">.</span>sendAndReceive<span style="color:#f92672">(</span>networkClient<span style="color:#f92672">,</span> clientRequest<span style="color:#f92672">,</span> time<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          isSendSuccessful <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">true</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span> <span style="color:#75715e">// if the send was not successful, reconnect to broker and resend the message  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          warn<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Controller </span><span style="color:#e6db74">$controllerId</span><span style="color:#e6db74"> epoch </span><span style="color:#e6db74">${</span>controllerEpoch<span style="color:#f92672">()</span><span style="color:#e6db74">}</span><span style="color:#e6db74"> fails to send request &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">s&#34;</span><span style="color:#e6db74">$requestBuilder</span><span style="color:#e6db74"> &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">s&#34;to broker </span><span style="color:#e6db74">$brokerNode</span><span style="color:#e6db74">. Reconnecting to broker.&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          networkClient<span style="color:#f92672">.</span>close<span style="color:#f92672">(</span>brokerNode<span style="color:#f92672">.</span>idString<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>          isSendSuccessful <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">false</span>  
+</span></span><span style="display:flex;"><span>          backoff<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//3.1 如果接收到response  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>clientResponse <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> requestHeader <span style="color:#66d9ef">=</span> clientResponse<span style="color:#f92672">.</span>requestHeader  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> api <span style="color:#66d9ef">=</span> requestHeader<span style="color:#f92672">.</span>apiKey  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//3.2 如果不是leaderAndIsr, stopReplica, updateMetadata请求，则抛出异常  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>api <span style="color:#f92672">!=</span> <span style="color:#a6e22e">ApiKeys</span><span style="color:#f92672">.</span><span style="color:#a6e22e">LEADER_AND_ISR</span> <span style="color:#f92672">&amp;&amp;</span> api <span style="color:#f92672">!=</span> <span style="color:#a6e22e">ApiKeys</span><span style="color:#f92672">.</span><span style="color:#a6e22e">STOP_REPLICA</span> <span style="color:#f92672">&amp;&amp;</span> api <span style="color:#f92672">!=</span> <span style="color:#a6e22e">ApiKeys</span><span style="color:#f92672">.</span><span style="color:#a6e22e">UPDATE_METADATA</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">KafkaException</span><span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Unexpected apiKey received: </span><span style="color:#e6db74">$apiKey</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">val</span> response <span style="color:#66d9ef">=</span> clientResponse<span style="color:#f92672">.</span>responseBody  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      stateChangeLogger<span style="color:#f92672">.</span>withControllerEpoch<span style="color:#f92672">(</span>controllerEpoch<span style="color:#f92672">()).</span>trace<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Received response &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">s&#34;</span><span style="color:#e6db74">$response</span><span style="color:#e6db74"> for request </span><span style="color:#e6db74">$api</span><span style="color:#e6db74"> with correlation id &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">s&#34;</span><span style="color:#e6db74">${</span>requestHeader<span style="color:#f92672">.</span>correlationId<span style="color:#e6db74">}</span><span style="color:#e6db74"> sent to broker </span><span style="color:#e6db74">$brokerNode</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>	  <span style="color:#75715e">//3.3 调用callback
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>callback <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>        callback<span style="color:#f92672">(</span>response<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>      error<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Controller </span><span style="color:#e6db74">$controllerId</span><span style="color:#e6db74"> fails to send a request to broker </span><span style="color:#e6db74">$brokerNode</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// If there is any socket error (eg, socket timeout), the connection is no longer usable and needs to be recreated.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      networkClient<span style="color:#f92672">.</span>close<span style="color:#f92672">(</span>brokerNode<span style="color:#f92672">.</span>idString<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h1 id="4-controller事件处理逻辑">4. Controller事件处理逻辑</h1>
+<p>ControllerEventManager用于处理Controller端事件的管理器，它是事件驱动模式，与前文AsyncKafkaConsumer的思想类似。</p>
+<h2 id="41-controllerevent">4.1. ControllerEvent</h2>
+<p>先来看下ControllerEvent接口，它是对于Controller事件的封装trait：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">sealed</span> <span style="color:#66d9ef">trait</span> <span style="color:#a6e22e">ControllerEvent</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">def</span> state<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerState</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// preempt() is not executed by `ControllerEventThread` but by the main thread.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">def</span> preempt<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">sealed</span> <span style="color:#66d9ef">abstract</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ControllerState</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">def</span> value<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Byte</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">def</span> rateAndTimeMetricName<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">String</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>hasRateAndTimeMetric<span style="color:#f92672">)</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;</span><span style="color:#e6db74">${</span>toString<span style="color:#e6db74">}</span><span style="color:#e6db74">RateAndTimeMs&#34;</span><span style="color:#f92672">)</span> <span style="color:#66d9ef">else</span> <span style="color:#a6e22e">None</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">protected</span> <span style="color:#66d9ef">def</span> hasRateAndTimeMetric<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Boolean</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">true</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>state为Controller状态，相关事件触发后会更改对应状态。</p>
+<h2 id="42-controllereventprocessor">4.2. ControllerEventProcessor</h2>
+<p>ControllerEventProcessor是用来处理各类Controller事件的处理器，目前实现类只有kafka.controller.KafkaController，它提供了两个基础方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">trait</span> <span style="color:#a6e22e">ControllerEventProcessor</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//接收一个Controller事件，并进行处理
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">def</span> process<span style="color:#f92672">(</span>event<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerEvent</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//接收Controller事件，并抢占队列，优先处理
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">def</span> preempt<span style="color:#f92672">(</span>event<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerEvent</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>实现类KafkaController中的process方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> process<span style="color:#f92672">(</span>event<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerEvent</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    event <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> event<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">MockEvent</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Used only in test cases  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        event<span style="color:#f92672">.</span>process<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">ShutdownEventThread</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        error<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Received a ShutdownEventThread event. This type of event is supposed to be handle by ControllerEventThread&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">AutoPreferredReplicaLeaderElection</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        processAutoPreferredReplicaLeaderElection<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">ReplicaLeaderElection</span><span style="color:#f92672">(</span>partitions<span style="color:#f92672">,</span> electionType<span style="color:#f92672">,</span> electionTrigger<span style="color:#f92672">,</span> callback<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        processReplicaLeaderElection<span style="color:#f92672">(</span>partitions<span style="color:#f92672">,</span> electionType<span style="color:#f92672">,</span> electionTrigger<span style="color:#f92672">,</span> callback<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">UncleanLeaderElectionEnable</span> <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        processUncleanLeaderElectionEnable<span style="color:#f92672">()</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="43-controllereventmanager">4.3. ControllerEventManager</h2>
+<p>ControllerEventManager是处理事件逻辑的管理器，内部存储了事件处理线程、阻塞队列：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#a6e22e">@volatile</span> <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">_state</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerState</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">ControllerState</span><span style="color:#f92672">.</span><span style="color:#a6e22e">Idle</span>  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> putLock <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ReentrantLock</span><span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> queue <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">LinkedBlockingQueue</span><span style="color:#f92672">[</span><span style="color:#66d9ef">QueuedEvent</span><span style="color:#f92672">]</span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Visible for test  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">private</span><span style="color:#f92672">[</span><span style="color:#66d9ef">controller</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">var</span> thread <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ControllerEventThread</span><span style="color:#f92672">(</span><span style="color:#a6e22e">ControllerEventThreadName</span><span style="color:#f92672">)</span>
+</span></span></code></pre></div><p>队列元素QueuedEvent中会存储ControllerEvent，并且定义了process、preempt、awaitProcessing方法，具体是通过调用ControllerEventProcessor对应方法来实现。通过spent变量，标记event是否已经执行。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">QueuedEvent</span><span style="color:#f92672">(</span><span style="color:#66d9ef">val</span> event<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerEvent</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>                  <span style="color:#66d9ef">val</span> enqueueTimeMs<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Long</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> processingStarted <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">CountDownLatch</span><span style="color:#f92672">(</span><span style="color:#ae81ff">1</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> spent <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">AtomicBoolean</span><span style="color:#f92672">(</span><span style="color:#66d9ef">false</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">def</span> process<span style="color:#f92672">(</span>processor<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerEventProcessor</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>spent<span style="color:#f92672">.</span>getAndSet<span style="color:#f92672">(</span><span style="color:#66d9ef">true</span><span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span>  
+</span></span><span style="display:flex;"><span>    processingStarted<span style="color:#f92672">.</span>countDown<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>    processor<span style="color:#f92672">.</span>process<span style="color:#f92672">(</span>event<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">def</span> preempt<span style="color:#f92672">(</span>processor<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerEventProcessor</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>spent<span style="color:#f92672">.</span>getAndSet<span style="color:#f92672">(</span><span style="color:#66d9ef">true</span><span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span>  
+</span></span><span style="display:flex;"><span>    processor<span style="color:#f92672">.</span>preempt<span style="color:#f92672">(</span>event<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">def</span> awaitProcessing<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    processingStarted<span style="color:#f92672">.</span>await<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> toString<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">s&#34;QueuedEvent(event=</span><span style="color:#e6db74">$event</span><span style="color:#e6db74">, enqueueTimeMs=</span><span style="color:#e6db74">$enqueueTimeMs</span><span style="color:#e6db74">)&#34;</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>put方法用于将ControllerEvent包装后并写入blockingQueue。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> put<span style="color:#f92672">(</span>event<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerEvent</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">QueuedEvent</span> <span style="color:#f92672">=</span> inLock<span style="color:#f92672">(</span>putLock<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> queuedEvent <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">QueuedEvent</span><span style="color:#f92672">(</span>event<span style="color:#f92672">,</span> time<span style="color:#f92672">.</span>milliseconds<span style="color:#f92672">())</span>  
+</span></span><span style="display:flex;"><span>  queue<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span>queuedEvent<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  queuedEvent  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">def</span> clearAndPut<span style="color:#f92672">(</span>event<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerEvent</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">QueuedEvent</span> <span style="color:#f92672">=</span> inLock<span style="color:#f92672">(</span>putLock<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> preemptedEvents <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">new</span> util<span style="color:#f92672">.</span><span style="color:#a6e22e">ArrayList</span><span style="color:#f92672">[</span><span style="color:#66d9ef">QueuedEvent</span><span style="color:#f92672">]()</span>  
+</span></span><span style="display:flex;"><span>  queue<span style="color:#f92672">.</span>drainTo<span style="color:#f92672">(</span>preemptedEvents<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  preemptedEvents<span style="color:#f92672">.</span>forEach<span style="color:#f92672">(</span><span style="color:#66d9ef">_</span><span style="color:#f92672">.</span>preempt<span style="color:#f92672">(</span>processor<span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span>  put<span style="color:#f92672">(</span>event<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="44-controllereventthread">4.4. ControllerEventThread</h2>
+<p>ControllerEventThread事件处理线程直接调用QueuedEvent的process方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ControllerEventThread</span><span style="color:#f92672">(</span>name<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">extends</span> <span style="color:#a6e22e">ShutdownableThread</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>    name<span style="color:#f92672">,</span> <span style="color:#66d9ef">false</span><span style="color:#f92672">,</span> <span style="color:#e6db74">s&#34;[ControllerEventThread controllerId=</span><span style="color:#e6db74">$controllerId</span><span style="color:#e6db74">] &#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">with</span> <span style="color:#a6e22e">Logging</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  logIdent <span style="color:#66d9ef">=</span> logPrefix  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> doWork<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">val</span> dequeued <span style="color:#66d9ef">=</span> pollFromEventQueue<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>    dequeued<span style="color:#f92672">.</span>event <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">ShutdownEventThread</span> <span style="color:#66d9ef">=&gt;</span> <span style="color:#75715e">// The shutting down of the thread has been initiated at this point. Ignore this event.  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> controllerEvent <span style="color:#66d9ef">=&gt;</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">_state</span> <span style="color:#66d9ef">=</span> controllerEvent<span style="color:#f92672">.</span>state  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        eventQueueTimeHist<span style="color:#f92672">.</span>update<span style="color:#f92672">(</span>time<span style="color:#f92672">.</span>milliseconds<span style="color:#f92672">()</span> <span style="color:#f92672">-</span> dequeued<span style="color:#f92672">.</span>enqueueTimeMs<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">def</span> process<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> dequeued<span style="color:#f92672">.</span>process<span style="color:#f92672">(</span>processor<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>          rateAndTimeMetrics<span style="color:#f92672">.</span>get<span style="color:#f92672">(</span>state<span style="color:#f92672">)</span> <span style="color:#66d9ef">match</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span>timer<span style="color:#f92672">)</span> <span style="color:#66d9ef">=&gt;</span> timer<span style="color:#f92672">.</span>time<span style="color:#f92672">(()</span> <span style="color:#66d9ef">=&gt;</span> process<span style="color:#f92672">())</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">None</span> <span style="color:#66d9ef">=&gt;</span> process<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span> error<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Uncaught error processing event </span><span style="color:#e6db74">$controllerEvent</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">_state</span> <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">ControllerState</span><span style="color:#f92672">.</span><span style="color:#a6e22e">Idle</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h1 id="5-基于zookeeper选举">5. 基于Zookeeper选举</h1>
+<p>Zookeeper作为注册中心时，选举是通过创建<code>/controller</code>临时节点实现的，并能通过ZK提供的临时节点watch机制，在controller宕机下线时，触发重新选举。</p>
+<p>触发选举的场景有三种：集群刚启动时、<code>/controller</code>节点被删除或节点数据变更时。</p>
+<p>ControllerChangeHandler继承自ZNodeChangeHandler，这是用于处理Znode变化的callback类：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ControllerChangeHandler</span><span style="color:#f92672">(</span>eventManager<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerEventManager</span><span style="color:#f92672">)</span> <span style="color:#66d9ef">extends</span> <span style="color:#a6e22e">ZNodeChangeHandler</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">override</span> <span style="color:#66d9ef">val</span> path<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">String</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">ControllerZNode</span><span style="color:#f92672">.</span>path  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> handleCreation<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> eventManager<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span><span style="color:#a6e22e">ControllerChange</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> handleDeletion<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> eventManager<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span><span style="color:#a6e22e">Reelect</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> handleDataChange<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> eventManager<span style="color:#f92672">.</span>put<span style="color:#f92672">(</span><span style="color:#a6e22e">ControllerChange</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>elect方法逻辑较为简单，其中调用的onControllerFailover方法会完成context初始化、分区、副本状态机初始化等工作：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">def</span> elect<span style="color:#f92672">()</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Unit</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  activeControllerId <span style="color:#66d9ef">=</span> zkClient<span style="color:#f92672">.</span>getControllerId<span style="color:#f92672">.</span>getOrElse<span style="color:#f92672">(-</span><span style="color:#ae81ff">1</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/*  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">   * We can get here during the initial startup and the handleDeleted ZK callback. Because of the potential race condition,   * it&#39;s possible that the controller has already been elected when we get here. This check will prevent the following   * createEphemeralPath method from getting into an infinite loop if this broker is already the controller.   */</span>  <span style="color:#75715e">//1.1 检查zk中是否已经有活跃controller  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>activeControllerId <span style="color:#f92672">!=</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Broker </span><span style="color:#e6db74">$activeControllerId</span><span style="color:#e6db74"> has been elected as the controller, so stopping the election process.&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 尝试注册controller  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">val</span> <span style="color:#f92672">(</span>epoch<span style="color:#f92672">,</span> epochZkVersion<span style="color:#f92672">)</span> <span style="color:#66d9ef">=</span> zkClient<span style="color:#f92672">.</span>registerControllerAndIncrementControllerEpoch<span style="color:#f92672">(</span>config<span style="color:#f92672">.</span>brokerId<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    controllerContext<span style="color:#f92672">.</span>epoch <span style="color:#66d9ef">=</span> epoch  
+</span></span><span style="display:flex;"><span>    controllerContext<span style="color:#f92672">.</span>epochZkVersion <span style="color:#66d9ef">=</span> epochZkVersion  
+</span></span><span style="display:flex;"><span>    activeControllerId <span style="color:#66d9ef">=</span> config<span style="color:#f92672">.</span>brokerId  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;</span><span style="color:#e6db74">${</span>config<span style="color:#f92672">.</span>brokerId<span style="color:#e6db74">}</span><span style="color:#e6db74"> successfully elected as the controller. Epoch incremented to </span><span style="color:#e6db74">${</span>controllerContext<span style="color:#f92672">.</span>epoch<span style="color:#e6db74">}</span><span style="color:#e6db74"> &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#e6db74">s&#34;and epoch zk version is now </span><span style="color:#e6db74">${</span>controllerContext<span style="color:#f92672">.</span>epochZkVersion<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 调用onControllerFailover()，完成controller初始化动作，如果发生异常则撤销  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    onControllerFailover<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">catch</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> e<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">ControllerMovedException</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>      maybeResign<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>activeControllerId <span style="color:#f92672">!=</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>        debug<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Broker </span><span style="color:#e6db74">$activeControllerId</span><span style="color:#e6db74"> was elected as controller instead of broker </span><span style="color:#e6db74">${</span>config<span style="color:#f92672">.</span>brokerId<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">else</span>  
+</span></span><span style="display:flex;"><span>        warn<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;A controller has been elected but just resigned, this will result in another round of election&#34;</span><span style="color:#f92672">,</span> e<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> t<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Throwable</span> <span style="color:#f92672">=&gt;</span>  
+</span></span><span style="display:flex;"><span>      error<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Error while electing or becoming controller on broker </span><span style="color:#e6db74">${</span>config<span style="color:#f92672">.</span>brokerId<span style="color:#e6db74">}</span><span style="color:#e6db74">. &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">s&#34;Trigger controller movement immediately&#34;</span><span style="color:#f92672">,</span> t<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>      triggerControllerMove<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div>
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+          <div class="post-comments">
+            <div id="disqus_thread"></div>
+<script>
+  window.addEventListener("load", () => {
+    (function() {
+      
+      var d = document,
+        s = d.createElement("script");
+      s.src = "https://evl1nker4.disqus.com/embed.js";
+      s.setAttribute("data-timestamp", +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  });
+</script>
+<noscript
+  >Please enable JavaScript to view the
+  <a href="https://disqus.com/?ref_noscript"
+    >comments powered by Disqus.</a
+  ></noscript
+>
+
+          </div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>
