@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.145.0">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-10-kraft-detail/" />
+  <link rel="canonical" href="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-10-kraft-detail/" /><link rel="apple-touch-icon" href="/favicon.png" />
+  <link rel="icon" href="/favicon.png" />
+  <link rel="shortcut" href="/favicon.png" /><link rel="alternate" type="application/atom+xml" href="http://localhost:1313/index.xml" title="l1nker4&#39;s Blog">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:1313\/"
+      },
+      "articleSection" : "posts",
+      "name" : "Kafka源码分析(十)- KRaft实现细节",
+      "headline" : "Kafka源码分析(十)- KRaft实现细节",
+      "description" : "1. Intro 上文介绍了KRaft架构的优势与基本组件，本文对Raft协议在Kafka中的实现做简单分析。\n2. 核心属性 2.1. QuorumState QuorumState用于存储KRaft节点状态，并处理状态转换，状态机图如下（引用自KIP-595）：\n核心属性：\n\/\/节点id private final OptionalInt localId; \/\/目录id private final Uuid localDirectoryId; private final Time time; private final Logger log; \/\/用于选举信息存储，JSON格式 private final QuorumStateStore store; \/\/kraft状态机 private final KRaftControlRecordStateMachine partitionState; \/\/各个listener endpoint节点信息 private final Endpoints localListeners; \/\/kraft版本信息 private final SupportedVersionRange localSupportedKRaftVersion; private final Random random; \/\/选举超时时间 private final int electionTimeoutMs; \/\/fetch超时时间 private final int fetchTimeoutMs; \/\/日志上下文 private final LogContext logContext; \/\/节点状态对象 private volatile EpochState state; 其中EpochState接口是对节点状态的抽象，不同节点类型有对应的实现对象：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2025",
+      "datePublished": "2025-04-14 10:49:53 \u002b0800 CST",
+      "dateModified" : "2025-04-14 10:49:53 \u002b0800 CST",
+      "url" : "http:\/\/localhost:1313\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/kafka\/kafka-source-code-10-kraft-detail\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>Kafka源码分析(十)- KRaft实现细节</title>
+  <meta property="og:title" content="Kafka源码分析(十)- KRaft实现细节" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="1. Intro 上文介绍了KRaft架构的优势与基本组件，本文对Raft协议在Kafka中的实现做简单分析。
+2. 核心属性 2.1. QuorumState QuorumState用于存储KRaft节点状态，并处理状态转换，状态机图如下（引用自KIP-595）：
+核心属性：
+//节点id private final OptionalInt localId; //目录id private final Uuid localDirectoryId; private final Time time; private final Logger log; //用于选举信息存储，JSON格式 private final QuorumStateStore store; //kraft状态机 private final KRaftControlRecordStateMachine partitionState; //各个listener endpoint节点信息 private final Endpoints localListeners; //kraft版本信息 private final SupportedVersionRange localSupportedKRaftVersion; private final Random random; //选举超时时间 private final int electionTimeoutMs; //fetch超时时间 private final int fetchTimeoutMs; //日志上下文 private final LogContext logContext; //节点状态对象 private volatile EpochState state; 其中EpochState接口是对节点状态的抽象，不同节点类型有对应的实现对象：
+" />
+  <meta name="description" content="1. Intro 上文介绍了KRaft架构的优势与基本组件，本文对Raft协议在Kafka中的实现做简单分析。
+2. 核心属性 2.1. QuorumState QuorumState用于存储KRaft节点状态，并处理状态转换，状态机图如下（引用自KIP-595）：
+核心属性：
+//节点id private final OptionalInt localId; //目录id private final Uuid localDirectoryId; private final Time time; private final Logger log; //用于选举信息存储，JSON格式 private final QuorumStateStore store; //kraft状态机 private final KRaftControlRecordStateMachine partitionState; //各个listener endpoint节点信息 private final Endpoints localListeners; //kraft版本信息 private final SupportedVersionRange localSupportedKRaftVersion; private final Random random; //选举超时时间 private final int electionTimeoutMs; //fetch超时时间 private final int fetchTimeoutMs; //日志上下文 private final LogContext logContext; //节点状态对象 private volatile EpochState state; 其中EpochState接口是对节点状态的抽象，不同节点类型有对应的实现对象：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="/favicon.png" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:800px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px;max-width:100%}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:85%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:85%;background-color:inherit;border:0;font-family:SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px;font-family:bungee shade,sans-serif}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="l1nker4&#39;s Blog">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4&#39;s Blog</a
+    >
+  </div>
+  <div class="header-subtitle">提升认知，解构世界，行有不得，反求诸己</div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">Kafka源码分析(十)- KRaft实现细节</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2025-04-14 10:49:53 CST">
+                14 Apr 2025
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="post-content markdown-body">
+          
+          <h1 id="1-intro">1. Intro</h1>
+<p>上文介绍了KRaft架构的优势与基本组件，本文对Raft协议在Kafka中的实现做简单分析。</p>
+<h1 id="2-核心属性">2. 核心属性</h1>
+<h2 id="21-quorumstate">2.1. QuorumState</h2>
+<p>QuorumState用于存储KRaft节点状态，并处理状态转换，状态机图如下（引用自<a href="https://cwiki.apache.org/confluence/display/KAFKA/KIP-595%3A+A+Raft+Protocol+for+the+Metadata+Quorum#KIP595:ARaftProtocolfortheMetadataQuorum-ParentKIP">KIP-595</a>）：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20250326133343.png" alt="image.png"></p>
+<p>核心属性：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#75715e">//节点id  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> OptionalInt localId;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//目录id  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Uuid localDirectoryId;  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Time time;  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Logger log;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//用于选举信息存储，JSON格式  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> QuorumStateStore store;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//kraft状态机  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> KRaftControlRecordStateMachine partitionState;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//各个listener endpoint节点信息  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Endpoints localListeners;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//kraft版本信息  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> SupportedVersionRange localSupportedKRaftVersion;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Random random;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//选举超时时间  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> electionTimeoutMs;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//fetch超时时间  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">int</span> fetchTimeoutMs;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//日志上下文  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> LogContext logContext;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//节点状态对象  </span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">volatile</span> EpochState state;
+</span></span></code></pre></div><p>其中EpochState接口是对节点状态的抽象，不同节点类型有对应的实现对象：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20250324153811.png" alt="image.png"></p>
+<p>接口方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">default</span> Optional<span style="color:#f92672">&lt;</span>LogOffsetMetadata<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">highWatermark</span>() {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> Optional.<span style="color:#a6e22e">empty</span>();  
+</span></span><span style="display:flex;"><span>}  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">canGrantVote</span>(ReplicaKey candidateKey, <span style="color:#66d9ef">boolean</span> isLogUpToDate);  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>ElectionState <span style="color:#a6e22e">election</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">epoch</span>();  
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Endpoints <span style="color:#a6e22e">leaderEndpoints</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>String <span style="color:#a6e22e">name</span>();
+</span></span></code></pre></div><p>Kafka会将当前Quorum选举状态写入本地文件，当前实现类FileQuorumStateStore写入格式为JSON：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-json" data-lang="json"><span style="display:flex;"><span>{<span style="color:#f92672">&#34;clusterId&#34;</span>:<span style="color:#e6db74">&#34;&#34;</span>,<span style="color:#f92672">&#34;leaderId&#34;</span>:<span style="color:#ae81ff">1</span>,<span style="color:#f92672">&#34;leaderEpoch&#34;</span>:<span style="color:#ae81ff">2</span>,<span style="color:#f92672">&#34;votedId&#34;</span>:<span style="color:#ae81ff">-1</span>,<span style="color:#f92672">&#34;appliedOffset&#34;</span>:<span style="color:#ae81ff">0</span>,<span style="color:#f92672">&#34;currentVoters&#34;</span>:[{<span style="color:#f92672">&#34;voterId&#34;</span>:<span style="color:#ae81ff">1</span>}],<span style="color:#f92672">&#34;data_version&#34;</span>:<span style="color:#ae81ff">0</span>}
+</span></span></code></pre></div><p>QuorumState中包含部分状态转换逻辑，这里以转换为Leader状态为例：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span> LeaderState<span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">transitionToLeader</span>(<span style="color:#66d9ef">long</span> epochStartOffset, BatchAccumulator<span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span> accumulator) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 如果是observer或不是candidate，则抛出异常  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (isObserver()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalStateException(  
+</span></span><span style="display:flex;"><span>            String.<span style="color:#a6e22e">format</span>(  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">&#34;Cannot transition to Leader since the local id (%s) and directory id (%s) &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">&#34;is not one of the voters %s&#34;</span>,  
+</span></span><span style="display:flex;"><span>                localId,  
+</span></span><span style="display:flex;"><span>                localDirectoryId,  
+</span></span><span style="display:flex;"><span>                partitionState.<span style="color:#a6e22e">lastVoterSet</span>()  
+</span></span><span style="display:flex;"><span>            )  
+</span></span><span style="display:flex;"><span>        );  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>isCandidate()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalStateException(<span style="color:#e6db74">&#34;Cannot transition to Leader from current state &#34;</span> <span style="color:#f92672">+</span> state);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 获取candidateState  </span>
+</span></span><span style="display:flex;"><span>    CandidateState candidateState <span style="color:#f92672">=</span> candidateStateOrThrow();  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>candidateState.<span style="color:#a6e22e">isVoteGranted</span>())  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalStateException(<span style="color:#e6db74">&#34;Cannot become leader without majority votes granted&#34;</span>);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.1 创建LeaderState对象  </span>
+</span></span><span style="display:flex;"><span>    LeaderState<span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span> state <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> LeaderState<span style="color:#f92672">&lt;&gt;</span>(  
+</span></span><span style="display:flex;"><span>        time,  
+</span></span><span style="display:flex;"><span>        ReplicaKey.<span style="color:#a6e22e">of</span>(localIdOrThrow(), localDirectoryId),  
+</span></span><span style="display:flex;"><span>        epoch(),  
+</span></span><span style="display:flex;"><span>        epochStartOffset,  
+</span></span><span style="display:flex;"><span>        partitionState.<span style="color:#a6e22e">lastVoterSet</span>(),  
+</span></span><span style="display:flex;"><span>        partitionState.<span style="color:#a6e22e">lastVoterSetOffset</span>(),  
+</span></span><span style="display:flex;"><span>        partitionState.<span style="color:#a6e22e">lastKraftVersion</span>(),  
+</span></span><span style="display:flex;"><span>        candidateState.<span style="color:#a6e22e">grantingVoters</span>(),  
+</span></span><span style="display:flex;"><span>        accumulator,  
+</span></span><span style="display:flex;"><span>        localListeners,  
+</span></span><span style="display:flex;"><span>        fetchTimeoutMs,  
+</span></span><span style="display:flex;"><span>        logContext  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>      
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.2 更新  </span>
+</span></span><span style="display:flex;"><span>    durableTransitionTo(state);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> state;  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>durableTransitionTo方法完成文件、内存两处更新：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">durableTransitionTo</span>(EpochState newState) {  
+</span></span><span style="display:flex;"><span>    log.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Attempting durable transition to {} from {}&#34;</span>, newState, state);  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//写入文件  </span>
+</span></span><span style="display:flex;"><span>    store.<span style="color:#a6e22e">writeElectionState</span>(newState.<span style="color:#a6e22e">election</span>(), partitionState.<span style="color:#a6e22e">lastKraftVersion</span>());  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//更新内存  </span>
+</span></span><span style="display:flex;"><span>    memoryTransitionTo(newState);  
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">memoryTransitionTo</span>(EpochState newState) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (state <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>            state.<span style="color:#a6e22e">close</span>();  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">catch</span> (IOException e) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> UncheckedIOException(  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">&#34;Failed to transition from &#34;</span> <span style="color:#f92672">+</span> state.<span style="color:#a6e22e">name</span>() <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; to &#34;</span> <span style="color:#f92672">+</span> newState.<span style="color:#a6e22e">name</span>(), e);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    EpochState from <span style="color:#f92672">=</span> state;  
+</span></span><span style="display:flex;"><span>    state <span style="color:#f92672">=</span> newState;  
+</span></span><span style="display:flex;"><span>    log.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Completed transition to {} from {}&#34;</span>, newState, from);  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="22-replicatedlog">2.2. ReplicatedLog</h2>
+<p>ReplicatedLog是KRaft架构下用于存储metadata信息的接口，它在实现上复用了日志模块的UnifiedLog，与topic数据采取相同的存储格式。</p>
+<p>部分较为重要的接口方法如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">interface</span> <span style="color:#a6e22e">ReplicatedLog</span> <span style="color:#66d9ef">extends</span> AutoCloseable {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>LogAppendInfo <span style="color:#a6e22e">appendAsLeader</span>(Records records, <span style="color:#66d9ef">int</span> epoch);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>LogAppendInfo <span style="color:#a6e22e">appendAsFollower</span>(Records records);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>LogFetchInfo <span style="color:#a6e22e">read</span>(<span style="color:#66d9ef">long</span> startOffsetInclusive, Isolation isolation);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>LogOffsetMetadata <span style="color:#a6e22e">highWatermark</span>();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">truncateTo</span>(<span style="color:#66d9ef">long</span> offset);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">flush</span>(<span style="color:#66d9ef">boolean</span> forceFlushActiveSegment);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>TopicPartition <span style="color:#a6e22e">topicPartition</span>();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Optional<span style="color:#f92672">&lt;</span>RawSnapshotWriter<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">createNewSnapshot</span>(OffsetAndEpoch snapshotId);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Optional<span style="color:#f92672">&lt;</span>RawSnapshotReader<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">readSnapshot</span>(OffsetAndEpoch snapshotId);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>当前唯一的实现类为：kafka.raft.KafkaMetadataLog：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">final</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">KafkaMetadataLog</span> <span style="color:#66d9ef">private</span> <span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> log<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">UnifiedLog</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  time<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Time</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  scheduler<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Scheduler</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  snapshots<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">mutable.TreeMap</span><span style="color:#f92672">[</span><span style="color:#66d9ef">OffsetAndEpoch</span>, <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">FileRawSnapshotReader</span><span style="color:#f92672">]],</span>  
+</span></span><span style="display:flex;"><span>  topicPartition<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">TopicPartition</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  config<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">MetadataLogConfig</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">)</span> <span style="color:#66d9ef">extends</span> <span style="color:#a6e22e">ReplicatedLog</span> <span style="color:#66d9ef">with</span> <span style="color:#a6e22e">Logging</span> <span style="color:#f92672">{</span>
+</span></span></code></pre></div><p>appendAsLeader方法实现也都是直接调用UnifiedLog的对应方法来实现：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> appendAsLeader<span style="color:#f92672">(</span>records<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Records</span><span style="color:#f92672">,</span> epoch<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Int</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">LogAppendInfo</span> <span style="color:#f92672">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>records<span style="color:#f92672">.</span>sizeInBytes <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">IllegalArgumentException</span><span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Attempt to append an empty record set&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  handleAndConvertLogAppendInfo<span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>    log<span style="color:#f92672">.</span>appendAsLeader<span style="color:#f92672">(</span>records<span style="color:#f92672">.</span>asInstanceOf<span style="color:#f92672">[</span><span style="color:#66d9ef">MemoryRecords</span><span style="color:#f92672">],</span>  
+</span></span><span style="display:flex;"><span>      leaderEpoch <span style="color:#66d9ef">=</span> epoch<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>      origin <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">AppendOrigin</span><span style="color:#f92672">.</span><span style="color:#a6e22e">RAFT_LEADER</span><span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>      requestLocal <span style="color:#66d9ef">=</span> <span style="color:#a6e22e">RequestLocal</span><span style="color:#f92672">.</span><span style="color:#a6e22e">NoCaching</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h2 id="23-raftmetadatalogcleanermanager">2.3. RaftMetadataLogCleanerManager</h2>
+<p>RaftMetadataLogCleanerManager是用于定时调度日志清理的manager：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">snapshotCleaner</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> RaftMetadataLogCleanerManager(logger, time, 60000, log::maybeClean);
+</span></span></code></pre></div><p>实现较为简单：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">RaftMetadataLogCleanerManager</span> {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Logger logger;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Timer timer;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> delayMs;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> Runnable cleaner;  
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">maybeClean</span>(<span style="color:#66d9ef">long</span> currentTimeMs) {  
+</span></span><span style="display:flex;"><span>        timer.<span style="color:#a6e22e">update</span>(currentTimeMs);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (timer.<span style="color:#a6e22e">isExpired</span>()) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>                cleaner.<span style="color:#a6e22e">run</span>();  
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">catch</span> (Throwable t) {  
+</span></span><span style="display:flex;"><span>                logger.<span style="color:#a6e22e">error</span>(<span style="color:#e6db74">&#34;Had an error during log cleaning&#34;</span>, t);  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>            timer.<span style="color:#a6e22e">reset</span>(delayMs);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> timer.<span style="color:#a6e22e">remainingMs</span>();  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="24-kraftcontrolrecordstatemachine">2.4. KRaftControlRecordStateMachine</h2>
+<p>KRaftControlRecordStateMachine保存了kraft.version和voters信息：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> VoterSetHistory voterSetHistory;  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">final</span> LogHistory<span style="color:#f92672">&lt;</span>KRaftVersion<span style="color:#f92672">&gt;</span> kraftVersionHistory <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> TreeMapLogHistory<span style="color:#f92672">&lt;&gt;</span>();
+</span></span></code></pre></div><h1 id="3-pollcurrentstate">3. pollCurrentState</h1>
+<p>由KafkaRaftClientDriver线程驱动的poll方法中调用的pollCurrentState方法会根据节点角色执行不同逻辑：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">pollCurrentState</span>(<span style="color:#66d9ef">long</span> currentTimeMs) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 根据节点角色进行调用  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (quorum.<span style="color:#a6e22e">isLeader</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> pollLeader(currentTimeMs);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (quorum.<span style="color:#a6e22e">isCandidate</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> pollCandidate(currentTimeMs);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (quorum.<span style="color:#a6e22e">isFollower</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> pollFollower(currentTimeMs);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (quorum.<span style="color:#a6e22e">isUnattached</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> pollUnattached(currentTimeMs);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (quorum.<span style="color:#a6e22e">isResigned</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> pollResigned(currentTimeMs);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> IllegalStateException(<span style="color:#e6db74">&#34;Unexpected quorum state &#34;</span> <span style="color:#f92672">+</span> quorum);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="31-pollleader">3.1. pollLeader</h2>
+<p>leader节点定期执行逻辑如下：</p>
+<ol>
+<li>检查listener是否需要触发leader change事件</li>
+<li>检查是否需要进入resigned状态</li>
+<li>定期落盘accumulator中的日志数据</li>
+<li>检查是否需要发送BeginQuorumEpoch请求</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">pollLeader</span>(<span style="color:#66d9ef">long</span> currentTimeMs) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查listener，触发leader change事件  </span>
+</span></span><span style="display:flex;"><span>    LeaderState<span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span> state <span style="color:#f92672">=</span> quorum.<span style="color:#a6e22e">leaderStateOrThrow</span>();  
+</span></span><span style="display:flex;"><span>    maybeFireLeaderChange(state);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 检查是否需要进入resigned状态  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> timeUntilCheckQuorumExpires <span style="color:#f92672">=</span> state.<span style="color:#a6e22e">timeUntilCheckQuorumExpires</span>(currentTimeMs);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (shutdown.<span style="color:#a6e22e">get</span>() <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> state.<span style="color:#a6e22e">isResignRequested</span>() <span style="color:#f92672">||</span> timeUntilCheckQuorumExpires <span style="color:#f92672">==</span> 0) {  
+</span></span><span style="display:flex;"><span>        transitionToResigned(state.<span style="color:#a6e22e">nonLeaderVotersByDescendingFetchOffset</span>());  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> 0L;  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 计算下一次vote到期时间  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> timeUtilVoterChangeExpires <span style="color:#f92672">=</span> state.<span style="color:#a6e22e">maybeExpirePendingOperation</span>(currentTimeMs);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.4 定期落盘accumulator中的日志数据  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> timeUntilFlush <span style="color:#f92672">=</span> maybeAppendBatches(  
+</span></span><span style="display:flex;"><span>        state,  
+</span></span><span style="display:flex;"><span>        currentTimeMs  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.5 检查是否需要发送BeginQuorumEpoch请求  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> timeUntilNextBeginQuorumSend <span style="color:#f92672">=</span> maybeSendBeginQuorumEpochRequests(  
+</span></span><span style="display:flex;"><span>        state,  
+</span></span><span style="display:flex;"><span>        currentTimeMs  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> Math.<span style="color:#a6e22e">min</span>(  
+</span></span><span style="display:flex;"><span>        timeUntilFlush,  
+</span></span><span style="display:flex;"><span>        Math.<span style="color:#a6e22e">min</span>(  
+</span></span><span style="display:flex;"><span>            timeUntilNextBeginQuorumSend,  
+</span></span><span style="display:flex;"><span>            Math.<span style="color:#a6e22e">min</span>(  
+</span></span><span style="display:flex;"><span>                timeUntilCheckQuorumExpires,  
+</span></span><span style="display:flex;"><span>                timeUtilVoterChangeExpires  
+</span></span><span style="display:flex;"><span>            )  
+</span></span><span style="display:flex;"><span>        )  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="32-pollcandidate">3.2. pollCandidate</h2>
+<p>candidate节点会检查是否需要发送vote请求：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">pollCandidate</span>(<span style="color:#66d9ef">long</span> currentTimeMs) {  
+</span></span><span style="display:flex;"><span>    CandidateState state <span style="color:#f92672">=</span> quorum.<span style="color:#a6e22e">candidateStateOrThrow</span>();  
+</span></span><span style="display:flex;"><span>    GracefulShutdown shutdown <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">shutdown</span>.<span style="color:#a6e22e">get</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查是否需要shutdown  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (shutdown <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.2 正在关闭也需要发送Vote请求  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> minRequestBackoffMs <span style="color:#f92672">=</span> maybeSendVoteRequests(state, currentTimeMs);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> Math.<span style="color:#a6e22e">min</span>(shutdown.<span style="color:#a6e22e">remainingTimeMs</span>(), minRequestBackoffMs);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (state.<span style="color:#a6e22e">isBackingOff</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.3 如果退出选举，继续转换为candidate状态  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (state.<span style="color:#a6e22e">isBackoffComplete</span>(currentTimeMs)) {  
+</span></span><span style="display:flex;"><span>            logger.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Re-elect as candidate after election backoff has completed&#34;</span>);  
+</span></span><span style="display:flex;"><span>            transitionToCandidate(currentTimeMs);  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> 0L;  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> state.<span style="color:#a6e22e">remainingBackoffMs</span>(currentTimeMs);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (state.<span style="color:#a6e22e">hasElectionTimeoutExpired</span>(currentTimeMs)) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.4 选举超时  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> backoffDurationMs <span style="color:#f92672">=</span> binaryExponentialElectionBackoffMs(state.<span style="color:#a6e22e">retries</span>());  
+</span></span><span style="display:flex;"><span>        logger.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Election has timed out, backing off for {}ms before becoming a candidate again&#34;</span>,  
+</span></span><span style="display:flex;"><span>            backoffDurationMs);  
+</span></span><span style="display:flex;"><span>        state.<span style="color:#a6e22e">startBackingOff</span>(currentTimeMs, backoffDurationMs);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> backoffDurationMs;  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//检查是否需要发送vote请求  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> minRequestBackoffMs <span style="color:#f92672">=</span> maybeSendVoteRequests(state, currentTimeMs);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> Math.<span style="color:#a6e22e">min</span>(minRequestBackoffMs, state.<span style="color:#a6e22e">remainingElectionTimeMs</span>(currentTimeMs));  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="33-pollfollower">3.3. pollFollower</h2>
+<p>pollFollower方法会检查节点角色为voter还是observer：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">pollFollower</span>(<span style="color:#66d9ef">long</span> currentTimeMs) {  
+</span></span><span style="display:flex;"><span>    FollowerState state <span style="color:#f92672">=</span> quorum.<span style="color:#a6e22e">followerStateOrThrow</span>();  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (quorum.<span style="color:#a6e22e">isVoter</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> pollFollowerAsVoter(state, currentTimeMs);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> pollFollowerAsObserver(state, currentTimeMs);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>作为observer都会发送fetch请求用以更新log信息。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">pollFollowerAsObserver</span>(FollowerState state, <span style="color:#66d9ef">long</span> currentTimeMs) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//发送fetch请求  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (state.<span style="color:#a6e22e">hasFetchTimeoutExpired</span>(currentTimeMs)) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> maybeSendFetchToAnyBootstrap(currentTimeMs);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> maybeSendFetchToBestNode(state, currentTimeMs);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>作为voter角色会检查fetch是否超时，若是则转换为candidate状态。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">pollFollowerAsVoter</span>(FollowerState state, <span style="color:#66d9ef">long</span> currentTimeMs) {  
+</span></span><span style="display:flex;"><span>    GracefulShutdown shutdown <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span>.<span style="color:#a6e22e">shutdown</span>.<span style="color:#a6e22e">get</span>();  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">final</span> <span style="color:#66d9ef">long</span> backoffMs;  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (shutdown <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// If we are a follower, then we can shutdown immediately. We want to  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// skip the transition to candidate in any case.        backoffMs = 0;  </span>
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (state.<span style="color:#a6e22e">hasFetchTimeoutExpired</span>(currentTimeMs)) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.1 如果fetch超时，转为candidate状态  </span>
+</span></span><span style="display:flex;"><span>        logger.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Become candidate due to fetch timeout&#34;</span>);  
+</span></span><span style="display:flex;"><span>        transitionToCandidate(currentTimeMs);  
+</span></span><span style="display:flex;"><span>        backoffMs <span style="color:#f92672">=</span> 0;  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (state.<span style="color:#a6e22e">hasUpdateVoterPeriodExpired</span>(currentTimeMs)) {  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.2 发送UpdateVoter请求  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (partitionState.<span style="color:#a6e22e">lastKraftVersion</span>().<span style="color:#a6e22e">isReconfigSupported</span>() <span style="color:#f92672">&amp;&amp;</span>  
+</span></span><span style="display:flex;"><span>            partitionState.<span style="color:#a6e22e">lastVoterSet</span>().<span style="color:#a6e22e">voterNodeNeedsUpdate</span>(quorum.<span style="color:#a6e22e">localVoterNodeOrThrow</span>())) {  
+</span></span><span style="display:flex;"><span>            backoffMs <span style="color:#f92672">=</span> maybeSendUpdateVoterRequest(state, currentTimeMs);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 1.3 发送Fetch snapshot请求  </span>
+</span></span><span style="display:flex;"><span>            backoffMs <span style="color:#f92672">=</span> maybeSendFetchOrFetchSnapshot(state, currentTimeMs);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>        state.<span style="color:#a6e22e">resetUpdateVoterPeriod</span>(currentTimeMs);  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        backoffMs <span style="color:#f92672">=</span> maybeSendFetchToBestNode(state, currentTimeMs);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> Math.<span style="color:#a6e22e">min</span>(  
+</span></span><span style="display:flex;"><span>        backoffMs,  
+</span></span><span style="display:flex;"><span>        Math.<span style="color:#a6e22e">min</span>(  
+</span></span><span style="display:flex;"><span>            state.<span style="color:#a6e22e">remainingFetchTimeMs</span>(currentTimeMs),  
+</span></span><span style="display:flex;"><span>            state.<span style="color:#a6e22e">remainingUpdateVoterPeriodMs</span>(currentTimeMs)  
+</span></span><span style="display:flex;"><span>        )  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h1 id="4-日志复制">4. 日志复制</h1>
+<p>KRaft与原生Raft算法不同的是，kRaft是由follower节点主动从Leader节点Fetch日志数据，而不是像原生Raft算法那样，主动由Leader向Follower推送日志数据。</p>
+<p>有关日志复制和选举的设计文档，可以参考<a href="https://cwiki.apache.org/confluence/display/KAFKA/KIP-595%3A+A+Raft+Protocol+for+the+Metadata+Quorum#KIP595:ARaftProtocolfortheMetadataQuorum-ParentKIP">KIP-595</a></p>
+<h2 id="41-handlefetchrequest">4.1. handleFetchRequest</h2>
+<p>handleFetchRequest方法由Leader节点处理来自Follower的Fetch请求的逻辑：</p>
+<ol>
+<li>检查请求参数合法性，offset等字段</li>
+<li>从指定offset读取日志数据并返回</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> CompletableFuture<span style="color:#f92672">&lt;</span>FetchResponseData<span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">handleFetchRequest</span>(  
+</span></span><span style="display:flex;"><span>    RaftRequest.<span style="color:#a6e22e">Inbound</span> requestMetadata,  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> currentTimeMs  
+</span></span><span style="display:flex;"><span>) {  
+</span></span><span style="display:flex;"><span>    FetchRequestData request <span style="color:#f92672">=</span> (FetchRequestData) requestMetadata.<span style="color:#a6e22e">data</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查参数  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>hasValidClusterId(request.<span style="color:#a6e22e">clusterId</span>())) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> completedFuture(<span style="color:#66d9ef">new</span> FetchResponseData().<span style="color:#a6e22e">setErrorCode</span>(Errors.<span style="color:#a6e22e">INCONSISTENT_CLUSTER_ID</span>.<span style="color:#a6e22e">code</span>()));  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>hasValidTopicPartition(request, log.<span style="color:#a6e22e">topicPartition</span>(), log.<span style="color:#a6e22e">topicId</span>())) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Until we support multi-raft, we treat topic partition mismatches as invalid requests  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> completedFuture(<span style="color:#66d9ef">new</span> FetchResponseData().<span style="color:#a6e22e">setErrorCode</span>(Errors.<span style="color:#a6e22e">INVALID_REQUEST</span>.<span style="color:#a6e22e">code</span>()));  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// If the ID is valid, we can set the topic name.  </span>
+</span></span><span style="display:flex;"><span>    request.<span style="color:#a6e22e">topics</span>().<span style="color:#a6e22e">get</span>(0).<span style="color:#a6e22e">setTopic</span>(log.<span style="color:#a6e22e">topicPartition</span>().<span style="color:#a6e22e">topic</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    FetchRequestData.<span style="color:#a6e22e">FetchPartition</span> fetchPartition <span style="color:#f92672">=</span> request.<span style="color:#a6e22e">topics</span>().<span style="color:#a6e22e">get</span>(0).<span style="color:#a6e22e">partitions</span>().<span style="color:#a6e22e">get</span>(0);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (request.<span style="color:#a6e22e">maxWaitMs</span>() <span style="color:#f92672">&lt;</span> 0  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">||</span> fetchPartition.<span style="color:#a6e22e">fetchOffset</span>() <span style="color:#f92672">&lt;</span> 0  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">||</span> fetchPartition.<span style="color:#a6e22e">lastFetchedEpoch</span>() <span style="color:#f92672">&lt;</span> 0  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">||</span> fetchPartition.<span style="color:#a6e22e">lastFetchedEpoch</span>() <span style="color:#f92672">&gt;</span> fetchPartition.<span style="color:#a6e22e">currentLeaderEpoch</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> completedFuture(  
+</span></span><span style="display:flex;"><span>            buildEmptyFetchResponse(  
+</span></span><span style="display:flex;"><span>                requestMetadata.<span style="color:#a6e22e">listenerName</span>(),  
+</span></span><span style="display:flex;"><span>                requestMetadata.<span style="color:#a6e22e">apiVersion</span>(),  
+</span></span><span style="display:flex;"><span>                Errors.<span style="color:#a6e22e">INVALID_REQUEST</span>,  
+</span></span><span style="display:flex;"><span>                Optional.<span style="color:#a6e22e">empty</span>()  
+</span></span><span style="display:flex;"><span>            )  
+</span></span><span style="display:flex;"><span>        );  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 构造初始的Fetch响应数据  </span>
+</span></span><span style="display:flex;"><span>    ReplicaKey replicaKey <span style="color:#f92672">=</span> ReplicaKey.<span style="color:#a6e22e">of</span>(  
+</span></span><span style="display:flex;"><span>        FetchRequest.<span style="color:#a6e22e">replicaId</span>(request),  
+</span></span><span style="display:flex;"><span>        fetchPartition.<span style="color:#a6e22e">replicaDirectoryId</span>()  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 处理fetch请求，并返回response  </span>
+</span></span><span style="display:flex;"><span>    FetchResponseData response <span style="color:#f92672">=</span> tryCompleteFetchRequest(  
+</span></span><span style="display:flex;"><span>        requestMetadata.<span style="color:#a6e22e">listenerName</span>(),  
+</span></span><span style="display:flex;"><span>        requestMetadata.<span style="color:#a6e22e">apiVersion</span>(),  
+</span></span><span style="display:flex;"><span>        replicaKey,  
+</span></span><span style="display:flex;"><span>        fetchPartition,  
+</span></span><span style="display:flex;"><span>        currentTimeMs  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>    FetchResponseData.<span style="color:#a6e22e">PartitionData</span> partitionResponse <span style="color:#f92672">=</span>  
+</span></span><span style="display:flex;"><span>        response.<span style="color:#a6e22e">responses</span>().<span style="color:#a6e22e">get</span>(0).<span style="color:#a6e22e">partitions</span>().<span style="color:#a6e22e">get</span>(0);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 如果满足以下条件，直接返回  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (partitionResponse.<span style="color:#a6e22e">errorCode</span>() <span style="color:#f92672">!=</span> Errors.<span style="color:#a6e22e">NONE</span>.<span style="color:#a6e22e">code</span>()  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">||</span> FetchResponse.<span style="color:#a6e22e">recordsSize</span>(partitionResponse) <span style="color:#f92672">&gt;</span> 0  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">||</span> request.<span style="color:#a6e22e">maxWaitMs</span>() <span style="color:#f92672">==</span> 0  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">||</span> isPartitionDiverged(partitionResponse)  
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">||</span> isPartitionSnapshotted(partitionResponse)) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Reply immediately if any of the following is true  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 1. The response contains an error        </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 2. There are records in the response        </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 3. The fetching replica doesn&#39;t want to wait for the partition to contain new data        </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 4. The fetching replica needs to truncate because the log diverged    </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 5. The fetching replica needs to fetch a snapshot        </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> completedFuture(response);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    CompletableFuture<span style="color:#f92672">&lt;</span>Long<span style="color:#f92672">&gt;</span> future <span style="color:#f92672">=</span> fetchPurgatory.<span style="color:#a6e22e">await</span>(  
+</span></span><span style="display:flex;"><span>        fetchPartition.<span style="color:#a6e22e">fetchOffset</span>(),  
+</span></span><span style="display:flex;"><span>        request.<span style="color:#a6e22e">maxWaitMs</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.1 等待异步完成，处理response  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> future.<span style="color:#a6e22e">handle</span>((completionTimeMs, exception) <span style="color:#f92672">-&gt;</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (exception <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>            Throwable cause <span style="color:#f92672">=</span> exception <span style="color:#66d9ef">instanceof</span> ExecutionException <span style="color:#f92672">?</span>  
+</span></span><span style="display:flex;"><span>                exception.<span style="color:#a6e22e">getCause</span>() : exception;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            Errors error <span style="color:#f92672">=</span> Errors.<span style="color:#a6e22e">forException</span>(cause);  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">REQUEST_TIMED_OUT</span>) {  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// Note that for this case the calling thread is the expiration service thread and not the  </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// polling thread.                //                // If the fetch request timed out in purgatory, it means no new data is available,                // just return the original fetch response.                </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> response;  
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// If there was any error other than REQUEST_TIMED_OUT, return it.  </span>
+</span></span><span style="display:flex;"><span>                logger.<span style="color:#a6e22e">info</span>(  
+</span></span><span style="display:flex;"><span>                    <span style="color:#e6db74">&#34;Failed to handle fetch from {} at {} due to {}&#34;</span>,  
+</span></span><span style="display:flex;"><span>                    replicaKey,  
+</span></span><span style="display:flex;"><span>                    fetchPartition.<span style="color:#a6e22e">fetchOffset</span>(),  
+</span></span><span style="display:flex;"><span>                    error  
+</span></span><span style="display:flex;"><span>                );  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> buildEmptyFetchResponse(  
+</span></span><span style="display:flex;"><span>                    requestMetadata.<span style="color:#a6e22e">listenerName</span>(),  
+</span></span><span style="display:flex;"><span>                    requestMetadata.<span style="color:#a6e22e">apiVersion</span>(),  
+</span></span><span style="display:flex;"><span>                    error,  
+</span></span><span style="display:flex;"><span>                    Optional.<span style="color:#a6e22e">empty</span>()  
+</span></span><span style="display:flex;"><span>                );  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// FIXME: `completionTimeMs`, which can be null  </span>
+</span></span><span style="display:flex;"><span>        logger.<span style="color:#a6e22e">trace</span>(  
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">&#34;Completing delayed fetch from {} starting at offset {} at {}&#34;</span>,  
+</span></span><span style="display:flex;"><span>            replicaKey,  
+</span></span><span style="display:flex;"><span>            fetchPartition.<span style="color:#a6e22e">fetchOffset</span>(),  
+</span></span><span style="display:flex;"><span>            completionTimeMs  
+</span></span><span style="display:flex;"><span>        );  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// It is safe to call tryCompleteFetchRequest because only the polling thread completes this  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// future successfully. This is true because only the polling thread appends record batches to        // the log from maybeAppendBatches.        return tryCompleteFetchRequest(  </span>
+</span></span><span style="display:flex;"><span>            requestMetadata.<span style="color:#a6e22e">listenerName</span>(),  
+</span></span><span style="display:flex;"><span>            requestMetadata.<span style="color:#a6e22e">apiVersion</span>(),  
+</span></span><span style="display:flex;"><span>            replicaKey,  
+</span></span><span style="display:flex;"><span>            fetchPartition,  
+</span></span><span style="display:flex;"><span>            time.<span style="color:#a6e22e">milliseconds</span>()  
+</span></span><span style="display:flex;"><span>        );  
+</span></span><span style="display:flex;"><span>    });  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>tryCompleteFetchRequest方法负责从log指定offset读取数据，并封装response返回。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> FetchResponseData <span style="color:#a6e22e">tryCompleteFetchRequest</span>(  
+</span></span><span style="display:flex;"><span>    ListenerName listenerName,  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">short</span> apiVersion,  
+</span></span><span style="display:flex;"><span>    ReplicaKey replicaKey,  
+</span></span><span style="display:flex;"><span>    FetchRequestData.<span style="color:#a6e22e">FetchPartition</span> request,  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> currentTimeMs  
+</span></span><span style="display:flex;"><span>) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.1 验证请求参数  </span>
+</span></span><span style="display:flex;"><span>        Optional<span style="color:#f92672">&lt;</span>Errors<span style="color:#f92672">&gt;</span> errorOpt <span style="color:#f92672">=</span> validateLeaderOnlyRequest(request.<span style="color:#a6e22e">currentLeaderEpoch</span>());  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (errorOpt.<span style="color:#a6e22e">isPresent</span>()) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> buildEmptyFetchResponse(listenerName, apiVersion, errorOpt.<span style="color:#a6e22e">get</span>(), Optional.<span style="color:#a6e22e">empty</span>());  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">long</span> fetchOffset <span style="color:#f92672">=</span> request.<span style="color:#a6e22e">fetchOffset</span>();  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> lastFetchedEpoch <span style="color:#f92672">=</span> request.<span style="color:#a6e22e">lastFetchedEpoch</span>();  
+</span></span><span style="display:flex;"><span>        LeaderState<span style="color:#f92672">&lt;</span>T<span style="color:#f92672">&gt;</span> state <span style="color:#f92672">=</span> quorum.<span style="color:#a6e22e">leaderStateOrThrow</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.2 检查offset、snapshotId是否有效  </span>
+</span></span><span style="display:flex;"><span>        Optional<span style="color:#f92672">&lt;</span>OffsetAndEpoch<span style="color:#f92672">&gt;</span> latestSnapshotId <span style="color:#f92672">=</span> log.<span style="color:#a6e22e">latestSnapshotId</span>();  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> ValidOffsetAndEpoch validOffsetAndEpoch;  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (fetchOffset <span style="color:#f92672">==</span> 0 <span style="color:#f92672">&amp;&amp;</span> latestSnapshotId.<span style="color:#a6e22e">isPresent</span>() <span style="color:#f92672">&amp;&amp;</span> <span style="color:#f92672">!</span>latestSnapshotId.<span style="color:#a6e22e">get</span>().<span style="color:#a6e22e">equals</span>(BOOTSTRAP_SNAPSHOT_ID)) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// If the follower has an empty log and a non-bootstrap snapshot exists, it is always more efficient  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// to reply with a snapshot id (FETCH_SNAPSHOT) instead of fetching from the log segments.            </span>
+</span></span><span style="display:flex;"><span>            validOffsetAndEpoch <span style="color:#f92672">=</span> ValidOffsetAndEpoch.<span style="color:#a6e22e">snapshot</span>(latestSnapshotId.<span style="color:#a6e22e">get</span>());  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            validOffsetAndEpoch <span style="color:#f92672">=</span> log.<span style="color:#a6e22e">validateOffsetAndEpoch</span>(fetchOffset, lastFetchedEpoch);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//2.1 从fetchOffset读取日志数据  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">final</span> Records records;  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (validOffsetAndEpoch.<span style="color:#a6e22e">kind</span>() <span style="color:#f92672">==</span> ValidOffsetAndEpoch.<span style="color:#a6e22e">Kind</span>.<span style="color:#a6e22e">VALID</span>) {  
+</span></span><span style="display:flex;"><span>            LogFetchInfo info <span style="color:#f92672">=</span> log.<span style="color:#a6e22e">read</span>(fetchOffset, Isolation.<span style="color:#a6e22e">UNCOMMITTED</span>);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (state.<span style="color:#a6e22e">updateReplicaState</span>(replicaKey, currentTimeMs, info.<span style="color:#a6e22e">startOffsetMetadata</span>)) {  
+</span></span><span style="display:flex;"><span>                onUpdateLeaderHighWatermark(state, currentTimeMs);  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            records <span style="color:#f92672">=</span> info.<span style="color:#a6e22e">records</span>;  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            records <span style="color:#f92672">=</span> MemoryRecords.<span style="color:#a6e22e">EMPTY</span>;  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> buildFetchResponse(  
+</span></span><span style="display:flex;"><span>            listenerName,  
+</span></span><span style="display:flex;"><span>            apiVersion,  
+</span></span><span style="display:flex;"><span>            Errors.<span style="color:#a6e22e">NONE</span>,  
+</span></span><span style="display:flex;"><span>            records,  
+</span></span><span style="display:flex;"><span>            validOffsetAndEpoch,  
+</span></span><span style="display:flex;"><span>            state.<span style="color:#a6e22e">highWatermark</span>()  
+</span></span><span style="display:flex;"><span>        );  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">catch</span> (Exception e) {  
+</span></span><span style="display:flex;"><span>        logger.<span style="color:#a6e22e">error</span>(<span style="color:#e6db74">&#34;Caught unexpected error in fetch completion of request {}&#34;</span>, request, e);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> buildEmptyFetchResponse(listenerName, apiVersion, Errors.<span style="color:#a6e22e">UNKNOWN_SERVER_ERROR</span>, Optional.<span style="color:#a6e22e">empty</span>());  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="42-handlefetchresponse">4.2. handleFetchResponse</h2>
+<p>handleFetchResponse方法是Follower从Leader获取到metadata数据后，完成本地写入的流程：</p>
+<ol>
+<li>检查响应字段合法性</li>
+<li>检查是否需要truncate操作</li>
+<li>检查响应是否返回snapshot数据</li>
+<li>写入日志records记录，并更新high watermark字段</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">boolean</span> <span style="color:#a6e22e">handleFetchResponse</span>(  
+</span></span><span style="display:flex;"><span>    RaftResponse.<span style="color:#a6e22e">Inbound</span> responseMetadata,  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> currentTimeMs  
+</span></span><span style="display:flex;"><span>) {  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查参数合法性  </span>
+</span></span><span style="display:flex;"><span>    FetchResponseData response <span style="color:#f92672">=</span> (FetchResponseData) responseMetadata.<span style="color:#a6e22e">data</span>();  
+</span></span><span style="display:flex;"><span>    Errors topLevelError <span style="color:#f92672">=</span> Errors.<span style="color:#a6e22e">forCode</span>(response.<span style="color:#a6e22e">errorCode</span>());  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (topLevelError <span style="color:#f92672">!=</span> Errors.<span style="color:#a6e22e">NONE</span>) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> handleTopLevelError(topLevelError, responseMetadata);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>hasValidTopicPartition(response, log.<span style="color:#a6e22e">topicPartition</span>(), log.<span style="color:#a6e22e">topicId</span>())) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>;  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// If the ID is valid, we can set the topic name.  </span>
+</span></span><span style="display:flex;"><span>    response.<span style="color:#a6e22e">responses</span>().<span style="color:#a6e22e">get</span>(0).<span style="color:#a6e22e">setTopic</span>(log.<span style="color:#a6e22e">topicPartition</span>().<span style="color:#a6e22e">topic</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    FetchResponseData.<span style="color:#a6e22e">PartitionData</span> partitionResponse <span style="color:#f92672">=</span>  
+</span></span><span style="display:flex;"><span>        response.<span style="color:#a6e22e">responses</span>().<span style="color:#a6e22e">get</span>(0).<span style="color:#a6e22e">partitions</span>().<span style="color:#a6e22e">get</span>(0);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 获取leaderId和epoch  </span>
+</span></span><span style="display:flex;"><span>    FetchResponseData.<span style="color:#a6e22e">LeaderIdAndEpoch</span> currentLeaderIdAndEpoch <span style="color:#f92672">=</span> partitionResponse.<span style="color:#a6e22e">currentLeader</span>();  
+</span></span><span style="display:flex;"><span>    OptionalInt responseLeaderId <span style="color:#f92672">=</span> optionalLeaderId(currentLeaderIdAndEpoch.<span style="color:#a6e22e">leaderId</span>());  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> responseEpoch <span style="color:#f92672">=</span> currentLeaderIdAndEpoch.<span style="color:#a6e22e">leaderEpoch</span>();  
+</span></span><span style="display:flex;"><span>    Errors error <span style="color:#f92672">=</span> Errors.<span style="color:#a6e22e">forCode</span>(partitionResponse.<span style="color:#a6e22e">errorCode</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">final</span> Endpoints leaderEndpoints;  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 根据响应中的leaderId，构造endpoint  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (responseLeaderId.<span style="color:#a6e22e">isPresent</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (response.<span style="color:#a6e22e">nodeEndpoints</span>().<span style="color:#a6e22e">isEmpty</span>()) {  
+</span></span><span style="display:flex;"><span>            leaderEndpoints <span style="color:#f92672">=</span> partitionState.<span style="color:#a6e22e">lastVoterSet</span>().<span style="color:#a6e22e">listeners</span>(responseLeaderId.<span style="color:#a6e22e">getAsInt</span>());  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            leaderEndpoints <span style="color:#f92672">=</span> Endpoints.<span style="color:#a6e22e">fromFetchResponse</span>(  
+</span></span><span style="display:flex;"><span>                channel.<span style="color:#a6e22e">listenerName</span>(),  
+</span></span><span style="display:flex;"><span>                responseLeaderId.<span style="color:#a6e22e">getAsInt</span>(),  
+</span></span><span style="display:flex;"><span>                response.<span style="color:#a6e22e">nodeEndpoints</span>()  
+</span></span><span style="display:flex;"><span>            );  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        leaderEndpoints <span style="color:#f92672">=</span> Endpoints.<span style="color:#a6e22e">empty</span>();  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.1 处理response，检查字段 </span>
+</span></span><span style="display:flex;"><span>    Optional<span style="color:#f92672">&lt;</span>Boolean<span style="color:#f92672">&gt;</span> handled <span style="color:#f92672">=</span> maybeHandleCommonResponse(  
+</span></span><span style="display:flex;"><span>        error,  
+</span></span><span style="display:flex;"><span>        responseLeaderId,  
+</span></span><span style="display:flex;"><span>        responseEpoch,  
+</span></span><span style="display:flex;"><span>        leaderEndpoints,  
+</span></span><span style="display:flex;"><span>        responseMetadata.<span style="color:#a6e22e">source</span>(),  
+</span></span><span style="display:flex;"><span>        currentTimeMs  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (handled.<span style="color:#a6e22e">isPresent</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> handled.<span style="color:#a6e22e">get</span>();  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    FollowerState state <span style="color:#f92672">=</span> quorum.<span style="color:#a6e22e">followerStateOrThrow</span>();  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">NONE</span>) {  
+</span></span><span style="display:flex;"><span>        FetchResponseData.<span style="color:#a6e22e">EpochEndOffset</span> divergingEpoch <span style="color:#f92672">=</span> partitionResponse.<span style="color:#a6e22e">divergingEpoch</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//2.2 检查是否需要截断  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (divergingEpoch.<span style="color:#a6e22e">epoch</span>() <span style="color:#f92672">&gt;=</span> 0) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// The leader is asking us to truncate before continuing  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">final</span> OffsetAndEpoch divergingOffsetAndEpoch <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> OffsetAndEpoch(  
+</span></span><span style="display:flex;"><span>                divergingEpoch.<span style="color:#a6e22e">endOffset</span>(), divergingEpoch.<span style="color:#a6e22e">epoch</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            state.<span style="color:#a6e22e">highWatermark</span>().<span style="color:#a6e22e">ifPresent</span>(highWatermark <span style="color:#f92672">-&gt;</span> {  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (divergingOffsetAndEpoch.<span style="color:#a6e22e">offset</span>() <span style="color:#f92672">&lt;</span> highWatermark.<span style="color:#a6e22e">offset</span>()) {  
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> KafkaException(<span style="color:#e6db74">&#34;The leader requested truncation to offset &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                        divergingOffsetAndEpoch.<span style="color:#a6e22e">offset</span>() <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34;, which is below the current high watermark&#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                        <span style="color:#e6db74">&#34; &#34;</span> <span style="color:#f92672">+</span> highWatermark);  
+</span></span><span style="display:flex;"><span>                }  
+</span></span><span style="display:flex;"><span>            });  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">long</span> truncationOffset <span style="color:#f92672">=</span> log.<span style="color:#a6e22e">truncateToEndOffset</span>(divergingOffsetAndEpoch);  
+</span></span><span style="display:flex;"><span>            logger.<span style="color:#a6e22e">info</span>(  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">&#34;Truncated to offset {} from Fetch response from leader {}&#34;</span>,  
+</span></span><span style="display:flex;"><span>                truncationOffset,  
+</span></span><span style="display:flex;"><span>                quorum.<span style="color:#a6e22e">leaderIdOrSentinel</span>()  
+</span></span><span style="display:flex;"><span>            );  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//2.3 截断旧数据  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// Update the internal listener to the new end offset  </span>
+</span></span><span style="display:flex;"><span>            partitionState.<span style="color:#a6e22e">truncateNewEntries</span>(truncationOffset);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (partitionResponse.<span style="color:#a6e22e">snapshotId</span>().<span style="color:#a6e22e">epoch</span>() <span style="color:#f92672">&gt;=</span> 0 <span style="color:#f92672">||</span>  
+</span></span><span style="display:flex;"><span>                   partitionResponse.<span style="color:#a6e22e">snapshotId</span>().<span style="color:#a6e22e">endOffset</span>() <span style="color:#f92672">&gt;=</span> 0) {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// The leader is asking us to fetch a snapshot  </span>
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//2.4 检查是否需要写入snapshot  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (partitionResponse.<span style="color:#a6e22e">snapshotId</span>().<span style="color:#a6e22e">epoch</span>() <span style="color:#f92672">&lt;</span> 0) {  
+</span></span><span style="display:flex;"><span>                logger.<span style="color:#a6e22e">error</span>(  
+</span></span><span style="display:flex;"><span>                    <span style="color:#e6db74">&#34;The leader sent a snapshot id with a valid end offset {} but with an invalid epoch {}&#34;</span>,  
+</span></span><span style="display:flex;"><span>                    partitionResponse.<span style="color:#a6e22e">snapshotId</span>().<span style="color:#a6e22e">endOffset</span>(),  
+</span></span><span style="display:flex;"><span>                    partitionResponse.<span style="color:#a6e22e">snapshotId</span>().<span style="color:#a6e22e">epoch</span>()  
+</span></span><span style="display:flex;"><span>                );  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>;  
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (partitionResponse.<span style="color:#a6e22e">snapshotId</span>().<span style="color:#a6e22e">endOffset</span>() <span style="color:#f92672">&lt;</span> 0) {  
+</span></span><span style="display:flex;"><span>                logger.<span style="color:#a6e22e">error</span>(  
+</span></span><span style="display:flex;"><span>                    <span style="color:#e6db74">&#34;The leader sent a snapshot id with a valid epoch {} but with an invalid end offset {}&#34;</span>,  
+</span></span><span style="display:flex;"><span>                    partitionResponse.<span style="color:#a6e22e">snapshotId</span>().<span style="color:#a6e22e">epoch</span>(),  
+</span></span><span style="display:flex;"><span>                    partitionResponse.<span style="color:#a6e22e">snapshotId</span>().<span style="color:#a6e22e">endOffset</span>()  
+</span></span><span style="display:flex;"><span>                );  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>;  
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">final</span> OffsetAndEpoch snapshotId <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> OffsetAndEpoch(  
+</span></span><span style="display:flex;"><span>                    partitionResponse.<span style="color:#a6e22e">snapshotId</span>().<span style="color:#a6e22e">endOffset</span>(),  
+</span></span><span style="display:flex;"><span>                    partitionResponse.<span style="color:#a6e22e">snapshotId</span>().<span style="color:#a6e22e">epoch</span>()  
+</span></span><span style="display:flex;"><span>                );  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// Do not validate the snapshot id against the local replicated log since this  </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// snapshot is expected to reference offsets and epochs greater than the log                // end offset and high-watermark.                state.setFetchingSnapshot(log.createNewSnapshotUnchecked(snapshotId));  </span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (state.<span style="color:#a6e22e">fetchingSnapshot</span>().<span style="color:#a6e22e">isPresent</span>()) {  
+</span></span><span style="display:flex;"><span>                    logger.<span style="color:#a6e22e">info</span>(  
+</span></span><span style="display:flex;"><span>                        <span style="color:#e6db74">&#34;Fetching snapshot {} from Fetch response from leader {}&#34;</span>,  
+</span></span><span style="display:flex;"><span>                        snapshotId,  
+</span></span><span style="display:flex;"><span>                        quorum.<span style="color:#a6e22e">leaderIdOrSentinel</span>()  
+</span></span><span style="display:flex;"><span>                    );  
+</span></span><span style="display:flex;"><span>                } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>                    logger.<span style="color:#a6e22e">info</span>(  
+</span></span><span style="display:flex;"><span>                        <span style="color:#e6db74">&#34;Leader {} returned a snapshot {} in the FETCH response which is &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                        <span style="color:#e6db74">&#34;already stored&#34;</span>,  
+</span></span><span style="display:flex;"><span>                        quorum.<span style="color:#a6e22e">leaderIdOrSentinel</span>(),  
+</span></span><span style="display:flex;"><span>                        snapshotId  
+</span></span><span style="display:flex;"><span>                    );  
+</span></span><span style="display:flex;"><span>                }  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//2.5 写入日志records记录，并更新high watermark  </span>
+</span></span><span style="display:flex;"><span>            Records records <span style="color:#f92672">=</span> FetchResponse.<span style="color:#a6e22e">recordsOrFail</span>(partitionResponse);  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (records.<span style="color:#a6e22e">sizeInBytes</span>() <span style="color:#f92672">&gt;</span> 0) {  
+</span></span><span style="display:flex;"><span>                appendAsFollower(records);  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            OptionalLong highWatermark <span style="color:#f92672">=</span> partitionResponse.<span style="color:#a6e22e">highWatermark</span>() <span style="color:#f92672">&lt;</span> 0 <span style="color:#f92672">?</span>  
+</span></span><span style="display:flex;"><span>                OptionalLong.<span style="color:#a6e22e">empty</span>() : OptionalLong.<span style="color:#a6e22e">of</span>(partitionResponse.<span style="color:#a6e22e">highWatermark</span>());  
+</span></span><span style="display:flex;"><span>            updateFollowerHighWatermark(state, highWatermark);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        state.<span style="color:#a6e22e">resetFetchTimeout</span>(currentTimeMs);  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> handleUnexpectedError(error, responseMetadata);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h1 id="5-选举机制">5. 选举机制</h1>
+<p>KRaft模式中Controller是通过具体的配置选择，如果配置多个节点作为controller，一段时间内，只会有一个active来处理各类请求，通过配置参数<code>process.roles</code>来区分节点的角色：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> <span style="color:#66d9ef">val</span> controller<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Option</span><span style="color:#f92672">[</span><span style="color:#66d9ef">ControllerServer</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>config<span style="color:#f92672">.</span>processRoles<span style="color:#f92672">.</span>contains<span style="color:#f92672">(</span><span style="color:#a6e22e">ProcessRole</span><span style="color:#f92672">.</span><span style="color:#a6e22e">ControllerRole</span><span style="color:#f92672">))</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">Some</span><span style="color:#f92672">(</span><span style="color:#66d9ef">new</span> <span style="color:#a6e22e">ControllerServer</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>    sharedServer<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">KafkaRaftServer</span><span style="color:#f92672">.</span>configSchema<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>    bootstrapMetadata<span style="color:#f92672">,</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">))</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">None</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>判断是否为active Controller的依据：判断org.apache.kafka.controller.QuorumController#curClaimEpoch字段是否为-1</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> boolean isActiveController<span style="color:#f92672">()</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> isActiveController<span style="color:#f92672">(</span>curClaimEpoch<span style="color:#f92672">);</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">private</span> static boolean isActiveController<span style="color:#f92672">(</span>int claimEpoch<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> claimEpoch <span style="color:#f92672">!=</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span><span style="color:#f92672">;</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>作为voter如果满足以下任一条件，则会触发一轮新的选举：</p>
+<ol>
+<li>Fetch时发现当前Leader超时，相关参数：<code>quorum.fetch.timeout.ms</code></li>
+<li>从当前Leader接收到<code>EndQuorumEpoch</code>请求</li>
+<li>在成为candidate后，在<code>quorum.election.timeout.ms</code>时间内未能获得大部分投票</li>
+</ol>
+<h2 id="51-投票过程">5.1. 投票过程</h2>
+<p>voter触发选举后，会首先给自己投一票，并且将发送<code>VoteRequest</code>给其他voter。voter处理<code>VoteRequest</code>的流程如下：</p>
+<ol>
+<li>检查clusterId是否与当前相等</li>
+<li>检查请求中的epoch是否大于当前epoch，若小于则拒绝投票</li>
+<li>检查是否已经为请求投票的epoch投过票，若已经投过，检查candidate id是否匹配，匹配则投票</li>
+<li>如果请求中的epoch大于当前节点的epoch：
+<ol>
+<li>检查candidate id是否为reassign部分</li>
+<li>检查candidate的log是否比当前voter新</li>
+</ol>
+</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">private</span> VoteResponseData <span style="color:#a6e22e">handleVoteRequest</span>(  
+</span></span><span style="display:flex;"><span>    RaftRequest.<span style="color:#a6e22e">Inbound</span> requestMetadata  
+</span></span><span style="display:flex;"><span>) {  
+</span></span><span style="display:flex;"><span>    VoteRequestData request <span style="color:#f92672">=</span> (VoteRequestData) requestMetadata.<span style="color:#a6e22e">data</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 检查request  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>hasValidClusterId(request.<span style="color:#a6e22e">clusterId</span>())) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> VoteResponseData().<span style="color:#a6e22e">setErrorCode</span>(Errors.<span style="color:#a6e22e">INCONSISTENT_CLUSTER_ID</span>.<span style="color:#a6e22e">code</span>());  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>hasValidTopicPartition(request, log.<span style="color:#a6e22e">topicPartition</span>())) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Until we support multi-raft, we treat individual topic partition mismatches as invalid requests  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">new</span> VoteResponseData().<span style="color:#a6e22e">setErrorCode</span>(Errors.<span style="color:#a6e22e">INVALID_REQUEST</span>.<span style="color:#a6e22e">code</span>());  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    VoteRequestData.<span style="color:#a6e22e">PartitionData</span> partitionRequest <span style="color:#f92672">=</span>  
+</span></span><span style="display:flex;"><span>        request.<span style="color:#a6e22e">topics</span>().<span style="color:#a6e22e">get</span>(0).<span style="color:#a6e22e">partitions</span>().<span style="color:#a6e22e">get</span>(0);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> candidateId <span style="color:#f92672">=</span> partitionRequest.<span style="color:#a6e22e">candidateId</span>();  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> candidateEpoch <span style="color:#f92672">=</span> partitionRequest.<span style="color:#a6e22e">candidateEpoch</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> lastEpoch <span style="color:#f92672">=</span> partitionRequest.<span style="color:#a6e22e">lastOffsetEpoch</span>();  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">long</span> lastEpochEndOffset <span style="color:#f92672">=</span> partitionRequest.<span style="color:#a6e22e">lastOffset</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 检查请求是否有效  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (lastEpochEndOffset <span style="color:#f92672">&lt;</span> 0 <span style="color:#f92672">||</span> lastEpoch <span style="color:#f92672">&lt;</span> 0 <span style="color:#f92672">||</span> lastEpoch <span style="color:#f92672">&gt;=</span> candidateEpoch) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> buildVoteResponse(  
+</span></span><span style="display:flex;"><span>            requestMetadata.<span style="color:#a6e22e">listenerName</span>(),  
+</span></span><span style="display:flex;"><span>            requestMetadata.<span style="color:#a6e22e">apiVersion</span>(),  
+</span></span><span style="display:flex;"><span>            Errors.<span style="color:#a6e22e">INVALID_REQUEST</span>,  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">false</span>  
+</span></span><span style="display:flex;"><span>        );  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    Optional<span style="color:#f92672">&lt;</span>Errors<span style="color:#f92672">&gt;</span> errorOpt <span style="color:#f92672">=</span> validateVoterOnlyRequest(candidateId, candidateEpoch);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (errorOpt.<span style="color:#a6e22e">isPresent</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> buildVoteResponse(  
+</span></span><span style="display:flex;"><span>            requestMetadata.<span style="color:#a6e22e">listenerName</span>(),  
+</span></span><span style="display:flex;"><span>            requestMetadata.<span style="color:#a6e22e">apiVersion</span>(),  
+</span></span><span style="display:flex;"><span>            errorOpt.<span style="color:#a6e22e">get</span>(),  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">false</span>  
+</span></span><span style="display:flex;"><span>        );  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 如果vote请求的epoch信息，大于当前节点的epoch信息，则转换为unattach状态  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (candidateEpoch <span style="color:#f92672">&gt;</span> quorum.<span style="color:#a6e22e">epoch</span>()) {  
+</span></span><span style="display:flex;"><span>        transitionToUnattached(candidateEpoch);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.3 检查voterkey是否与本地匹配  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Check that the request was intended for this replica  </span>
+</span></span><span style="display:flex;"><span>    Optional<span style="color:#f92672">&lt;</span>ReplicaKey<span style="color:#f92672">&gt;</span> voterKey <span style="color:#f92672">=</span> RaftUtil.<span style="color:#a6e22e">voteRequestVoterKey</span>(request, partitionRequest);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>isValidVoterKey(voterKey)) {  
+</span></span><span style="display:flex;"><span>        logger.<span style="color:#a6e22e">info</span>(  
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">&#34;Candidate sent a voter key ({}) in the VOTE request that doesn&#39;t match the &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">&#34;local key ({}, {}); rejecting the vote&#34;</span>,  
+</span></span><span style="display:flex;"><span>            voterKey,  
+</span></span><span style="display:flex;"><span>            nodeId,  
+</span></span><span style="display:flex;"><span>            nodeDirectoryId  
+</span></span><span style="display:flex;"><span>        );  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// The request is not intended to this replica since the replica keys don&#39;t match  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> buildVoteResponse(  
+</span></span><span style="display:flex;"><span>            requestMetadata.<span style="color:#a6e22e">listenerName</span>(),  
+</span></span><span style="display:flex;"><span>            requestMetadata.<span style="color:#a6e22e">apiVersion</span>(),  
+</span></span><span style="display:flex;"><span>            Errors.<span style="color:#a6e22e">INVALID_VOTER_KEY</span>,  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">false</span>  
+</span></span><span style="display:flex;"><span>        );  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.1 构造OffsetAndEpoch  </span>
+</span></span><span style="display:flex;"><span>    OffsetAndEpoch lastEpochEndOffsetAndEpoch <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> OffsetAndEpoch(lastEpochEndOffset, lastEpoch);  
+</span></span><span style="display:flex;"><span>    ReplicaKey candidateKey <span style="color:#f92672">=</span> ReplicaKey.<span style="color:#a6e22e">of</span>(  
+</span></span><span style="display:flex;"><span>        candidateId,  
+</span></span><span style="display:flex;"><span>        partitionRequest.<span style="color:#a6e22e">candidateDirectoryId</span>()  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.2 检查是否可以vote：对比log offset  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">boolean</span> voteGranted <span style="color:#f92672">=</span> quorum.<span style="color:#a6e22e">canGrantVote</span>(  
+</span></span><span style="display:flex;"><span>        candidateKey,  
+</span></span><span style="display:flex;"><span>        lastEpochEndOffsetAndEpoch.<span style="color:#a6e22e">compareTo</span>(endOffset()) <span style="color:#f92672">&gt;=</span> 0  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.3 如果可以vote，并且当前节点是unattached状态，则转换为unattached voted状态  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (voteGranted <span style="color:#f92672">&amp;&amp;</span> quorum.<span style="color:#a6e22e">isUnattachedNotVoted</span>()) {  
+</span></span><span style="display:flex;"><span>        transitionToUnattachedVoted(candidateKey, candidateEpoch);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.4 成功进行投票  </span>
+</span></span><span style="display:flex;"><span>    logger.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Vote request {} with epoch {} is {}&#34;</span>, request, candidateEpoch, voteGranted <span style="color:#f92672">?</span> <span style="color:#e6db74">&#34;granted&#34;</span> : <span style="color:#e6db74">&#34;rejected&#34;</span>);  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> buildVoteResponse(  
+</span></span><span style="display:flex;"><span>        requestMetadata.<span style="color:#a6e22e">listenerName</span>(),  
+</span></span><span style="display:flex;"><span>        requestMetadata.<span style="color:#a6e22e">apiVersion</span>(),  
+</span></span><span style="display:flex;"><span>        Errors.<span style="color:#a6e22e">NONE</span>,  
+</span></span><span style="display:flex;"><span>        voteGranted  
+</span></span><span style="display:flex;"><span>    );  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>处理voteResponse的流程如下：</p>
+<ol>
+<li>检查当前节点是否任然为candidate，若不是则忽略响应。</li>
+<li>检查节点是否已经获得了大部分选票，如果没有更新的epoch candidate，则成为leader，并更新quorum状态。</li>
+<li>如果candidate已经获取了大部分选票，它也会将当前的分配状态写入log，更新<code>LastEpoch</code>和<code>LastEpochOffset</code>，最后发送<code>BeginQuorumEpochRequest</code>。</li>
+</ol>
+<p>handleVoteResponse方法的核心逻辑：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (handled.<span style="color:#a6e22e">isPresent</span>()) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> handled.<span style="color:#a6e22e">get</span>();  
+</span></span><span style="display:flex;"><span>} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (error <span style="color:#f92672">==</span> Errors.<span style="color:#a6e22e">NONE</span>) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//2.1 如果当前节点是leader，直接忽略当前response  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (quorum.<span style="color:#a6e22e">isLeader</span>()) {  
+</span></span><span style="display:flex;"><span>        logger.<span style="color:#a6e22e">debug</span>(<span style="color:#e6db74">&#34;Ignoring vote response {} since we already became leader for epoch {}&#34;</span>,  
+</span></span><span style="display:flex;"><span>                partitionResponse, quorum.<span style="color:#a6e22e">epoch</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//2.1 如果为candidate，记录本次投票，并检查是否可以成为leader  </span>
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (quorum.<span style="color:#a6e22e">isCandidate</span>()) {  
+</span></span><span style="display:flex;"><span>        CandidateState state <span style="color:#f92672">=</span> quorum.<span style="color:#a6e22e">candidateStateOrThrow</span>();  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (partitionResponse.<span style="color:#a6e22e">voteGranted</span>()) {  
+</span></span><span style="display:flex;"><span>            state.<span style="color:#a6e22e">recordGrantedVote</span>(remoteNodeId);  
+</span></span><span style="display:flex;"><span>            maybeTransitionToLeader(state, currentTimeMs);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//2.3 如果不是candidate，记录拒绝投票  </span>
+</span></span><span style="display:flex;"><span>            state.<span style="color:#a6e22e">recordRejectedVote</span>(remoteNodeId);  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// If our vote is rejected, we go immediately to the random backoff. This  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// ensures that we are not stuck waiting for the election timeout when the            // vote has become gridlocked.  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//2.4 如果拒绝投票，则进入随机退避，确保我们不会在选举超时之后被卡住  </span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (state.<span style="color:#a6e22e">isVoteRejected</span>() <span style="color:#f92672">&amp;&amp;</span> <span style="color:#f92672">!</span>state.<span style="color:#a6e22e">isBackingOff</span>()) {  
+</span></span><span style="display:flex;"><span>                logger.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Insufficient remaining votes to become leader (rejected by {}). &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                        <span style="color:#e6db74">&#34;We will backoff before retrying election again&#34;</span>, state.<span style="color:#a6e22e">rejectingVoters</span>());  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>                state.<span style="color:#a6e22e">startBackingOff</span>(  
+</span></span><span style="display:flex;"><span>                        currentTimeMs,  
+</span></span><span style="display:flex;"><span>                        binaryExponentialElectionBackoffMs(state.<span style="color:#a6e22e">retries</span>())  
+</span></span><span style="display:flex;"><span>                );  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>        logger.<span style="color:#a6e22e">debug</span>(<span style="color:#e6db74">&#34;Ignoring vote response {} since we are no longer a candidate in epoch {}&#34;</span>,  
+</span></span><span style="display:flex;"><span>                partitionResponse, quorum.<span style="color:#a6e22e">epoch</span>());  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>;  
+</span></span><span style="display:flex;"><span>} <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> handleUnexpectedError(error, responseMetadata);  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h1 id="6-日志快照">6. 日志快照</h1>
+<p>Raft算法约定每个节点定期要对log数据做snapshot，用于故障后恢复，在KRaft视线中，在以下场景中会加载snapshot数据：</p>
+<ol>
+<li>broker启动时</li>
+<li>follower从leader节点fetch了一个新snapshot时</li>
+</ol>
+<p>对于KRaft的日志做Snapshot的时机，通过以下两个参数进行控制：
+<code>metadata.snapshot.min.changed_records.ratio</code>：最新一次snapshot后，新产生的snapshot频率
+<code>metadata.log.max.record.bytes.between.snapshots</code>：最新一次snapshot后的record字节数</p>
+<p>生成snapshot的逻辑由<code>org.apache.kafka.image.publisher.SnapshotGenerator</code>来实现，它实现了MetadataPublisher接口，会在每次metadata更新时检查是否需要做snapshot。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#a6e22e">@Override</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">onMetadataUpdate</span>(  
+</span></span><span style="display:flex;"><span>    MetadataDelta delta,  
+</span></span><span style="display:flex;"><span>    MetadataImage newImage,  
+</span></span><span style="display:flex;"><span>    LoaderManifest manifest  
+</span></span><span style="display:flex;"><span>) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">switch</span> (manifest.<span style="color:#a6e22e">type</span>()) {  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> LOG_DELTA:  
+</span></span><span style="display:flex;"><span>            publishLogDelta(delta, newImage, (LogDeltaManifest) manifest);  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">break</span>;  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> SNAPSHOT:  
+</span></span><span style="display:flex;"><span>            publishSnapshot(delta, newImage, (SnapshotManifest) manifest);  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">break</span>;  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>针对于metadata的增量监控，满足配置项的任一条件都会调度snapshot生成：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">publishLogDelta</span>(  
+</span></span><span style="display:flex;"><span>    MetadataDelta delta,  
+</span></span><span style="display:flex;"><span>    MetadataImage newImage,  
+</span></span><span style="display:flex;"><span>    LogDeltaManifest manifest  
+</span></span><span style="display:flex;"><span>) {  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 更新bytesSinceLastSnapshot  </span>
+</span></span><span style="display:flex;"><span>    bytesSinceLastSnapshot <span style="color:#f92672">+=</span> manifest.<span style="color:#a6e22e">numBytes</span>();  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.2 检查当前写入bytes是否大于配置项  </span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (bytesSinceLastSnapshot <span style="color:#f92672">&gt;=</span> maxBytesSinceLastSnapshot) {  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.3 如果queue为空，立即触发生成snapshot  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (eventQueue.<span style="color:#a6e22e">isEmpty</span>()) {  
+</span></span><span style="display:flex;"><span>            scheduleEmit(<span style="color:#e6db74">&#34;we have replayed at least &#34;</span> <span style="color:#f92672">+</span> maxBytesSinceLastSnapshot <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">&#34; bytes&#34;</span>, newImage);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (log.<span style="color:#a6e22e">isTraceEnabled</span>()) {  
+</span></span><span style="display:flex;"><span>            log.<span style="color:#a6e22e">trace</span>(<span style="color:#e6db74">&#34;Not scheduling bytes-based snapshot because event queue is not empty yet.&#34;</span>);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (maxTimeSinceLastSnapshotNs <span style="color:#f92672">!=</span> 0 <span style="color:#f92672">&amp;&amp;</span>  
+</span></span><span style="display:flex;"><span>            (time.<span style="color:#a6e22e">nanoseconds</span>() <span style="color:#f92672">-</span> lastSnapshotTimeNs <span style="color:#f92672">&gt;=</span> maxTimeSinceLastSnapshotNs)) {  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//2.1 如果time条件满足也会触发生成snapshot  </span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (eventQueue.<span style="color:#a6e22e">isEmpty</span>()) {  
+</span></span><span style="display:flex;"><span>            scheduleEmit(<span style="color:#e6db74">&#34;we have waited at least &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                TimeUnit.<span style="color:#a6e22e">NANOSECONDS</span>.<span style="color:#a6e22e">toMinutes</span>(maxTimeSinceLastSnapshotNs) <span style="color:#f92672">+</span> <span style="color:#e6db74">&#34; minute(s)&#34;</span>, newImage);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (log.<span style="color:#a6e22e">isTraceEnabled</span>()) {  
+</span></span><span style="display:flex;"><span>            log.<span style="color:#a6e22e">trace</span>(<span style="color:#e6db74">&#34;Not scheduling time-based snapshot because event queue is not empty yet.&#34;</span>);  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (log.<span style="color:#a6e22e">isTraceEnabled</span>()) {  
+</span></span><span style="display:flex;"><span>        log.<span style="color:#a6e22e">trace</span>(<span style="color:#e6db74">&#34;Neither time-based nor bytes-based criteria are met; not scheduling snapshot.&#34;</span>);  
+</span></span><span style="display:flex;"><span>    }  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>触发snapshot的scheduleEmit方法通过调用Emitter实现snapshot创建。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">scheduleEmit</span>(  
+</span></span><span style="display:flex;"><span>    String reason,  
+</span></span><span style="display:flex;"><span>    MetadataImage image  
+</span></span><span style="display:flex;"><span>) {  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//1.1 重置counter  </span>
+</span></span><span style="display:flex;"><span>    resetSnapshotCounters();  
+</span></span><span style="display:flex;"><span>    eventQueue.<span style="color:#a6e22e">append</span>(() <span style="color:#f92672">-&gt;</span> {  
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//1.2 检查是否禁用snapshot  </span>
+</span></span><span style="display:flex;"><span>        String currentDisabledReason <span style="color:#f92672">=</span> disabledReason.<span style="color:#a6e22e">get</span>();  
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (currentDisabledReason <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span>) {  
+</span></span><span style="display:flex;"><span>            log.<span style="color:#a6e22e">error</span>(<span style="color:#e6db74">&#34;Not emitting {} despite the fact that {} because snapshots are &#34;</span> <span style="color:#f92672">+</span>  
+</span></span><span style="display:flex;"><span>                <span style="color:#e6db74">&#34;disabled; {}&#34;</span>, image.<span style="color:#a6e22e">provenance</span>().<span style="color:#a6e22e">snapshotName</span>(), reason,  
+</span></span><span style="display:flex;"><span>                    currentDisabledReason);  
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//2.1 触发创建snapshot  </span>
+</span></span><span style="display:flex;"><span>            log.<span style="color:#a6e22e">info</span>(<span style="color:#e6db74">&#34;Creating new KRaft snapshot file {} because {}.&#34;</span>,  
+</span></span><span style="display:flex;"><span>                    image.<span style="color:#a6e22e">provenance</span>().<span style="color:#a6e22e">snapshotName</span>(), reason);  
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">try</span> {  
+</span></span><span style="display:flex;"><span>                emitter.<span style="color:#a6e22e">maybeEmit</span>(image);  
+</span></span><span style="display:flex;"><span>            } <span style="color:#66d9ef">catch</span> (Throwable e) {  
+</span></span><span style="display:flex;"><span>                faultHandler.<span style="color:#a6e22e">handleFault</span>(<span style="color:#e6db74">&#34;KRaft snapshot file generation error&#34;</span>, e);  
+</span></span><span style="display:flex;"><span>            }  
+</span></span><span style="display:flex;"><span>        }  
+</span></span><span style="display:flex;"><span>    });  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>实际创建snapshot的流程：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> createNewSnapshot<span style="color:#f92672">(</span>snapshotId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">OffsetAndEpoch</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Optional</span><span style="color:#f92672">[</span><span style="color:#66d9ef">RawSnapshotWriter</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 检查传入offset是否小于start offset和high watermark  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>snapshotId<span style="color:#f92672">.</span>offset <span style="color:#f92672">&lt;</span> startOffset<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    info<span style="color:#f92672">(</span><span style="color:#e6db74">s&#34;Cannot create a snapshot with an id (</span><span style="color:#e6db74">$snapshotId</span><span style="color:#e6db74">) less than the log start offset (</span><span style="color:#e6db74">$startOffset</span><span style="color:#e6db74">)&#34;</span><span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">Optional</span><span style="color:#f92672">.</span>empty<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">val</span> highWatermarkOffset <span style="color:#66d9ef">=</span> highWatermark<span style="color:#f92672">.</span>offset  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>snapshotId<span style="color:#f92672">.</span>offset <span style="color:#f92672">&gt;</span> highWatermarkOffset<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">IllegalArgumentException</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#e6db74">s&#34;Cannot create a snapshot with an id (</span><span style="color:#e6db74">$snapshotId</span><span style="color:#e6db74">) greater than the high-watermark (</span><span style="color:#e6db74">$highWatermarkOffset</span><span style="color:#e6db74">)&#34;</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.2 检查offset和epoch  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> validOffsetAndEpoch <span style="color:#66d9ef">=</span> validateOffsetAndEpoch<span style="color:#f92672">(</span>snapshotId<span style="color:#f92672">.</span>offset<span style="color:#f92672">,</span> snapshotId<span style="color:#f92672">.</span>epoch<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>validOffsetAndEpoch<span style="color:#f92672">.</span>kind<span style="color:#f92672">()</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">ValidOffsetAndEpoch</span><span style="color:#f92672">.</span><span style="color:#a6e22e">Kind</span><span style="color:#f92672">.</span><span style="color:#a6e22e">VALID</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">IllegalArgumentException</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#e6db74">s&#34;Snapshot id (</span><span style="color:#e6db74">$snapshotId</span><span style="color:#e6db74">) is not valid according to the log: </span><span style="color:#e6db74">$validOffsetAndEpoch</span><span style="color:#e6db74">&#34;</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//2.1 调用createNewSnapshotUnchecked返回RawSnapshotWriter
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  createNewSnapshotUnchecked<span style="color:#f92672">(</span>snapshotId<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>createNewSnapshotUnchecked方法通过创建FileRawSnapshotWriter对象，其内部封装了对应日志文件的FileChannel。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-scala" data-lang="scala"><span style="display:flex;"><span><span style="color:#66d9ef">override</span> <span style="color:#66d9ef">def</span> createNewSnapshotUnchecked<span style="color:#f92672">(</span>snapshotId<span style="color:#66d9ef">:</span> <span style="color:#66d9ef">OffsetAndEpoch</span><span style="color:#f92672">)</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">Optional</span><span style="color:#f92672">[</span><span style="color:#66d9ef">RawSnapshotWriter</span><span style="color:#f92672">]</span> <span style="color:#66d9ef">=</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//1.1 检查是否已有该snapshot  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">val</span> containsSnapshotId <span style="color:#66d9ef">=</span> snapshots synchronized <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    snapshots<span style="color:#f92672">.</span>contains<span style="color:#f92672">(</span>snapshotId<span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>containsSnapshotId<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">Optional</span><span style="color:#f92672">.</span>empty<span style="color:#f92672">()</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span> <span style="color:#66d9ef">else</span> <span style="color:#f92672">{</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">Optional</span><span style="color:#f92672">.</span>of<span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">//传入log dir，通过FileRawSnapshotWriter创建，FileRawSnapshotWriter内部封装了FileChannel  
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">NotifyingRawSnapshotWriter</span><span style="color:#f92672">(</span>  
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">FileRawSnapshotWriter</span><span style="color:#f92672">.</span>create<span style="color:#f92672">(</span>log<span style="color:#f92672">.</span>dir<span style="color:#f92672">.</span>toPath<span style="color:#f92672">,</span> snapshotId<span style="color:#f92672">),</span>  
+</span></span><span style="display:flex;"><span>        onSnapshotFrozen  
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">)</span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">}</span>  
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><h1 id="7-reference">7. Reference</h1>
+<p><a href="https://cwiki.apache.org/confluence/display/KAFKA/KIP-595%3A+A+Raft+Protocol+for+the+Metadata+Quorum#KIP595:ARaftProtocolfortheMetadataQuorum-ParentKIP">KIP-595</a>
+<a href="https://cwiki.apache.org/confluence/display/KAFKA/KIP-630%3A+Kafka+Raft+Snapshot">KIP-630</a></p>
+
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+          <div class="post-comments">
+            <div id="disqus_thread"></div>
+<script>
+  window.addEventListener("load", () => {
+    (function() {
+      
+      var d = document,
+        s = d.createElement("script");
+      s.src = "https://evl1nker4.disqus.com/embed.js";
+      s.setAttribute("data-timestamp", +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  });
+</script>
+<noscript
+  >Please enable JavaScript to view the
+  <a href="https://disqus.com/?ref_noscript"
+    >comments powered by Disqus.</a
+  ></noscript
+>
+
+          </div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>
