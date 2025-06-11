@@ -2,17 +2,17 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>数据库 on l1nker4&#39;s Blog | 格木观云</title>
-    <link>http://localhost:57748/tags/%E6%95%B0%E6%8D%AE%E5%BA%93/</link>
+    <link>http://localhost:1313/tags/%E6%95%B0%E6%8D%AE%E5%BA%93/</link>
     <description>Recent content in 数据库 on l1nker4&#39;s Blog | 格木观云</description>
     <generator>Hugo</generator>
     <language>en-us</language>
     <lastBuildDate>Thu, 13 Jan 2022 17:45:04 +0000</lastBuildDate>
-    <atom:link href="http://localhost:57748/tags/%E6%95%B0%E6%8D%AE%E5%BA%93/index.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="http://localhost:1313/tags/%E6%95%B0%E6%8D%AE%E5%BA%93/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>Bitcask论文阅读笔记</title>
-      <link>http://localhost:57748/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/bitcask/</link>
+      <link>http://localhost:1313/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/bitcask/</link>
       <pubDate>Thu, 13 Jan 2022 17:45:04 +0000</pubDate>
-      <guid>http://localhost:57748/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/bitcask/</guid>
+      <guid>http://localhost:1313/posts/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/bitcask/</guid>
       <description>&lt;h2 id=&#34;简介&#34;&gt;简介&lt;/h2&gt;&#xA;&lt;p&gt;Bitcask是Riak分布式数据库使用的日志型存储模型，主要有以下几点特性：&lt;/p&gt;&#xA;&lt;ul&gt;&#xA;&lt;li&gt;读写低延迟&lt;/li&gt;&#xA;&lt;li&gt;高吞吐量，尤其是随机写&lt;/li&gt;&#xA;&lt;li&gt;能处理大量的数据集而不降低性能&lt;/li&gt;&#xA;&lt;li&gt;故障时快速恢复且不丢失数据&lt;/li&gt;&#xA;&lt;li&gt;易于备份和恢复&lt;/li&gt;&#xA;&lt;li&gt;易于理解的代码结构和数据格式&lt;/li&gt;&#xA;&lt;/ul&gt;&#xA;&lt;h2 id=&#34;结构&#34;&gt;结构&lt;/h2&gt;&#xA;&lt;h3 id=&#34;硬盘结构&#34;&gt;硬盘结构&lt;/h3&gt;&#xA;&lt;p&gt;在给定的一段时间内，只有一个&lt;code&gt;active data file&lt;/code&gt;能提供&lt;code&gt;append&lt;/code&gt;（写入）功能，当该文件大小达到指定阈值时，则会创建一个新的&lt;code&gt;active data file&lt;/code&gt;。每一个写入到file的entry结构如下：&lt;/p&gt;&#xA;&lt;p&gt;&lt;img src=&#34;https://blog-1251613845.cos.ap-shanghai.myqcloud.com/distribute%20system/bitcask/entry.jpg&#34; alt=&#34;Entry结构&#34;&gt;&lt;/p&gt;&#xA;&lt;p&gt;包括以下内容：&lt;/p&gt;&#xA;&lt;ul&gt;&#xA;&lt;li&gt;crc：校验值&lt;/li&gt;&#xA;&lt;li&gt;tstamp：记录写入该数据的时间&lt;/li&gt;&#xA;&lt;li&gt;ksz：key_size&lt;/li&gt;&#xA;&lt;li&gt;value_sz：value_size&lt;/li&gt;&#xA;&lt;li&gt;key：key&lt;/li&gt;&#xA;&lt;li&gt;value：value&lt;/li&gt;&#xA;&lt;/ul&gt;&#xA;&lt;h3 id=&#34;内存结构&#34;&gt;内存结构&lt;/h3&gt;&#xA;&lt;p&gt;在写入之后，一个被称为&lt;code&gt;keydir&lt;/code&gt;（hash table）的内存结构将被更新，每一个键映射到固定大小的结构中，包括了以下内容：&lt;/p&gt;&#xA;&lt;ul&gt;&#xA;&lt;li&gt;file_id：去哪个文件查询&lt;/li&gt;&#xA;&lt;li&gt;value_size：读取value多长的字节&lt;/li&gt;&#xA;&lt;li&gt;value_position：value在文件中的位置&lt;/li&gt;&#xA;&lt;/ul&gt;&#xA;&lt;p&gt;每一次写操作发生，&lt;code&gt;keydir&lt;/code&gt;都会进行原子性的更新。&lt;/p&gt;&#xA;&lt;h2 id=&#34;操作&#34;&gt;操作&lt;/h2&gt;&#xA;&lt;h3 id=&#34;read&#34;&gt;read&lt;/h3&gt;&#xA;&lt;p&gt;读取value的过程：&lt;/p&gt;&#xA;&lt;ol&gt;&#xA;&lt;li&gt;查找keydir中的key，并读取&lt;code&gt;file_id&lt;/code&gt;，&lt;code&gt;position&lt;/code&gt;，&lt;code&gt;size&lt;/code&gt;。&lt;/li&gt;&#xA;&lt;li&gt;通过&lt;code&gt;file_id&lt;/code&gt;找到对应的&lt;code&gt;data file&lt;/code&gt;，再通过&lt;code&gt;position&lt;/code&gt;和&lt;code&gt;size&lt;/code&gt;字段找到entry中的value。&lt;/li&gt;&#xA;&lt;/ol&gt;&#xA;&lt;h3 id=&#34;merge&#34;&gt;merge&lt;/h3&gt;&#xA;&lt;p&gt;由于删除操作并不会真正删除掉entry，只是将删除操作封装成entry写入文件，因此需要&lt;code&gt;merge&lt;/code&gt;操作将所有的非&lt;code&gt;active&lt;/code&gt;文件中entry遍历，并重组为一个新文件。同时生成一个&lt;code&gt;hint file&lt;/code&gt;，用于存储&lt;code&gt;data file&lt;/code&gt;的位置和大小。&lt;/p&gt;&#xA;&lt;blockquote&gt;&#xA;&lt;p&gt;Q：hint file的作用是什么？&lt;/p&gt;&lt;/blockquote&gt;&#xA;&lt;p&gt;A：每次进程重启时需要重建&lt;code&gt;keydir&lt;/code&gt;，需要扫描所有的数据文件，因此使用&lt;code&gt;hint file &lt;/code&gt;加速构建&lt;code&gt;keydir&lt;/code&gt;的速度。&lt;/p&gt;</description>
     </item>
   </channel>

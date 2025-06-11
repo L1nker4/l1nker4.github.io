@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=57748&amp;path=livereload" data-no-instant defer></script>
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
   <meta charset="utf-8" />
   <meta name="generator" content="Hugo 0.145.0">
 
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="author" content="" />
-  <meta property="og:url" content="http://localhost:57748/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-6-network-model/" />
-  <link rel="canonical" href="http://localhost:57748/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-6-network-model/" /><link rel="apple-touch-icon" href="/favicon.png" />
+  <meta property="og:url" content="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-6-network-model/" />
+  <link rel="canonical" href="http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6/kafka/kafka-source-code-6-network-model/" /><link rel="apple-touch-icon" href="/favicon.png" />
   <link rel="icon" href="/favicon.png" />
-  <link rel="shortcut" href="/favicon.png" /><link rel="alternate" type="application/atom+xml" href="http://localhost:57748/index.xml" title="l1nker4&#39;s Blog | 格木观云">
+  <link rel="shortcut" href="/favicon.png" /><link rel="alternate" type="application/atom+xml" href="http://localhost:1313/index.xml" title="l1nker4&#39;s Blog | 格木观云">
 
   <script type="application/ld+json">
   {
@@ -18,7 +18,7 @@
       "@type" : "BlogPosting",
       "mainEntityOfPage": {
            "@type": "WebPage",
-           "@id": "http:\/\/localhost:57748\/"
+           "@id": "http:\/\/localhost:1313\/"
       },
       "articleSection" : "posts",
       "name" : "Kafka源码分析(六) - 网络通信模块设计",
@@ -33,7 +33,7 @@
       "copyrightYear" : "2025",
       "datePublished": "2025-03-02 18:10:12 \u002b0800 CST",
       "dateModified" : "2025-03-02 18:10:12 \u002b0800 CST",
-      "url" : "http:\/\/localhost:57748\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/kafka\/kafka-source-code-6-network-model\/",
+      "url" : "http:\/\/localhost:1313\/posts\/%E4%B8%AD%E9%97%B4%E4%BB%B6\/kafka\/kafka-source-code-6-network-model\/",
       "keywords" : [  ]
   }
 </script>
@@ -124,7 +124,7 @@ private def createDataPlaneAcceptorAndProcessors(endpoint: EndPoint): Unit = syn
               
               <time class="post-date" datetime="2025-03-02 18:10:12 CST">
                 
-                  02 Mar 2025
+                  2025-03-02
                 
               </time>
               
@@ -856,36 +856,44 @@ private def createDataPlaneAcceptorAndProcessors(endpoint: EndPoint): Unit = syn
             <div class="post-toc">
               <nav id="TableOfContents">
   <ul>
-    <li><a href="#acceptor">Acceptor</a>
+    <li><a href="#intro">Intro</a></li>
+    <li><a href="#socketserver">SocketServer</a>
       <ul>
-        <li><a href="#初始化">初始化</a></li>
-        <li><a href="#创建socket">创建Socket</a></li>
-        <li><a href="#主体逻辑">主体逻辑</a></li>
-        <li><a href="#处理连接">处理连接</a></li>
-        <li><a href="#processor维护">Processor维护</a></li>
+        <li><a href="#acceptor">Acceptor</a>
+          <ul>
+            <li><a href="#初始化">初始化</a></li>
+            <li><a href="#创建socket">创建Socket</a></li>
+            <li><a href="#主体逻辑">主体逻辑</a></li>
+            <li><a href="#处理连接">处理连接</a></li>
+            <li><a href="#processor维护">Processor维护</a></li>
+          </ul>
+        </li>
+        <li><a href="#processor">Processor</a>
+          <ul>
+            <li><a href="#accept">accept</a></li>
+            <li><a href="#主体逻辑-1">主体逻辑</a></li>
+            <li><a href="#configurenewconnections">configureNewConnections</a></li>
+            <li><a href="#processnewresponses">processNewResponses</a></li>
+            <li><a href="#poll">poll</a></li>
+            <li><a href="#processcompletedreceives">processCompletedReceives</a></li>
+            <li><a href="#processcompletedsends">processCompletedSends</a></li>
+            <li><a href="#processdisconnected">processDisconnected</a></li>
+          </ul>
+        </li>
       </ul>
     </li>
-    <li><a href="#processor">Processor</a>
+    <li><a href="#requestchannel">RequestChannel</a></li>
+    <li><a href="#kafkarequesthandlerpool">KafkaRequestHandlerPool</a>
       <ul>
-        <li><a href="#accept">accept</a></li>
-        <li><a href="#主体逻辑-1">主体逻辑</a></li>
-        <li><a href="#configurenewconnections">configureNewConnections</a></li>
-        <li><a href="#processnewresponses">processNewResponses</a></li>
-        <li><a href="#poll">poll</a></li>
-        <li><a href="#processcompletedreceives">processCompletedReceives</a></li>
-        <li><a href="#processcompletedsends">processCompletedSends</a></li>
-        <li><a href="#processdisconnected">processDisconnected</a></li>
+        <li><a href="#线程池管理">线程池管理</a></li>
+        <li><a href="#kafkarequesthandler">KafkaRequestHandler</a>
+          <ul>
+            <li><a href="#主体逻辑-2">主体逻辑</a></li>
+          </ul>
+        </li>
       </ul>
     </li>
-  </ul>
-
-  <ul>
-    <li><a href="#线程池管理">线程池管理</a></li>
-    <li><a href="#kafkarequesthandler">KafkaRequestHandler</a>
-      <ul>
-        <li><a href="#主体逻辑-2">主体逻辑</a></li>
-      </ul>
-    </li>
+    <li><a href="#reference">Reference</a></li>
   </ul>
 </nav>
             </div>
