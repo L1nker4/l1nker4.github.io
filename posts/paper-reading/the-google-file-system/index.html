@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.145.0">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:1313/posts/paper-reading/the-google-file-system/" />
+  <link rel="canonical" href="http://localhost:1313/posts/paper-reading/the-google-file-system/" /><link rel="apple-touch-icon" href="/favicon.png" />
+  <link rel="icon" href="/favicon.png" />
+  <link rel="shortcut" href="/favicon.png" /><link rel="alternate" type="application/atom+xml" href="http://localhost:1313/index.xml" title="L1nker4&#39;s Blog | 格木观云">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:1313\/"
+      },
+      "articleSection" : "posts",
+      "name" : "读点论文 - The Google File System",
+      "headline" : "读点论文 - The Google File System",
+      "description" : "1. Intro 《The Google File System》（GFS）是Google于2003年在ACM SOSP（Symposium on Operating Systems Principles）上发表的一篇论文。它首次系统性地介绍了Google内部为应对大规模数据处理而设计的分布式文件系统架构。\n在21世纪初，随着互联网的爆发式发展，Google需要存储并处理海量的网页、图片等数据，传统File System无论在性能、容错性、可靠性等方面都无法满足需求，因此Google设计了GFS以解决大规模文件存储和管理的需求。\n2. 设计概览 2.1. 设计目标 GFS的主要设计目标包括：\n性能 可用性 可伸缩性 需要满足的需求：\n系统由大量廉价的存储介质构成，需要考虑监控、容错、快速回复能力 需要解决大量文件存储和管理。 读取场景：大规模的顺序读，小规模的随机读 写入场景：大规模的顺序写，极少数的小规模随机写 并发支持：支持多Client并发写入同一个文件的场景 2.2. 集群概览 GFS集群从架构上看，节点分成两个类型：\nMaster：整个集群的Master节点，负责以下职责： 维护所有Chunk Server节点的metadata 回收废弃chunk Chunk Server之间chunk迁移 与Chunk Server进行HeartBeat Chunk Server：文件会被切分成chunk存储到节点中，每个chunk存在三个备份。 存储文件时，GFS会将文件切分成若干个固定大小的Chunk块并存储，Master会为每个Chunk块分配一个唯一Hash key（论文中成为handle），并将它们交由Chunk Server存储，Chunk Server以普通文件的形式将每个Chunk存储在本地磁盘上，并存储多Replica以保证数据可靠性。\nClient从GFS读取文件的步骤划分为：\nClient在本地通过文件名和byte offset转换为chunk index Client向Master发送携带filename和chunk index的请求，以获取chunk的唯一标识chunk handle和chunk replica所在的Chunk Server地址 Client向最近的Chunk Server请求chunk数据 2.3. Chunk Size Chunk Size是分布式文件存储系统中一个重要的性能指标，在参数选择上需要取舍以下因素：\n因素 Chunk 越大 Chunk 越小 元数据压力 减少 增加 随机访问延迟 增加（加载较大 chunk耗时） 降低 顺序访问吞吐 更高 更低 负载均衡灵活性 降低（数据倾斜） 更好 容错恢复代价 更大（单个 chunk 损坏数据多） 更小 网络带宽利用效率 更高 更低（小文件碎片化） GFS的chunk size选取为64MB，论文中提到选取大chunk的原因如下：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2025",
+      "datePublished": "2025-06-26 11:43:37 \u002b0800 CST",
+      "dateModified" : "2025-06-26 11:43:37 \u002b0800 CST",
+      "url" : "http:\/\/localhost:1313\/posts\/paper-reading\/the-google-file-system\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>读点论文 - The Google File System</title>
+  <meta property="og:title" content="读点论文 - The Google File System" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="1. Intro 《The Google File System》（GFS）是Google于2003年在ACM SOSP（Symposium on Operating Systems Principles）上发表的一篇论文。它首次系统性地介绍了Google内部为应对大规模数据处理而设计的分布式文件系统架构。
+在21世纪初，随着互联网的爆发式发展，Google需要存储并处理海量的网页、图片等数据，传统File System无论在性能、容错性、可靠性等方面都无法满足需求，因此Google设计了GFS以解决大规模文件存储和管理的需求。
+2. 设计概览 2.1. 设计目标 GFS的主要设计目标包括：
+性能 可用性 可伸缩性 需要满足的需求：
+系统由大量廉价的存储介质构成，需要考虑监控、容错、快速回复能力 需要解决大量文件存储和管理。 读取场景：大规模的顺序读，小规模的随机读 写入场景：大规模的顺序写，极少数的小规模随机写 并发支持：支持多Client并发写入同一个文件的场景 2.2. 集群概览 GFS集群从架构上看，节点分成两个类型：
+Master：整个集群的Master节点，负责以下职责： 维护所有Chunk Server节点的metadata 回收废弃chunk Chunk Server之间chunk迁移 与Chunk Server进行HeartBeat Chunk Server：文件会被切分成chunk存储到节点中，每个chunk存在三个备份。 存储文件时，GFS会将文件切分成若干个固定大小的Chunk块并存储，Master会为每个Chunk块分配一个唯一Hash key（论文中成为handle），并将它们交由Chunk Server存储，Chunk Server以普通文件的形式将每个Chunk存储在本地磁盘上，并存储多Replica以保证数据可靠性。
+Client从GFS读取文件的步骤划分为：
+Client在本地通过文件名和byte offset转换为chunk index Client向Master发送携带filename和chunk index的请求，以获取chunk的唯一标识chunk handle和chunk replica所在的Chunk Server地址 Client向最近的Chunk Server请求chunk数据 2.3. Chunk Size Chunk Size是分布式文件存储系统中一个重要的性能指标，在参数选择上需要取舍以下因素：
+因素 Chunk 越大 Chunk 越小 元数据压力 减少 增加 随机访问延迟 增加（加载较大 chunk耗时） 降低 顺序访问吞吐 更高 更低 负载均衡灵活性 降低（数据倾斜） 更好 容错恢复代价 更大（单个 chunk 损坏数据多） 更小 网络带宽利用效率 更高 更低（小文件碎片化） GFS的chunk size选取为64MB，论文中提到选取大chunk的原因如下：
+" />
+  <meta name="description" content="1. Intro 《The Google File System》（GFS）是Google于2003年在ACM SOSP（Symposium on Operating Systems Principles）上发表的一篇论文。它首次系统性地介绍了Google内部为应对大规模数据处理而设计的分布式文件系统架构。
+在21世纪初，随着互联网的爆发式发展，Google需要存储并处理海量的网页、图片等数据，传统File System无论在性能、容错性、可靠性等方面都无法满足需求，因此Google设计了GFS以解决大规模文件存储和管理的需求。
+2. 设计概览 2.1. 设计目标 GFS的主要设计目标包括：
+性能 可用性 可伸缩性 需要满足的需求：
+系统由大量廉价的存储介质构成，需要考虑监控、容错、快速回复能力 需要解决大量文件存储和管理。 读取场景：大规模的顺序读，小规模的随机读 写入场景：大规模的顺序写，极少数的小规模随机写 并发支持：支持多Client并发写入同一个文件的场景 2.2. 集群概览 GFS集群从架构上看，节点分成两个类型：
+Master：整个集群的Master节点，负责以下职责： 维护所有Chunk Server节点的metadata 回收废弃chunk Chunk Server之间chunk迁移 与Chunk Server进行HeartBeat Chunk Server：文件会被切分成chunk存储到节点中，每个chunk存在三个备份。 存储文件时，GFS会将文件切分成若干个固定大小的Chunk块并存储，Master会为每个Chunk块分配一个唯一Hash key（论文中成为handle），并将它们交由Chunk Server存储，Chunk Server以普通文件的形式将每个Chunk存储在本地磁盘上，并存储多Replica以保证数据可靠性。
+Client从GFS读取文件的步骤划分为：
+Client在本地通过文件名和byte offset转换为chunk index Client向Master发送携带filename和chunk index的请求，以获取chunk的唯一标识chunk handle和chunk replica所在的Chunk Server地址 Client向最近的Chunk Server请求chunk数据 2.3. Chunk Size Chunk Size是分布式文件存储系统中一个重要的性能指标，在参数选择上需要取舍以下因素：
+因素 Chunk 越大 Chunk 越小 元数据压力 减少 增加 随机访问延迟 增加（加载较大 chunk耗时） 降低 顺序访问吞吐 更高 更低 负载均衡灵活性 降低（数据倾斜） 更好 容错恢复代价 更大（单个 chunk 损坏数据多） 更小 网络带宽利用效率 更高 更低（小文件碎片化） GFS的chunk size选取为64MB，论文中提到选取大chunk的原因如下：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="/favicon.png" />
+  
+
+  
+    <style>body{font-family:bree serif,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:1000px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:75%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:75%;background-color:inherit;border:0;font-family:SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace;line-height:1.6}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="L1nker4&#39;s Blog | 格木观云">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4&#39;s Blog</a
+    >
+  </div>
+  <div class="header-subtitle">提升认知，解构世界，行有不得，反求诸己</div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/index.xml" target="_blank">RSS</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">读点论文 - The Google File System</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2025-06-26 11:43:37 CST">
+                
+                  2025-06-26
+                
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="row">
+          <div class="col-xs-12 col-md-9">
+            <div class="post-content markdown-body">
+              
+              <h1 id="1-intro">1. Intro</h1>
+<p><a href="https://research.google.com/archive/gfs-sosp2003.pdf">《The Google File System》</a>（GFS）是Google于2003年在ACM SOSP（Symposium on Operating Systems Principles）上发表的一篇论文。它首次系统性地介绍了Google内部为应对大规模数据处理而设计的分布式文件系统架构。</p>
+<p>在21世纪初，随着互联网的爆发式发展，Google需要存储并处理海量的网页、图片等数据，传统File System无论在性能、容错性、可靠性等方面都无法满足需求，因此Google设计了GFS以解决大规模文件存储和管理的需求。</p>
+<h1 id="2-设计概览">2. 设计概览</h1>
+<h2 id="21-设计目标">2.1. 设计目标</h2>
+<p>GFS的主要设计目标包括：</p>
+<ul>
+<li>性能</li>
+<li>可用性</li>
+<li>可伸缩性</li>
+</ul>
+<p>需要满足的需求：</p>
+<ol>
+<li>系统由大量廉价的存储介质构成，需要考虑监控、容错、快速回复能力</li>
+<li>需要解决大量文件存储和管理。</li>
+<li>读取场景：大规模的顺序读，小规模的随机读</li>
+<li>写入场景：大规模的顺序写，极少数的小规模随机写</li>
+<li>并发支持：支持多Client并发写入同一个文件的场景</li>
+</ol>
+<h2 id="22-集群概览">2.2. 集群概览</h2>
+<p>GFS集群从架构上看，节点分成两个类型：</p>
+<ul>
+<li>Master：整个集群的Master节点，负责以下职责：
+<ul>
+<li>维护所有Chunk Server节点的metadata</li>
+<li>回收废弃chunk</li>
+<li>Chunk Server之间chunk迁移</li>
+<li>与Chunk Server进行HeartBeat</li>
+</ul>
+</li>
+<li>Chunk Server：文件会被切分成chunk存储到节点中，每个chunk存在三个备份。</li>
+</ul>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20250620165217900.png" alt="GFS Architecture"></p>
+<p>存储文件时，GFS会将文件切分成若干个固定大小的Chunk块并存储，Master会为每个Chunk块分配一个唯一Hash key（论文中成为handle），并将它们交由Chunk Server存储，Chunk Server以普通文件的形式将每个Chunk存储在本地磁盘上，并存储多Replica以保证数据可靠性。</p>
+<p>Client从GFS读取文件的步骤划分为：</p>
+<ol>
+<li>Client在本地通过文件名和byte offset转换为chunk index</li>
+<li>Client向Master发送携带filename和chunk index的请求，以获取chunk的唯一标识chunk handle和chunk replica所在的Chunk Server地址</li>
+<li>Client向最近的Chunk Server请求chunk数据</li>
+</ol>
+<h2 id="23-chunk-size">2.3. Chunk Size</h2>
+<p>Chunk Size是分布式文件存储系统中一个重要的性能指标，在参数选择上需要取舍以下因素：</p>
+<table>
+  <thead>
+      <tr>
+          <th>因素</th>
+          <th>Chunk 越大</th>
+          <th>Chunk 越小</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>元数据压力</td>
+          <td>减少</td>
+          <td>增加</td>
+      </tr>
+      <tr>
+          <td>随机访问延迟</td>
+          <td>增加（加载较大 chunk耗时）</td>
+          <td>降低</td>
+      </tr>
+      <tr>
+          <td>顺序访问吞吐</td>
+          <td>更高</td>
+          <td>更低</td>
+      </tr>
+      <tr>
+          <td>负载均衡灵活性</td>
+          <td>降低（数据倾斜）</td>
+          <td>更好</td>
+      </tr>
+      <tr>
+          <td>容错恢复代价</td>
+          <td>更大（单个 chunk 损坏数据多）</td>
+          <td>更小</td>
+      </tr>
+      <tr>
+          <td>网络带宽利用效率</td>
+          <td>更高</td>
+          <td>更低（小文件碎片化）</td>
+      </tr>
+  </tbody>
+</table>
+<p>GFS的chunk size选取为64MB，论文中提到选取大chunk的原因如下：</p>
+<ol>
+<li>适配当时Google内部应用场景：大规模顺序读</li>
+<li>减少Client/Chunk Server间的TCP连接次数</li>
+<li>减少了metadata存储空间</li>
+</ol>
+<p>另一方面，论文中也提到了大chunk的缺点：数百个Client同时读取一个小文件，由于只有一个chunk，会使得该Chunk Server的负载瞬间提升。Google选取的解决方案是增加该chunk的Replica数量。</p>
+<h2 id="24-metadata">2.4. Metadata</h2>
+<p>Master存储的metadata数据类型包括：文件namespace、file-to-chunk映射关系、每个chunk replica的位置，前两种类型metadata的变更记录会被存储到本地磁盘并创建replica存储到远程机器上（snapshot），用以提升Master节点的可靠性。chunk replica location由每个Chunk Server加入集群时主动上报给Master。</p>
+<p>Master并没有将metadata存储在硬盘中，而是将metadata存储在内存中，并使用定期线程扫描废弃chunk并GC、还需要完成Chunk Server之间的数据迁移。</p>
+<h3 id="241-operation-log">2.4.1. Operation Log</h3>
+<p>GFS Master节点会将metadata变更记录存储到operation log中，它将被存储在磁盘上，用于提升数据可靠性，当Log达到一定大小时，会将当前当前metadata持久化到磁盘中，这被称为checkpoint，并且Master节点会在启动时读取checkpoint，这会提升Master在启动或故障恢复时metadata载入速度，checkpoint是一个压缩B-Tree，可以直接被加载到内存而不需要额外的解析流程。</p>
+<h1 id="3-详细设计">3. 详细设计</h1>
+<h2 id="31-数据一致性">3.1. 数据一致性</h2>
+<p>Mutation是指对chunk内容或metadata的修改操作，多Replica场景也就引出了分布式场景中数据一致性问题，GFS采用了宽松的一致性模型来支持其简单高效的分布式实现，对于追加写入操作，GFS也只是作出了至少一次（At Least Once）这样宽松的保障。</p>
+<p>从以下几个方面来分析一致性实现：</p>
+<p>首先metadata中namespace变更在Master节点上的操作都是<strong>原子性</strong>，因此不存在一致性问题，而文件chunk修改较为复杂，如果不同的客户端并发写入同一个文件chunk，这块chunk可能会存在数据不一致的情况，因此在chunk mutation完成后，可能发生以下三种场景：</p>
+<ol>
+<li>consistent：Client读取不同replica时可能读取到不同数据</li>
+<li>inconsistent：Client无论同时读取哪个replica都会读取到相同数据</li>
+<li>defined：Client能确认上次修改前的所有数据，并且这部分数据是一致的</li>
+</ol>
+<p>chunk在操作后对应的状态表：</p>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20250624113221054.png" alt="file region state"></p>
+<p>前文提到一个文件Chunk同时存三个Replica以提升数据完整性，因此每个replica需要合理分布到集群的不同位置。chunk replica分开存放的目的主要有两个：</p>
+<ol>
+<li>最大限度提升数据可靠性和可用性</li>
+<li>最大限度提升网络带宽利用率</li>
+</ol>
+<p>GFS在设计上考虑到现实情况中，不同的机器可能同时存在于一台机架上，因此在分布策略中，还要讲Replica均匀分布到各个机架，可以确保当某个机架离线时，仍有其他replica可用，同时也能确保流量平均打到各个机架带宽中。</p>
+<p>为了保证数据完整，Chunk Server会将每个Chunk Replica切分为若干个block，并为每个block计算32位的checksum，以防止该Chunk Replica损坏，block的checksum会存储在Chunk Server的内存中，当接收到读请求时，Chunk Server会使用checksum检查数据是否完整，如果数据损坏则返回错误信息并上报Master，使得Client向另一个Replica发起读请求，并且Master会利用其他有效Replica来恢复损坏Replica。</p>
+<h3 id="311-lease机制">3.1.1. Lease机制</h3>
+<p>由于GFS中每个Chunk都存在多个Replica，因此需要确保这些Replica在进行修改时的顺序一致，因此Master使用Lease来保证多Replica的数据一致性，Master将Lease授予其中一个Replica，这个Replica会被称为Primary Replica，Primary Replica会给其他Replica分配一个序列号（serial order），然后其他Replica按照相同的顺序完成更新</p>
+<p>下图是多Replica Chunk数据的更新步骤：</p>
+<ol>
+<li>Client向Master获取持有当前lease的Primary Replica和其他Replica所在的Chunk Server，如果没有lease，Master会将lease授予其中一个Replica。</li>
+<li>Master返回给Client所需的Replica情况，Client缓存该信息。</li>
+<li>Client将数据推送给所有Replica，每个Chunk Server会将数据存储在内部的LRU Buffer中，直到数据被使用或超时。</li>
+<li>当所有Replica写入缓存成功后，Client会给Primary Replica发送写入请求，请求包含所有推送的Replica信息，Primary Replica接收到请求后为mutatiomutation分配序列号。</li>
+<li>Primary Replica将写入请求转发给其他所有replicas，每个Replica按照序列号完成本地数据更新。</li>
+<li>所有Replica完成数据更新后，需要向Primary Replica发送响应信息表明完成。</li>
+<li>Primary Replica向Client发送响应，任何错误都需要回传给Client，由Client进行重试直到全部写入成功。</li>
+</ol>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20250624134018453.png" alt="lease data flow"></p>
+<h2 id="32-snapshot">3.2. Snapshot</h2>
+<p>snapshot机制用于快速地创建文件或目录树的时间点Replica，不会影响原文件的可用性，也无需大规模的数据复制。GFS采用copy-on-write来实现snapshot机制，当Master接收到snapshot请求后，执行步骤如下：</p>
+<ol>
+<li>Master首先会撤销所有在chunk上未执行的所有lease写入请求，以确保创建的snapshot数据是一致的。</li>
+<li>将操作写入Master的Operation Log</li>
+<li>Master为对应目录或文件的metadata创建一份拷贝，并指向同一份chunk</li>
+<li>如果在 snapshot 之后，客户端尝试修改源文件（F）中的某个 chunk（比如 C）：
+<ul>
+<li>master 会为此写操作分配一个新的 chunk handle（C′）</li>
+<li>并要求当前持有 C Replica的 chunkserver 创建一个 C′ 的Replica（内容复制自 C）</li>
+<li>然后将写请求定向到 C′，而不是原 chunk C</li>
+</ul>
+</li>
+</ol>
+<p>GFS 中的 Snapshot 能够实现快速、一致和持久的时间点拷贝，其本质是一种命名空间的轻量级变更操作。借助于 master 对 namespace 的内存管理、操作日志持久化机制以及树形路径加锁策略，Snapshot 不仅具有极高的执行效率，也确保了系统的一致性和可靠性。</p>
+<h2 id="33-集群操作">3.3. 集群操作</h2>
+<h3 id="331-chunk-creation">3.3.1. Chunk Creation</h3>
+<p>当Client请求写入新文件时，Master需要考虑以下三点：</p>
+<ul>
+<li>哪些 Chunk Server 负责保存该 chunk 的初始Replica；</li>
+<li>通常选多个机器，以满足Replica数（例如 3 个）；</li>
+<li>避免热点，平衡负载和磁盘利用率。</li>
+</ul>
+<p>选取原则：</p>
+<ol>
+<li>将新Replica存在在磁盘空间利用率较低的 Chunk Server 中，使得每个服务器磁盘空间利用率趋于平衡</li>
+<li>对 Chunk Server 创建数量进行限流，防止大批写入请求同时打入同一台服务器</li>
+</ol>
+<h3 id="332-re-replication">3.3.2. Re-replication</h3>
+<p>部分系统错误会使得Replica数量降低，这时Master需要将该Replica标记为丢失，并从剩余Replica中挑选优先级最高的作为源 Chunk Server，并将其克隆到新的 Chunk Server，Master会限制各个节点的克隆次数，防止克隆流量影响Client正常请求。</p>
+<h3 id="333-rebalance">3.3.3. Rebalance</h3>
+<p>Master会定期重新检查当前Replica的分布状况，并将Replica移动到更合适的 Chunk Server，Rebalance操作会逐渐填满新加入集群的 Chunk Server。</p>
+<h3 id="334-garbage-collection">3.3.4. Garbage Collection</h3>
+<p>Client发起文件删除请求后，Master只是将其重命名为一个包含删除时间戳的隐藏文件名，GFS不会立刻回收物理存储空间，它会在GC定期检查过程中判断时此类隐藏文件名中时间戳，是否超过配置时间（默认3天），若超过则删除其metadata和原始chunk数据。</p>
+<p>异步延迟删除存在几个优点：</p>
+<ol>
+<li>在分布式系统中简单可靠，提供了一个统一可靠的方式来做删除动作</li>
+<li>存储回收异步执行，可以在系统相对空闲时进行调度</li>
+<li>延迟删除可以在意外删除时做数据恢复</li>
+</ol>
+<p>该方案同时存在缺点，无法立刻使用被删除文件的所占空间。</p>
+<h3 id="335-stale-replica-detection">3.3.5. Stale Replica Detection</h3>
+<p>如果 Chunk Server 发生故障，并在宕机期间发生过数据变更，那么该节点的 Replica 与其它新Replica不一致，被称为Stale Replica，Master节点会在每个Chunk 维护一个version字段来区分，Master会在Chunk Server重启后通过HeartBeat请求获取到该节点中的Chunk Set相关信息，此时可以检查出其中的Stale Replica。并且Master会在GC中定期删除Stale Replica。</p>
+<h2 id="34-高可用设计">3.4. 高可用设计</h2>
+<h3 id="341-master">3.4.1. Master</h3>
+<p>GFS 使用一个<strong>单个 Master</strong>负责管理集群的metadata（如命名空间、chunk 映射、访问控制等），但为了实现高可用性，它引入了Shadow Master，Shadow Master 是 Master 的“备份节点，<strong>以只读方式</strong>服务于Client请求，但不会处理修改类请求。如果主 Master 挂掉，虽然 Shadow Master 不自动接管，但它可以提供读取支持，降低系统可用性风险。</p>
+<p>Master节点首先使用Operation Log对metadata持久化到磁盘中，并且Operation Log会被备份到其他机器上避免单点损坏，当Master节点崩溃会快速恢复，启动时会从最近的Checkpoint中读取metadata，再回放Operation Log以重建完整的metadata信息。</p>
+<h3 id="342-chunk-server">3.4.2. Chunk Server</h3>
+<p>GFS通过多Replica、故障检测与自动修复机制实现 Chunk Server 的高可用。每个 Chunk 默认拥有 3 个Replica，分布在不同的 Chunk Server 和机架中，避免单点或局部故障造成数据不可用。Master 节点通过周期性心跳与块报告监控 Chunk Server 状态，当发现Replica丢失或机器宕机时，会自动安排健康Replica做Re-replication。Chunk 使用版本号和 CRC 校验码确保数据一致性与完整性。写入过程由 Primary Replica协调，客户端支持从多个Replica中读写，增强了容错能力。此外，GFS 采用延迟删除与故障恢复自注册机制，支持 Chunk Server 恢复后的自动接入，进一步提升了系统整体的稳定性与可用性。</p>
+<h1 id="4-总结">4. 总结</h1>
+<p>GFS的核心目标是容忍频繁的硬件故障、支持高吞吐和批量处理，在该需求背景下，GFS舍弃了强一致性指标，而是选择了高性能和简洁架构。Apache Hadoop生态中的HDFS是GFS架构的开源实现，采用相同 Master-DataNode 架构，GFS也和MapReduce、BigTable并称为Google三驾马车，这三篇论文基本上确定了业界大规模分布式存储系统的理论基础。</p>
+
+            </div>
+          </div>
+          <div class="col-xs-12 col-md-3">
+            <div class="post-toc">
+              <nav id="TableOfContents">
+  <ul>
+    <li><a href="#1-intro">1. Intro</a></li>
+    <li><a href="#2-设计概览">2. 设计概览</a>
+      <ul>
+        <li><a href="#21-设计目标">2.1. 设计目标</a></li>
+        <li><a href="#22-集群概览">2.2. 集群概览</a></li>
+        <li><a href="#23-chunk-size">2.3. Chunk Size</a></li>
+        <li><a href="#24-metadata">2.4. Metadata</a>
+          <ul>
+            <li><a href="#241-operation-log">2.4.1. Operation Log</a></li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li><a href="#3-详细设计">3. 详细设计</a>
+      <ul>
+        <li><a href="#31-数据一致性">3.1. 数据一致性</a>
+          <ul>
+            <li><a href="#311-lease机制">3.1.1. Lease机制</a></li>
+          </ul>
+        </li>
+        <li><a href="#32-snapshot">3.2. Snapshot</a></li>
+        <li><a href="#33-集群操作">3.3. 集群操作</a>
+          <ul>
+            <li><a href="#331-chunk-creation">3.3.1. Chunk Creation</a></li>
+            <li><a href="#332-re-replication">3.3.2. Re-replication</a></li>
+            <li><a href="#333-rebalance">3.3.3. Rebalance</a></li>
+            <li><a href="#334-garbage-collection">3.3.4. Garbage Collection</a></li>
+            <li><a href="#335-stale-replica-detection">3.3.5. Stale Replica Detection</a></li>
+          </ul>
+        </li>
+        <li><a href="#34-高可用设计">3.4. 高可用设计</a>
+          <ul>
+            <li><a href="#341-master">3.4.1. Master</a></li>
+            <li><a href="#342-chunk-server">3.4.2. Chunk Server</a></li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li><a href="#4-总结">4. 总结</a></li>
+  </ul>
+</nav>
+            </div>
+          </div>
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+          <div class="post-comments">
+            <div id="disqus_thread"></div>
+<script>
+  window.addEventListener("load", () => {
+    (function() {
+      
+      var d = document,
+        s = d.createElement("script");
+      s.src = "https://evl1nker4.disqus.com/embed.js";
+      s.setAttribute("data-timestamp", +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  });
+</script>
+<noscript
+  >Please enable JavaScript to view the
+  <a href="https://disqus.com/?ref_noscript"
+    >comments powered by Disqus.</a
+  ></noscript
+>
+
+          </div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>
