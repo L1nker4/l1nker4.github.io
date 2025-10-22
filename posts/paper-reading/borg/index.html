@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.145.0">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:1313/posts/paper-reading/borg/" />
+  <link rel="canonical" href="http://localhost:1313/posts/paper-reading/borg/" /><link rel="apple-touch-icon" href="/favicon.png" />
+  <link rel="icon" href="/favicon.png" />
+  <link rel="shortcut" href="/favicon.png" /><link rel="alternate" type="application/atom+xml" href="http://localhost:1313/index.xml" title="L1nker4&#39;s Blog | 格木观云">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:1313\/"
+      },
+      "articleSection" : "posts",
+      "name" : "EuroSys \u002715 Large-scale cluster management at Google with Borg",
+      "headline" : "EuroSys \u002715 Large-scale cluster management at Google with Borg",
+      "description" : "1. Intro Borg 是支持Google大规模数据中心计算的集群管理系统，其设计理念和工程实现对后来的 Kubernetes、Omega 等系统产生了深远影响。Borg 通过在共享集群上高效调度和管理成千上万的任务，实现了资源的高利用率、任务的高可靠性以及灵活的多租户隔离。论文介绍了 Borg 的整体架构、调度机制、容错设计和运维经验，揭示了支撑谷歌内部服务（如搜索、Gmail、YouTube）运行的关键技术。作为早期的超大规模集群管理系统，Brog提供了以下三个优势：\n隐藏底层资源管理和故障处理细节，使用户专注于应用开发。 提供高可靠的集群管理系统 支持上万台机器高效运行 Borg 的创新在于将分布式资源抽象为可调度的统一资源池，并结合任务优先级、抢占机制、作业声明式配置等理念，为现代云计算和容器编排系统奠定了基础。\n2. 架构设计 2.1. 架构简述 Brog系统由以下组件构成，与Kubernetes架构几乎一致：\nCluster\/Cell：一组机器集群，由大量worker节点（Borglet进程）和BorgMaster组成 BorgMaster：Cell控制器，负责处理来自用户的所有请求，管理Cell中所有Borglet的状态，以及调度和启动任务。由集群组成，使用Paxos协议确保副本的数据一致性。 Borglet：运行在每个worker节点上，运行BrogMaster分配的任务，负责监控本地任务的状态和资源使用情况，并定期上报给BrogMaster。 Scheduler：当新Job被提交到BrogMaster后，Scheduler负责扫描待处理任务，并按照任务优先级，在Cell中寻找合适的Borglet来运行，找到Borglet后通知BorgMaster下发Job，通常Scheduler集成在BrogMaster中。 2.2. Job \/ Task 用户以Job的形式提交给Borg，Job由一个或多个Task组成，每个Task对应着一组Linux进程，每个Job只运行在同一个Cell中。\nCell主要运行两种Task：\n应该永不停止的、长期运行的服务，处理时间较短且对网络延迟敏感的请求。 批处理作业，执行时间较长，例如MapReduce等 Borg通过任务优先级和配额，合理分配集群资源，优先级表示Cell中运行的Job相对重要性，配额用来决定允许哪个作业可以被调度，配额是指特定时间段的资源使用数量。\nBorg 为每个Task创建了一个固定的 BNS 域名(Borg Name Service)，使得其他Task可以访问到该服务。\n2.3. BorgMaster BorgMaster由两个进程组成：BrogMaster主进程和scheduler进程，其中主进程负责处理client的RPC请求，并与Borglet通信，提供了Web UI，BorgMaster逻辑上是单个进程，实际上有五个replica，每个replica都在内存中维护了Cell的状态，replica基于Paxos协议组成了一个高可用的分布式系统，其中有一个Master节点，负责处理所有变更Cell状态的RPC请求。某个时刻BrogMaster会创建checkpoint，以定期快照和变更日志的形式，保存在Paxos存储中。\n2.4. 调度 当client提交一个Job后，BorgMaster会把它持久化道Paxos存储上，并将这个Job中所有的Task都加入到等待队列中，Scheduler会异步扫描等待队列，将Task分配到合适的机器上。Borg调度算法有两个步骤：\n可行性检查：找到可以运行Task的一批机器 评分：从中选择合适的机器 Borg早期使用优化后的E-PVM算法进行评分，这个算法会把负载分散到所有的机器，但是导致了资源的碎片化，对突如其来的大型任务支持性较差。最佳匹配算法与之相反，挨个对机器资源进行分配， 这样会有空闲机器来处理大型任务。\n2.5. Borglet Borglet是部署在每台机器上的proxy进程，负责启动、停止Task，并需要将本机状态上报给BorgMaster，每个BorgMaster replica会负责一个无状态的link shard来处理部分的Borglet的通信，来减少Master的更新负担。\n2.6. 扩展性设计 Borg支持使用单独的BorgMaster管理有着数千台机器的Cell，Cell可能每分钟有10K的任务被提交到集群。早期BorgMaster使用简单的同步循环实现scheduler，为了处理更多的任务，Borg的scheduler被分离为单独的进程，Scheduler会重复处理流程如下：\n从选举出来的BorgMaster获取状态变更数据 更新自己的本地副本状态 执行一轮调度来分配任务 将分配信息发送给Master Master接受数据，如果分配计划不合理或者过时，会等待下一轮调度。 Borg在性能优化上的方法如下：\n缓存评分信息：Borg会缓存计算得出的机器评分，用于下次调度使用，如果机器属性更新，则会触发缓存失效 任务等效类：一般来说，同一个Borg作业的任务都有相同的请求和约束，Borg只对等效类中的一个任务做可行性检查和评分，而不是遍历计算所有的任务 适度随机：Scheduler可能会随机抽取机器，直到找到足够多的可用机器并完成评分，从中挑选最合适的分配任务 2.7. 隔离 Borg使用Linux的chroot作为机器的安全隔离机制，Google的AppEngine使用VM和安全沙箱运行外部软件，每个运行在KVM进程的VM，作为一个Borg任务来运行。\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2025",
+      "datePublished": "2025-10-22 12:30:12 \u002b0800 CST",
+      "dateModified" : "2025-10-22 12:30:12 \u002b0800 CST",
+      "url" : "http:\/\/localhost:1313\/posts\/paper-reading\/borg\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>EuroSys &#39;15 Large-scale cluster management at Google with Borg</title>
+  <meta property="og:title" content="EuroSys &#39;15 Large-scale cluster management at Google with Borg" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="1. Intro Borg 是支持Google大规模数据中心计算的集群管理系统，其设计理念和工程实现对后来的 Kubernetes、Omega 等系统产生了深远影响。Borg 通过在共享集群上高效调度和管理成千上万的任务，实现了资源的高利用率、任务的高可靠性以及灵活的多租户隔离。论文介绍了 Borg 的整体架构、调度机制、容错设计和运维经验，揭示了支撑谷歌内部服务（如搜索、Gmail、YouTube）运行的关键技术。作为早期的超大规模集群管理系统，Brog提供了以下三个优势：
+隐藏底层资源管理和故障处理细节，使用户专注于应用开发。 提供高可靠的集群管理系统 支持上万台机器高效运行 Borg 的创新在于将分布式资源抽象为可调度的统一资源池，并结合任务优先级、抢占机制、作业声明式配置等理念，为现代云计算和容器编排系统奠定了基础。
+2. 架构设计 2.1. 架构简述 Brog系统由以下组件构成，与Kubernetes架构几乎一致：
+Cluster/Cell：一组机器集群，由大量worker节点（Borglet进程）和BorgMaster组成 BorgMaster：Cell控制器，负责处理来自用户的所有请求，管理Cell中所有Borglet的状态，以及调度和启动任务。由集群组成，使用Paxos协议确保副本的数据一致性。 Borglet：运行在每个worker节点上，运行BrogMaster分配的任务，负责监控本地任务的状态和资源使用情况，并定期上报给BrogMaster。 Scheduler：当新Job被提交到BrogMaster后，Scheduler负责扫描待处理任务，并按照任务优先级，在Cell中寻找合适的Borglet来运行，找到Borglet后通知BorgMaster下发Job，通常Scheduler集成在BrogMaster中。 2.2. Job / Task 用户以Job的形式提交给Borg，Job由一个或多个Task组成，每个Task对应着一组Linux进程，每个Job只运行在同一个Cell中。
+Cell主要运行两种Task：
+应该永不停止的、长期运行的服务，处理时间较短且对网络延迟敏感的请求。 批处理作业，执行时间较长，例如MapReduce等 Borg通过任务优先级和配额，合理分配集群资源，优先级表示Cell中运行的Job相对重要性，配额用来决定允许哪个作业可以被调度，配额是指特定时间段的资源使用数量。
+Borg 为每个Task创建了一个固定的 BNS 域名(Borg Name Service)，使得其他Task可以访问到该服务。
+2.3. BorgMaster BorgMaster由两个进程组成：BrogMaster主进程和scheduler进程，其中主进程负责处理client的RPC请求，并与Borglet通信，提供了Web UI，BorgMaster逻辑上是单个进程，实际上有五个replica，每个replica都在内存中维护了Cell的状态，replica基于Paxos协议组成了一个高可用的分布式系统，其中有一个Master节点，负责处理所有变更Cell状态的RPC请求。某个时刻BrogMaster会创建checkpoint，以定期快照和变更日志的形式，保存在Paxos存储中。
+2.4. 调度 当client提交一个Job后，BorgMaster会把它持久化道Paxos存储上，并将这个Job中所有的Task都加入到等待队列中，Scheduler会异步扫描等待队列，将Task分配到合适的机器上。Borg调度算法有两个步骤：
+可行性检查：找到可以运行Task的一批机器 评分：从中选择合适的机器 Borg早期使用优化后的E-PVM算法进行评分，这个算法会把负载分散到所有的机器，但是导致了资源的碎片化，对突如其来的大型任务支持性较差。最佳匹配算法与之相反，挨个对机器资源进行分配， 这样会有空闲机器来处理大型任务。
+2.5. Borglet Borglet是部署在每台机器上的proxy进程，负责启动、停止Task，并需要将本机状态上报给BorgMaster，每个BorgMaster replica会负责一个无状态的link shard来处理部分的Borglet的通信，来减少Master的更新负担。
+2.6. 扩展性设计 Borg支持使用单独的BorgMaster管理有着数千台机器的Cell，Cell可能每分钟有10K的任务被提交到集群。早期BorgMaster使用简单的同步循环实现scheduler，为了处理更多的任务，Borg的scheduler被分离为单独的进程，Scheduler会重复处理流程如下：
+从选举出来的BorgMaster获取状态变更数据 更新自己的本地副本状态 执行一轮调度来分配任务 将分配信息发送给Master Master接受数据，如果分配计划不合理或者过时，会等待下一轮调度。 Borg在性能优化上的方法如下：
+缓存评分信息：Borg会缓存计算得出的机器评分，用于下次调度使用，如果机器属性更新，则会触发缓存失效 任务等效类：一般来说，同一个Borg作业的任务都有相同的请求和约束，Borg只对等效类中的一个任务做可行性检查和评分，而不是遍历计算所有的任务 适度随机：Scheduler可能会随机抽取机器，直到找到足够多的可用机器并完成评分，从中挑选最合适的分配任务 2.7. 隔离 Borg使用Linux的chroot作为机器的安全隔离机制，Google的AppEngine使用VM和安全沙箱运行外部软件，每个运行在KVM进程的VM，作为一个Borg任务来运行。
+" />
+  <meta name="description" content="1. Intro Borg 是支持Google大规模数据中心计算的集群管理系统，其设计理念和工程实现对后来的 Kubernetes、Omega 等系统产生了深远影响。Borg 通过在共享集群上高效调度和管理成千上万的任务，实现了资源的高利用率、任务的高可靠性以及灵活的多租户隔离。论文介绍了 Borg 的整体架构、调度机制、容错设计和运维经验，揭示了支撑谷歌内部服务（如搜索、Gmail、YouTube）运行的关键技术。作为早期的超大规模集群管理系统，Brog提供了以下三个优势：
+隐藏底层资源管理和故障处理细节，使用户专注于应用开发。 提供高可靠的集群管理系统 支持上万台机器高效运行 Borg 的创新在于将分布式资源抽象为可调度的统一资源池，并结合任务优先级、抢占机制、作业声明式配置等理念，为现代云计算和容器编排系统奠定了基础。
+2. 架构设计 2.1. 架构简述 Brog系统由以下组件构成，与Kubernetes架构几乎一致：
+Cluster/Cell：一组机器集群，由大量worker节点（Borglet进程）和BorgMaster组成 BorgMaster：Cell控制器，负责处理来自用户的所有请求，管理Cell中所有Borglet的状态，以及调度和启动任务。由集群组成，使用Paxos协议确保副本的数据一致性。 Borglet：运行在每个worker节点上，运行BrogMaster分配的任务，负责监控本地任务的状态和资源使用情况，并定期上报给BrogMaster。 Scheduler：当新Job被提交到BrogMaster后，Scheduler负责扫描待处理任务，并按照任务优先级，在Cell中寻找合适的Borglet来运行，找到Borglet后通知BorgMaster下发Job，通常Scheduler集成在BrogMaster中。 2.2. Job / Task 用户以Job的形式提交给Borg，Job由一个或多个Task组成，每个Task对应着一组Linux进程，每个Job只运行在同一个Cell中。
+Cell主要运行两种Task：
+应该永不停止的、长期运行的服务，处理时间较短且对网络延迟敏感的请求。 批处理作业，执行时间较长，例如MapReduce等 Borg通过任务优先级和配额，合理分配集群资源，优先级表示Cell中运行的Job相对重要性，配额用来决定允许哪个作业可以被调度，配额是指特定时间段的资源使用数量。
+Borg 为每个Task创建了一个固定的 BNS 域名(Borg Name Service)，使得其他Task可以访问到该服务。
+2.3. BorgMaster BorgMaster由两个进程组成：BrogMaster主进程和scheduler进程，其中主进程负责处理client的RPC请求，并与Borglet通信，提供了Web UI，BorgMaster逻辑上是单个进程，实际上有五个replica，每个replica都在内存中维护了Cell的状态，replica基于Paxos协议组成了一个高可用的分布式系统，其中有一个Master节点，负责处理所有变更Cell状态的RPC请求。某个时刻BrogMaster会创建checkpoint，以定期快照和变更日志的形式，保存在Paxos存储中。
+2.4. 调度 当client提交一个Job后，BorgMaster会把它持久化道Paxos存储上，并将这个Job中所有的Task都加入到等待队列中，Scheduler会异步扫描等待队列，将Task分配到合适的机器上。Borg调度算法有两个步骤：
+可行性检查：找到可以运行Task的一批机器 评分：从中选择合适的机器 Borg早期使用优化后的E-PVM算法进行评分，这个算法会把负载分散到所有的机器，但是导致了资源的碎片化，对突如其来的大型任务支持性较差。最佳匹配算法与之相反，挨个对机器资源进行分配， 这样会有空闲机器来处理大型任务。
+2.5. Borglet Borglet是部署在每台机器上的proxy进程，负责启动、停止Task，并需要将本机状态上报给BorgMaster，每个BorgMaster replica会负责一个无状态的link shard来处理部分的Borglet的通信，来减少Master的更新负担。
+2.6. 扩展性设计 Borg支持使用单独的BorgMaster管理有着数千台机器的Cell，Cell可能每分钟有10K的任务被提交到集群。早期BorgMaster使用简单的同步循环实现scheduler，为了处理更多的任务，Borg的scheduler被分离为单独的进程，Scheduler会重复处理流程如下：
+从选举出来的BorgMaster获取状态变更数据 更新自己的本地副本状态 执行一轮调度来分配任务 将分配信息发送给Master Master接受数据，如果分配计划不合理或者过时，会等待下一轮调度。 Borg在性能优化上的方法如下：
+缓存评分信息：Borg会缓存计算得出的机器评分，用于下次调度使用，如果机器属性更新，则会触发缓存失效 任务等效类：一般来说，同一个Borg作业的任务都有相同的请求和约束，Borg只对等效类中的一个任务做可行性检查和评分，而不是遍历计算所有的任务 适度随机：Scheduler可能会随机抽取机器，直到找到足够多的可用机器并完成评分，从中挑选最合适的分配任务 2.7. 隔离 Borg使用Linux的chroot作为机器的安全隔离机制，Google的AppEngine使用VM和安全沙箱运行外部软件，每个运行在KVM进程的VM，作为一个Borg任务来运行。
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="/favicon.png" />
+  
+
+  
+    <style>@import "https://cdnjs.cloudflare.com/ajax/libs/lxgw-wenkai-screen-webfont/1.7.0/lxgwwenkaiscreenr.css";body{font-family:lxgw wenkai screen r,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:1000px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:75%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:75%;background-color:inherit;border:0;font-family:SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace;line-height:1.6}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}.post-content li{line-height:1.8}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+    <script>
+    MathJax = {
+        tex: {
+            inlineMath: [["$", "$"], ["\\(", "\\)"]],
+            displayMath: [["$$", "$$"]],
+            processEscapes: true,
+            processEnvironments: true,
+            tags: "ams",
+        },
+        options: {
+            skipHtmlTags: [
+                "script",
+                "noscript",
+                "style",
+                "textarea",
+                "pre",
+            ],
+        },
+        startup: {
+            ready: () => {
+                MathJax.startup.defaultReady();
+                
+                const all = MathJax.typesetPromise();
+                all.then(() => {
+                    document.querySelectorAll(".MathJax").forEach(
+                        (el) => {
+                            el.parentNode.className += " has-jax";
+                        },
+                    );
+                });
+            },
+        },
+    };
+</script>
+<script
+    id="MathJax-script"
+    async
+    src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"
+></script>
+
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="L1nker4&#39;s Blog | 格木观云">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+
+  
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-DCQDH3T3WV"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-DCQDH3T3WV');
+</script>
+
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4&#39;s Blog</a
+    >
+  </div>
+  <div class="header-subtitle">提升认知，解构世界，行有不得，反求诸己</div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/index.xml" target="_blank">RSS</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">EuroSys &#39;15 Large-scale cluster management at Google with Borg</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2025-10-22 12:30:12 CST">
+                
+                  2025-10-22
+                
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="row">
+          <div class="col-xs-12 col-md-9">
+            <div class="post-content markdown-body">
+              
+              <h1 id="1-intro">1. Intro</h1>
+<p><strong>Borg</strong> 是支持Google大规模数据中心计算的集群管理系统，其设计理念和工程实现对后来的 Kubernetes、Omega 等系统产生了深远影响。Borg 通过在共享集群上高效调度和管理成千上万的任务，实现了资源的高利用率、任务的高可靠性以及灵活的多租户隔离。论文介绍了 Borg 的整体架构、调度机制、容错设计和运维经验，揭示了支撑谷歌内部服务（如搜索、Gmail、YouTube）运行的关键技术。作为早期的超大规模集群管理系统，Brog提供了以下三个优势：</p>
+<ol>
+<li>隐藏底层资源管理和故障处理细节，使用户专注于应用开发。</li>
+<li>提供高可靠的集群管理系统</li>
+<li>支持上万台机器高效运行</li>
+</ol>
+<p>Borg 的创新在于将分布式资源抽象为可调度的统一资源池，并结合任务优先级、抢占机制、作业声明式配置等理念，为现代云计算和容器编排系统奠定了基础。</p>
+<h1 id="2-架构设计">2. 架构设计</h1>
+<h2 id="21-架构简述">2.1. 架构简述</h2>
+<p>Brog系统由以下组件构成，与Kubernetes架构几乎一致：</p>
+<ol>
+<li>Cluster/Cell：一组机器集群，由大量worker节点（Borglet进程）和BorgMaster组成</li>
+<li>BorgMaster：Cell控制器，负责处理来自用户的所有请求，管理Cell中所有Borglet的状态，以及调度和启动任务。由集群组成，使用Paxos协议确保副本的数据一致性。</li>
+<li>Borglet：运行在每个worker节点上，运行BrogMaster分配的任务，负责监控本地任务的状态和资源使用情况，并定期上报给BrogMaster。</li>
+<li>Scheduler：当新Job被提交到BrogMaster后，Scheduler负责扫描待处理任务，并按照任务优先级，在Cell中寻找合适的Borglet来运行，找到Borglet后通知BorgMaster下发Job，通常Scheduler集成在BrogMaster中。</li>
+</ol>
+<p><img src="https://blog-1251613845.cos.ap-shanghai.myqcloud.com/20251020155915796.png" alt="Borg Arch"></p>
+<h2 id="22-job--task">2.2. Job / Task</h2>
+<p>用户以Job的形式提交给Borg，Job由一个或多个Task组成，每个Task对应着一组Linux进程，每个Job只运行在同一个Cell中。</p>
+<p>Cell主要运行两种Task：</p>
+<ol>
+<li>应该永不停止的、长期运行的服务，处理时间较短且对网络延迟敏感的请求。</li>
+<li>批处理作业，执行时间较长，例如MapReduce等</li>
+</ol>
+<p>Borg通过任务优先级和配额，合理分配集群资源，优先级表示Cell中运行的Job相对重要性，配额用来决定允许哪个作业可以被调度，配额是指特定时间段的资源使用数量。</p>
+<p>Borg 为每个Task创建了一个固定的 BNS 域名(Borg Name Service)，使得其他Task可以访问到该服务。</p>
+<h2 id="23-borgmaster">2.3. BorgMaster</h2>
+<p>BorgMaster由两个进程组成：BrogMaster主进程和scheduler进程，其中主进程负责处理client的RPC请求，并与Borglet通信，提供了Web UI，BorgMaster逻辑上是单个进程，实际上有五个replica，每个replica都在内存中维护了Cell的状态，replica基于Paxos协议组成了一个高可用的分布式系统，其中有一个Master节点，负责处理所有变更Cell状态的RPC请求。某个时刻BrogMaster会创建checkpoint，以定期快照和变更日志的形式，保存在Paxos存储中。</p>
+<h2 id="24-调度">2.4. 调度</h2>
+<p>当client提交一个Job后，BorgMaster会把它持久化道Paxos存储上，并将这个Job中所有的Task都加入到等待队列中，Scheduler会异步扫描等待队列，将Task分配到合适的机器上。Borg调度算法有两个步骤：</p>
+<ol>
+<li>可行性检查：找到可以运行Task的一批机器</li>
+<li>评分：从中选择合适的机器</li>
+</ol>
+<p>Borg早期使用优化后的E-PVM算法进行评分，这个算法会把负载分散到所有的机器，但是导致了资源的碎片化，对突如其来的大型任务支持性较差。最佳匹配算法与之相反，挨个对机器资源进行分配， 这样会有空闲机器来处理大型任务。</p>
+<h2 id="25-borglet">2.5. Borglet</h2>
+<p>Borglet是部署在每台机器上的proxy进程，负责启动、停止Task，并需要将本机状态上报给BorgMaster，每个BorgMaster replica会负责一个无状态的link shard来处理部分的Borglet的通信，来减少Master的更新负担。</p>
+<h2 id="26-扩展性设计">2.6. 扩展性设计</h2>
+<p>Borg支持使用单独的BorgMaster管理有着数千台机器的Cell，Cell可能每分钟有10K的任务被提交到集群。早期BorgMaster使用简单的同步循环实现scheduler，为了处理更多的任务，Borg的scheduler被分离为单独的进程，Scheduler会重复处理流程如下：</p>
+<ol>
+<li>从选举出来的BorgMaster获取状态变更数据</li>
+<li>更新自己的本地副本状态</li>
+<li>执行一轮调度来分配任务</li>
+<li>将分配信息发送给Master</li>
+<li>Master接受数据，如果分配计划不合理或者过时，会等待下一轮调度。</li>
+</ol>
+<p>Borg在性能优化上的方法如下：</p>
+<ol>
+<li>缓存评分信息：Borg会缓存计算得出的机器评分，用于下次调度使用，如果机器属性更新，则会触发缓存失效</li>
+<li>任务等效类：一般来说，同一个Borg作业的任务都有相同的请求和约束，Borg只对等效类中的一个任务做可行性检查和评分，而不是遍历计算所有的任务</li>
+<li>适度随机：Scheduler可能会随机抽取机器，直到找到足够多的可用机器并完成评分，从中挑选最合适的分配任务</li>
+</ol>
+<h2 id="27-隔离">2.7. 隔离</h2>
+<p>Borg使用Linux的chroot作为机器的安全隔离机制，Google的AppEngine使用VM和安全沙箱运行外部软件，每个运行在KVM进程的VM，作为一个Borg任务来运行。</p>
+<h1 id="3-设计缺陷">3. 设计缺陷</h1>
+<p>Borg的部分设计存在缺陷，这些经验教训也改善了Kubernetes，例如：</p>
+<ol>
+<li>将作业作为唯一的任务分组机制比较受限：Borg没有内置的方法，将多个作业组成单个对象进行管理，只能通过high level的管理工具去解决，在K8s中，使用Label组织调度单元Pod，用户可以通过给运行任务打上Label来进行分组。</li>
+<li>同一台机器的任务共享一个IP：Borg必须使用端口作为访问入口，而K8s使用Linux namespace和SDN，使得每个任务都能拥有自己的IP地址。</li>
+<li>为了进行性能优化，使得API复杂化</li>
+</ol>
+<h1 id="4-总结">4. 总结</h1>
+<p>Kubernetes 继承了 Borg 的核心思想，如基于声明式配置的任务管理、容器化的应用部署、Pod 的调度与健康检查机制，以及对高可用性和资源利用率的追求。同时，Kubernetes 在开放性与可扩展性上进一步发展，将 Borg 的内部理念开源化、标准化，使之成为云原生基础设施的核心。可以说，Kubernetes 是 Borg 在云时代的演进与重生。</p>
+
+            </div>
+          </div>
+          <div class="col-xs-12 col-md-3">
+            <div class="post-toc">
+              <nav id="TableOfContents">
+  <ul>
+    <li><a href="#1-intro">1. Intro</a></li>
+    <li><a href="#2-架构设计">2. 架构设计</a>
+      <ul>
+        <li><a href="#21-架构简述">2.1. 架构简述</a></li>
+        <li><a href="#22-job--task">2.2. Job / Task</a></li>
+        <li><a href="#23-borgmaster">2.3. BorgMaster</a></li>
+        <li><a href="#24-调度">2.4. 调度</a></li>
+        <li><a href="#25-borglet">2.5. Borglet</a></li>
+        <li><a href="#26-扩展性设计">2.6. 扩展性设计</a></li>
+        <li><a href="#27-隔离">2.7. 隔离</a></li>
+      </ul>
+    </li>
+    <li><a href="#3-设计缺陷">3. 设计缺陷</a></li>
+    <li><a href="#4-总结">4. 总结</a></li>
+  </ul>
+</nav>
+            </div>
+          </div>
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+          <div class="post-comments">
+            <div id="disqus_thread"></div>
+<script>
+  window.addEventListener("load", () => {
+    (function() {
+      
+      var d = document,
+        s = d.createElement("script");
+      s.src = "https://evl1nker4.disqus.com/embed.js";
+      s.setAttribute("data-timestamp", +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  });
+</script>
+<noscript
+  >Please enable JavaScript to view the
+  <a href="https://disqus.com/?ref_noscript"
+    >comments powered by Disqus.</a
+  ></noscript
+>
+
+          </div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>
