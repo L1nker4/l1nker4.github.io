@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta name="generator" content="Hugo 0.145.0">
+
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="author" content="" />
+  <meta property="og:url" content="http://localhost:1313/posts/agents/openmanus/" />
+  <link rel="canonical" href="http://localhost:1313/posts/agents/openmanus/" /><link rel="apple-touch-icon" href="/favicon.png" />
+  <link rel="icon" href="/favicon.png" />
+  <link rel="shortcut" href="/favicon.png" /><link rel="alternate" type="application/atom+xml" href="http://localhost:1313/index.xml" title="L1nker4&#39;s Blog | 格木观云">
+
+  <script type="application/ld+json">
+  {
+      "@context" : "http://schema.org",
+      "@type" : "BlogPosting",
+      "mainEntityOfPage": {
+           "@type": "WebPage",
+           "@id": "http:\/\/localhost:1313\/"
+      },
+      "articleSection" : "posts",
+      "name" : "OpenManus架构设计分析",
+      "headline" : "OpenManus架构设计分析",
+      "description" : "1. Intro OpenManus 是一个基于大语言模型的 AI Agent Framework。它实现了一套完整的 Agent 系统，能够接收用户的自然语言指令，通过\u0026quot;思考-行动-观察\u0026quot;循环（ReAct 模式）自主调用各种工具来完成复杂任务。\n核心能力包括：\n通过 LLM 理解用户意图并规划执行步骤 调用多种工具（Python 执行、Shell 命令、浏览器操作、网页搜索、文件编辑等） 支持单 Agent 直接执行和多 Agent 协同的 Planning 流程 支持 MCP（Model Context Protocol）协议，可动态连接外部工具服务 支持 Docker 沙箱隔离执行 2. 架构简述 OpenManus 采用分层模块化架构：\n┌──────────────────────────────────────────────────────────┐ │ 入口层 (main.py 等) │ └──────────────────────────┬───────────────────────────────┘ │ ┌─────────────────┼─────────────────┐ ▼ ▼ ▼ ┌───────────┐ ┌───────────┐ ┌───────────┐ │ Agent │ │ Flow │ │ Config │ │ 代理模块 │ │ 流程编排 │ │ 配置管理 │ └─────┬─────┘ └─────┬─────┘ └───────────┘ │ │ ▼ ▼ ┌───────────┐ ┌───────────┐ │ Tool │ │ Prompt │ │ 工具模块 │ │ 提示词 │ └─────┬─────┘ └───────────┘ │ ┌─────┴─────┐ │ LLM │ ┌──────────┐ │ 模型封装 │ │ Schema │ └───────────┘ │ 数据模型 │ └──────────┘ 各个模块职责如下：\n",
+      "inLanguage" : "en-US",
+      "author" : "",
+      "creator" : "",
+      "publisher": "",
+      "accountablePerson" : "",
+      "copyrightHolder" : "",
+      "copyrightYear" : "2026",
+      "datePublished": "2026-02-11 18:31:56 \u002b0800 CST",
+      "dateModified" : "2026-02-11 18:31:56 \u002b0800 CST",
+      "url" : "http:\/\/localhost:1313\/posts\/agents\/openmanus\/",
+      "keywords" : [  ]
+  }
+</script>
+<title>OpenManus架构设计分析</title>
+  <meta property="og:title" content="OpenManus架构设计分析" />
+  <meta property="og:type" content="article" />
+  <meta property="og:description" content="1. Intro OpenManus 是一个基于大语言模型的 AI Agent Framework。它实现了一套完整的 Agent 系统，能够接收用户的自然语言指令，通过&quot;思考-行动-观察&quot;循环（ReAct 模式）自主调用各种工具来完成复杂任务。
+核心能力包括：
+通过 LLM 理解用户意图并规划执行步骤 调用多种工具（Python 执行、Shell 命令、浏览器操作、网页搜索、文件编辑等） 支持单 Agent 直接执行和多 Agent 协同的 Planning 流程 支持 MCP（Model Context Protocol）协议，可动态连接外部工具服务 支持 Docker 沙箱隔离执行 2. 架构简述 OpenManus 采用分层模块化架构：
+┌──────────────────────────────────────────────────────────┐ │ 入口层 (main.py 等) │ └──────────────────────────┬───────────────────────────────┘ │ ┌─────────────────┼─────────────────┐ ▼ ▼ ▼ ┌───────────┐ ┌───────────┐ ┌───────────┐ │ Agent │ │ Flow │ │ Config │ │ 代理模块 │ │ 流程编排 │ │ 配置管理 │ └─────┬─────┘ └─────┬─────┘ └───────────┘ │ │ ▼ ▼ ┌───────────┐ ┌───────────┐ │ Tool │ │ Prompt │ │ 工具模块 │ │ 提示词 │ └─────┬─────┘ └───────────┘ │ ┌─────┴─────┐ │ LLM │ ┌──────────┐ │ 模型封装 │ │ Schema │ └───────────┘ │ 数据模型 │ └──────────┘ 各个模块职责如下：
+" />
+  <meta name="description" content="1. Intro OpenManus 是一个基于大语言模型的 AI Agent Framework。它实现了一套完整的 Agent 系统，能够接收用户的自然语言指令，通过&quot;思考-行动-观察&quot;循环（ReAct 模式）自主调用各种工具来完成复杂任务。
+核心能力包括：
+通过 LLM 理解用户意图并规划执行步骤 调用多种工具（Python 执行、Shell 命令、浏览器操作、网页搜索、文件编辑等） 支持单 Agent 直接执行和多 Agent 协同的 Planning 流程 支持 MCP（Model Context Protocol）协议，可动态连接外部工具服务 支持 Docker 沙箱隔离执行 2. 架构简述 OpenManus 采用分层模块化架构：
+┌──────────────────────────────────────────────────────────┐ │ 入口层 (main.py 等) │ └──────────────────────────┬───────────────────────────────┘ │ ┌─────────────────┼─────────────────┐ ▼ ▼ ▼ ┌───────────┐ ┌───────────┐ ┌───────────┐ │ Agent │ │ Flow │ │ Config │ │ 代理模块 │ │ 流程编排 │ │ 配置管理 │ └─────┬─────┘ └─────┬─────┘ └───────────┘ │ │ ▼ ▼ ┌───────────┐ ┌───────────┐ │ Tool │ │ Prompt │ │ 工具模块 │ │ 提示词 │ └─────┬─────┘ └───────────┘ │ ┌─────┴─────┐ │ LLM │ ┌──────────┐ │ 模型封装 │ │ Schema │ └───────────┘ │ 数据模型 │ └──────────┘ 各个模块职责如下：
+" />
+  <meta property="og:locale" content="en-us" /><meta property="og:image" content="/favicon.png" />
+  
+
+  
+    <style>@import "https://cdnjs.cloudflare.com/ajax/libs/lxgw-wenkai-screen-webfont/1.7.0/lxgwwenkaiscreenr.css";body{font-family:lxgw wenkai screen r,sans-serif;-webkit-font-smoothing:antialiased;margin:0 20px}article{max-width:1000px;margin-left:auto;margin-right:auto}a{color:#000;text-decoration:none}a:hover{font-weight:600;text-decoration:underline}.post-ads{margin:50px 0}.markdown-body{font-size:18px}.markdown-body a{text-decoration:underline;text-decoration-color:#000}.markdown-body blockquote{margin:0;padding:0 1em;color:#57606a;border-left:.25em solid #d0d7de}.markdown-body pre{padding:16px;overflow:auto;border-radius:10px}.markdown-body code{padding:.2em .4em;font-size:75%;background-color:#f6f8fa;border-radius:6px}.markdown-body pre>code{padding:0;font-size:75%;background-color:inherit;border:0;font-family:SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace;line-height:1.6}.Chinese .markdown-body{line-height:200%}.site-date-catalog{font-size:2rem}.header-title{font-size:2rem;font-weight:700;margin-top:32px}.header-title a{text-decoration:none}.header-subtitle{color:#666}.header-items{margin:10px 0}.header-item{margin:0 5px}.header-line{width:100%;border-width:2px;border-color:#482936;border-style:solid none none none}.lang-switch{font-weight:600}#posts-list{min-height:600px}.posts-line{font-size:1.2rem;margin:12px 0}.posts-categories{font-size:.8rem;margin:auto;text-align:center}.posts-category{padding:3px 0;border:#000 2px solid;border-radius:5px}.site-footer{margin-top:50px}.site-footer-item{margin-right:12px}.post-header{margin-bottom:50px}.post-title{font-size:2rem;font-weight:600}.post-tags{display:inline;font-weight:600;padding:2px 5px;margin-right:6px;border:#000 2px solid;border-radius:5px}.post-date{font-weight:800;font-style:italic}.post-author{float:right;font-weight:600}.page-content{min-height:60%}.post-content{margin-bottom:50px}.post-content p{hyphens:auto;line-height:1.8;text-justify:ideographic;margin-bottom:1em}.post-content img{max-width:100%;display:block;margin-right:auto;margin-top:6px}.post-content .post-gallery{display:flex;flex-wrap:wrap;gap:6px}.post-content .post-gallery img{margin-right:auto;margin-top:auto;width:calc(50% - 3px)}.related-content{border-width:3px;border-style:solid;border-color:#000;padding:0 10px;margin-bottom:50px;margin-top:100px}.related-content li{margin:5px 0}.taxonomy-term{font-size:3rem}.gallery-img{text-align:center}.gallery-img span{text-align:center}.gallery-img-desc{font-size:.8em;font-weight:800}#disqus_thread{position:relative}#disqus_thread:after{content:"";display:block;height:55px;width:100%;position:absolute;bottom:0;background:#fff}@media screen and (max-width:600px){.header-title,.header-subtitle,.header-items{}.posts-line{font-size:16px}.markdown-body{font-size:16px}.post-title{font-size:2rem}.post-content p{letter-spacing:.05em}.post-content .post-gallery img{width:100%}}@media screen and (max-width:48em){.posts-category{display:none}}table,th,td{border-collapse:collapse;border-style:solid}.post-content li{line-height:1.8}</style>
+  
+  
+    <style>.container,.container-fluid{margin-right:auto;margin-left:auto}.container-fluid{padding-right:2rem;padding-left:2rem}.row{box-sizing:border-box;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-flex:0;-ms-flex:0 1 auto;flex:initial;-webkit-box-orient:horizontal;-webkit-box-direction:normal;-ms-flex-direction:row;flex-direction:row;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-right:-.5rem;margin-left:-.5rem}.row.reverse{-webkit-box-orient:horizontal;-webkit-box-direction:reverse;-ms-flex-direction:row-reverse;flex-direction:row-reverse}.col.reverse{-webkit-box-orient:vertical;-webkit-box-direction:reverse;-ms-flex-direction:column-reverse;flex-direction:column-reverse}.col-xs,.col-xs-1,.col-xs-10,.col-xs-11,.col-xs-12,.col-xs-2,.col-xs-3,.col-xs-4,.col-xs-5,.col-xs-6,.col-xs-7,.col-xs-8,.col-xs-9,.col-xs-offset-0,.col-xs-offset-1,.col-xs-offset-10,.col-xs-offset-11,.col-xs-offset-12,.col-xs-offset-2,.col-xs-offset-3,.col-xs-offset-4,.col-xs-offset-5,.col-xs-offset-6,.col-xs-offset-7,.col-xs-offset-8,.col-xs-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-xs{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-xs-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-xs-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-xs-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-xs-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-xs-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-xs-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-xs-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-xs-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-xs-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-xs-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-xs-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-xs-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-xs-offset-0{margin-left:0}.col-xs-offset-1{margin-left:8.33333333%}.col-xs-offset-2{margin-left:16.66666667%}.col-xs-offset-3{margin-left:25%}.col-xs-offset-4{margin-left:33.33333333%}.col-xs-offset-5{margin-left:41.66666667%}.col-xs-offset-6{margin-left:50%}.col-xs-offset-7{margin-left:58.33333333%}.col-xs-offset-8{margin-left:66.66666667%}.col-xs-offset-9{margin-left:75%}.col-xs-offset-10{margin-left:83.33333333%}.col-xs-offset-11{margin-left:91.66666667%}.start-xs{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-xs{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-xs{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-xs{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-xs{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-xs{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-xs{-ms-flex-pack:distribute;justify-content:space-around}.between-xs{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-xs{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-xs{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}@media only screen and (min-width:48em){.container{width:49rem}.col-sm,.col-sm-1,.col-sm-10,.col-sm-11,.col-sm-12,.col-sm-2,.col-sm-3,.col-sm-4,.col-sm-5,.col-sm-6,.col-sm-7,.col-sm-8,.col-sm-9,.col-sm-offset-0,.col-sm-offset-1,.col-sm-offset-10,.col-sm-offset-11,.col-sm-offset-12,.col-sm-offset-2,.col-sm-offset-3,.col-sm-offset-4,.col-sm-offset-5,.col-sm-offset-6,.col-sm-offset-7,.col-sm-offset-8,.col-sm-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-sm{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-sm-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-sm-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-sm-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-sm-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-sm-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-sm-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-sm-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-sm-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-sm-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-sm-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-sm-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-sm-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-sm-offset-0{margin-left:0}.col-sm-offset-1{margin-left:8.33333333%}.col-sm-offset-2{margin-left:16.66666667%}.col-sm-offset-3{margin-left:25%}.col-sm-offset-4{margin-left:33.33333333%}.col-sm-offset-5{margin-left:41.66666667%}.col-sm-offset-6{margin-left:50%}.col-sm-offset-7{margin-left:58.33333333%}.col-sm-offset-8{margin-left:66.66666667%}.col-sm-offset-9{margin-left:75%}.col-sm-offset-10{margin-left:83.33333333%}.col-sm-offset-11{margin-left:91.66666667%}.start-sm{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-sm{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-sm{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-sm{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-sm{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-sm{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-sm{-ms-flex-pack:distribute;justify-content:space-around}.between-sm{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-sm{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-sm{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:64em){.container{width:65rem}.col-md,.col-md-1,.col-md-10,.col-md-11,.col-md-12,.col-md-2,.col-md-3,.col-md-4,.col-md-5,.col-md-6,.col-md-7,.col-md-8,.col-md-9,.col-md-offset-0,.col-md-offset-1,.col-md-offset-10,.col-md-offset-11,.col-md-offset-12,.col-md-offset-2,.col-md-offset-3,.col-md-offset-4,.col-md-offset-5,.col-md-offset-6,.col-md-offset-7,.col-md-offset-8,.col-md-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-md{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-md-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-md-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-md-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-md-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-md-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-md-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-md-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-md-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-md-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-md-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-md-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-md-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-md-offset-0{margin-left:0}.col-md-offset-1{margin-left:8.33333333%}.col-md-offset-2{margin-left:16.66666667%}.col-md-offset-3{margin-left:25%}.col-md-offset-4{margin-left:33.33333333%}.col-md-offset-5{margin-left:41.66666667%}.col-md-offset-6{margin-left:50%}.col-md-offset-7{margin-left:58.33333333%}.col-md-offset-8{margin-left:66.66666667%}.col-md-offset-9{margin-left:75%}.col-md-offset-10{margin-left:83.33333333%}.col-md-offset-11{margin-left:91.66666667%}.start-md{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-md{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-md{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-md{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-md{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-md{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-md{-ms-flex-pack:distribute;justify-content:space-around}.between-md{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-md{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-md{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}@media only screen and (min-width:75em){.container{width:76rem}.col-lg,.col-lg-1,.col-lg-10,.col-lg-11,.col-lg-12,.col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-7,.col-lg-8,.col-lg-9,.col-lg-offset-0,.col-lg-offset-1,.col-lg-offset-10,.col-lg-offset-11,.col-lg-offset-12,.col-lg-offset-2,.col-lg-offset-3,.col-lg-offset-4,.col-lg-offset-5,.col-lg-offset-6,.col-lg-offset-7,.col-lg-offset-8,.col-lg-offset-9{box-sizing:border-box;-webkit-box-flex:0;-ms-flex:0 0 auto;flex:none;padding-right:.5rem;padding-left:.5rem}.col-lg{-webkit-box-flex:1;-ms-flex-positive:1;flex-grow:1;-ms-flex-preferred-size:0;flex-basis:0;max-width:100%}.col-lg-1{-ms-flex-preferred-size:8.33333333%;flex-basis:8.33333333%;max-width:8.33333333%}.col-lg-2{-ms-flex-preferred-size:16.66666667%;flex-basis:16.66666667%;max-width:16.66666667%}.col-lg-3{-ms-flex-preferred-size:25%;flex-basis:25%;max-width:25%}.col-lg-4{-ms-flex-preferred-size:33.33333333%;flex-basis:33.33333333%;max-width:33.33333333%}.col-lg-5{-ms-flex-preferred-size:41.66666667%;flex-basis:41.66666667%;max-width:41.66666667%}.col-lg-6{-ms-flex-preferred-size:50%;flex-basis:50%;max-width:50%}.col-lg-7{-ms-flex-preferred-size:58.33333333%;flex-basis:58.33333333%;max-width:58.33333333%}.col-lg-8{-ms-flex-preferred-size:66.66666667%;flex-basis:66.66666667%;max-width:66.66666667%}.col-lg-9{-ms-flex-preferred-size:75%;flex-basis:75%;max-width:75%}.col-lg-10{-ms-flex-preferred-size:83.33333333%;flex-basis:83.33333333%;max-width:83.33333333%}.col-lg-11{-ms-flex-preferred-size:91.66666667%;flex-basis:91.66666667%;max-width:91.66666667%}.col-lg-12{-ms-flex-preferred-size:100%;flex-basis:100%;max-width:100%}.col-lg-offset-0{margin-left:0}.col-lg-offset-1{margin-left:8.33333333%}.col-lg-offset-2{margin-left:16.66666667%}.col-lg-offset-3{margin-left:25%}.col-lg-offset-4{margin-left:33.33333333%}.col-lg-offset-5{margin-left:41.66666667%}.col-lg-offset-6{margin-left:50%}.col-lg-offset-7{margin-left:58.33333333%}.col-lg-offset-8{margin-left:66.66666667%}.col-lg-offset-9{margin-left:75%}.col-lg-offset-10{margin-left:83.33333333%}.col-lg-offset-11{margin-left:91.66666667%}.start-lg{-webkit-box-pack:start;-ms-flex-pack:start;justify-content:flex-start;text-align:start}.center-lg{-webkit-box-pack:center;-ms-flex-pack:center;justify-content:center;text-align:center}.end-lg{-webkit-box-pack:end;-ms-flex-pack:end;justify-content:flex-end;text-align:end}.top-lg{-webkit-box-align:start;-ms-flex-align:start;align-items:flex-start}.middle-lg{-webkit-box-align:center;-ms-flex-align:center;align-items:center}.bottom-lg{-webkit-box-align:end;-ms-flex-align:end;align-items:flex-end}.around-lg{-ms-flex-pack:distribute;justify-content:space-around}.between-lg{-webkit-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between}.first-lg{-webkit-box-ordinal-group:0;-ms-flex-order:-1;order:-1}.last-lg{-webkit-box-ordinal-group:2;-ms-flex-order:1;order:1}}</style>
+  
+
+  
+    <script>
+    MathJax = {
+        tex: {
+            inlineMath: [["$", "$"], ["\\(", "\\)"]],
+            displayMath: [["$$", "$$"]],
+            processEscapes: true,
+            processEnvironments: true,
+            tags: "ams",
+        },
+        options: {
+            skipHtmlTags: [
+                "script",
+                "noscript",
+                "style",
+                "textarea",
+                "pre",
+            ],
+        },
+        startup: {
+            ready: () => {
+                MathJax.startup.defaultReady();
+                
+                const all = MathJax.typesetPromise();
+                all.then(() => {
+                    document.querySelectorAll(".MathJax").forEach(
+                        (el) => {
+                            el.parentNode.className += " has-jax";
+                        },
+                    );
+                });
+            },
+        },
+    };
+</script>
+<script
+    id="MathJax-script"
+    async
+    src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"
+></script>
+
+  
+
+  
+
+  <link href="/index.xml" rel="alternate" type="application/rss+xml"
+    title="L1nker4&#39;s Blog | 格木观云">
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css?family=Bree+Serif|Bungee+Shade" rel="stylesheet">
+  
+  
+
+  
+  
+
+  
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-DCQDH3T3WV"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-DCQDH3T3WV');
+</script>
+
+</head>
+
+
+<body>
+  <article class="post " id="article">
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="site-header">
+          
+<header>
+  <div class="header-title">
+    <a href="/"
+      >L1nker4&#39;s Blog</a
+    >
+  </div>
+  <div class="header-subtitle">提升认知，解构世界，行有不得，反求诸己</div>
+</header>
+<div class="row end-md header-items">
+  
+  <div class="header-item">
+    <a href="/links" target="_blank">Links</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/about" target="_blank">About</a>
+  </div>
+  
+  <div class="header-item">
+    <a href="/index.xml" target="_blank">RSS</a>
+  </div>
+  
+</div>
+<div class="row">
+   
+</div>
+<div class="header-line"></div>
+
+        </div>
+        <header class="post-header">
+          <h1 class="post-title">OpenManus架构设计分析</h1>
+          
+          <div class="row post-desc">
+            <div class="col-xs-6">
+              
+              <time class="post-date" datetime="2026-02-11 18:31:56 CST">
+                
+                  2026-02-11
+                
+              </time>
+              
+            </div>
+            <div class="col-xs-6">
+              
+            </div>
+          </div>
+          
+        </header>
+
+        <div class="row">
+          <div class="col-xs-12 col-md-9">
+            <div class="post-content markdown-body">
+              
+              <h1 id="1-intro">1. Intro</h1>
+<p>OpenManus 是一个基于大语言模型的 AI Agent Framework。它实现了一套完整的 Agent 系统，能够接收用户的自然语言指令，通过&quot;思考-行动-观察&quot;循环（ReAct 模式）自主调用各种工具来完成复杂任务。</p>
+<p><strong>核心能力包括</strong>：</p>
+<ul>
+<li>通过 LLM 理解用户意图并规划执行步骤</li>
+<li>调用多种工具（Python 执行、Shell 命令、浏览器操作、网页搜索、文件编辑等）</li>
+<li>支持单 Agent 直接执行和多 Agent 协同的 Planning 流程</li>
+<li>支持 MCP（Model Context Protocol）协议，可动态连接外部工具服务</li>
+<li>支持 Docker 沙箱隔离执行</li>
+</ul>
+<h1 id="2-架构简述">2. 架构简述</h1>
+<p>OpenManus 采用<strong>分层模块化架构</strong>：</p>
+<pre tabindex="0"><code>┌──────────────────────────────────────────────────────────┐
+│                     入口层 (main.py 等)                   │
+└──────────────────────────┬───────────────────────────────┘
+                           │
+         ┌─────────────────┼─────────────────┐
+         ▼                 ▼                 ▼
+   ┌───────────┐    ┌───────────┐    ┌───────────┐
+   │   Agent   │    │   Flow    │    │  Config   │
+   │  代理模块  │    │  流程编排  │    │  配置管理  │
+   └─────┬─────┘    └─────┬─────┘    └───────────┘
+         │                │
+         ▼                ▼
+   ┌───────────┐    ┌───────────┐
+   │   Tool    │    │  Prompt   │
+   │  工具模块  │    │  提示词    │
+   └─────┬─────┘    └───────────┘
+         │
+   ┌─────┴─────┐
+   │    LLM    │        ┌──────────┐
+   │  模型封装  │        │  Schema  │
+   └───────────┘        │  数据模型 │
+                        └──────────┘
+</code></pre><p>各个模块职责如下：</p>
+<table>
+  <thead>
+      <tr>
+          <th>模块</th>
+          <th>路径</th>
+          <th>职责</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><strong>Agent（代理）</strong></td>
+          <td><code>app/agent/</code></td>
+          <td>接收用户指令，执行&quot;思考-行动&quot;循环，协调工具调用</td>
+      </tr>
+      <tr>
+          <td><strong>Tool（工具）</strong></td>
+          <td><code>app/tool/</code></td>
+          <td>具体功能执行单元（执行代码、搜索、浏览器操作等）</td>
+      </tr>
+      <tr>
+          <td><strong>Flow（流程）</strong></td>
+          <td><code>app/flow/</code></td>
+          <td>多 Agent 任务编排与调度</td>
+      </tr>
+      <tr>
+          <td><strong>LLM（语言模型）</strong></td>
+          <td><code>app/llm.py</code></td>
+          <td>封装 LLM API 调用，管理 Token 计数</td>
+      </tr>
+      <tr>
+          <td><strong>Schema（数据模型）</strong></td>
+          <td><code>app/schema.py</code></td>
+          <td>定义核心数据结构（Message、Memory 等）</td>
+      </tr>
+      <tr>
+          <td><strong>Config（配置）</strong></td>
+          <td><code>app/config.py</code></td>
+          <td>全局配置加载与管理</td>
+      </tr>
+      <tr>
+          <td><strong>Prompt（提示词）</strong></td>
+          <td><code>app/prompt/</code></td>
+          <td>各 Agent 的系统提示词模板</td>
+      </tr>
+      <tr>
+          <td><strong>Sandbox（沙箱）</strong></td>
+          <td><code>app/sandbox/</code></td>
+          <td>Docker 容器隔离执行环境</td>
+      </tr>
+      <tr>
+          <td><strong>MCP（协议）</strong></td>
+          <td><code>app/mcp/</code></td>
+          <td>Model Context Protocol 服务端实现</td>
+      </tr>
+  </tbody>
+</table>
+<p>OpenManus 的整体架构特点可以概括为：</p>
+<ul>
+<li><strong>ReAct 循环架构</strong>：核心执行模式是 Reasoning + Acting 的循环</li>
+<li><strong>插件式工具系统</strong>：Tool 类似插件，可以独立开发和注册</li>
+<li><strong>分层继承体系</strong>：BaseAgent → ReActAgent → ToolCallAgent → 具体 Agent</li>
+<li><strong>事件驱动/异步架构</strong>：全异步 (async/await) 设计，适合 I/O 密集型操作</li>
+</ul>
+<p>单 Agent 模式的执行主线为：</p>
+<ol>
+<li>入口文件（main.py）通过异步工厂方法创建 Agent 实例</li>
+<li>调用 <code>agent.run(prompt)</code> 进入主循环</li>
+<li>每个迭代步执行 <code>think()</code> → <code>act()</code> → 观察结果，循环往复</li>
+<li>当 Agent 调用终止工具或达到最大步数时退出循环</li>
+<li>执行资源清理并返回结果</li>
+</ol>
+<p>多 Agent 模式则在此基础上增加了一个 Planning 层：先由 LLM 将用户请求拆解为多步计划，再按步骤将子任务分配给不同 Agent 执行。</p>
+<h1 id="3-关键设计">3. 关键设计</h1>
+<h2 id="31-agent模块">3.1. Agent模块</h2>
+<p>Agent 模块是OpenManus 最核心的组件，采用了模板方法模式，定义多层继承体系，每一层解决一个特定的抽象问题：</p>
+<pre tabindex="0"><code>BaseAgent          → 执行引擎：循环控制、状态管理、死循环检测
+    └── ReActAgent     → 执行节奏：将 step() 拆分为 think() + act()
+        └── ToolCallAgent  → 执行实现：LLM 交互、工具调用、结果观察
+            ├── Manus          → 场景配置：通用 Agent，含 MCP 集成
+            ├── SWEAgent       → 场景配置：软件工程 Agent
+            └── DataAnalysis   → 场景配置：数据分析 Agent
+</code></pre><h3 id="311-baseagent">3.1.1. BaseAgent</h3>
+<p><code>BaseAgent</code>（<code>app/agent/base.py</code>）定义了 Agent 的核心运行时，其 <code>run()</code> 方法构成整个框架的执行骨架，提供<code>step()</code>抽象方法供子类实现：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">BaseAgent</span>(BaseModel, ABC):
+</span></span><span style="display:flex;"><span>    max_steps: int <span style="color:#f92672">=</span> Field(default<span style="color:#f92672">=</span><span style="color:#ae81ff">10</span>)
+</span></span><span style="display:flex;"><span>    current_step: int <span style="color:#f92672">=</span> Field(default<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>    state: AgentState <span style="color:#f92672">=</span> Field(default<span style="color:#f92672">=</span>AgentState<span style="color:#f92672">.</span>IDLE)
+</span></span><span style="display:flex;"><span>    memory: Memory <span style="color:#f92672">=</span> Field(default_factory<span style="color:#f92672">=</span>Memory)
+</span></span><span style="display:flex;"><span>    duplicate_threshold: int <span style="color:#f92672">=</span> <span style="color:#ae81ff">2</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">run</span>(self, request: Optional[str] <span style="color:#f92672">=</span> <span style="color:#66d9ef">None</span>) <span style="color:#f92672">-&gt;</span> str:
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;&#34;&#34;Execute the agent&#39;s main loop asynchronously.
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        Args:
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">            request: Optional initial user request to process.
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        Returns:
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">            A string summarizing the execution results.
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        Raises:
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">            RuntimeError: If the agent is not in IDLE state at start.
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        &#34;&#34;&#34;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> self<span style="color:#f92672">.</span>state <span style="color:#f92672">!=</span> AgentState<span style="color:#f92672">.</span>IDLE:
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">raise</span> <span style="color:#a6e22e">RuntimeError</span>(<span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;Cannot run agent from state: </span><span style="color:#e6db74">{</span>self<span style="color:#f92672">.</span>state<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> request:
+</span></span><span style="display:flex;"><span>            self<span style="color:#f92672">.</span>update_memory(<span style="color:#e6db74">&#34;user&#34;</span>, request)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        results: List[str] <span style="color:#f92672">=</span> []
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">with</span> self<span style="color:#f92672">.</span>state_context(AgentState<span style="color:#f92672">.</span>RUNNING):
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">while</span> (
+</span></span><span style="display:flex;"><span>                self<span style="color:#f92672">.</span>current_step <span style="color:#f92672">&lt;</span> self<span style="color:#f92672">.</span>max_steps <span style="color:#f92672">and</span> self<span style="color:#f92672">.</span>state <span style="color:#f92672">!=</span> AgentState<span style="color:#f92672">.</span>FINISHED
+</span></span><span style="display:flex;"><span>            ):
+</span></span><span style="display:flex;"><span>                self<span style="color:#f92672">.</span>current_step <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>                logger<span style="color:#f92672">.</span>info(<span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;Executing step </span><span style="color:#e6db74">{</span>self<span style="color:#f92672">.</span>current_step<span style="color:#e6db74">}</span><span style="color:#e6db74">/</span><span style="color:#e6db74">{</span>self<span style="color:#f92672">.</span>max_steps<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>)
+</span></span><span style="display:flex;"><span>                step_result <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>step()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e"># Check for stuck state</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> self<span style="color:#f92672">.</span>is_stuck():
+</span></span><span style="display:flex;"><span>                    self<span style="color:#f92672">.</span>handle_stuck_state()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                results<span style="color:#f92672">.</span>append(<span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;Step </span><span style="color:#e6db74">{</span>self<span style="color:#f92672">.</span>current_step<span style="color:#e6db74">}</span><span style="color:#e6db74">: </span><span style="color:#e6db74">{</span>step_result<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> self<span style="color:#f92672">.</span>current_step <span style="color:#f92672">&gt;=</span> self<span style="color:#f92672">.</span>max_steps:
+</span></span><span style="display:flex;"><span>                self<span style="color:#f92672">.</span>current_step <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>                self<span style="color:#f92672">.</span>state <span style="color:#f92672">=</span> AgentState<span style="color:#f92672">.</span>IDLE
+</span></span><span style="display:flex;"><span>                results<span style="color:#f92672">.</span>append(<span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;Terminated: Reached max steps (</span><span style="color:#e6db74">{</span>self<span style="color:#f92672">.</span>max_steps<span style="color:#e6db74">}</span><span style="color:#e6db74">)&#34;</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">await</span> SANDBOX_CLIENT<span style="color:#f92672">.</span>cleanup()
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">.</span>join(results) <span style="color:#66d9ef">if</span> results <span style="color:#66d9ef">else</span> <span style="color:#e6db74">&#34;No steps executed&#34;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@abstractmethod</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">step</span>(self) <span style="color:#f92672">-&gt;</span> str:
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;&#34;&#34;Execute a single step in the agent&#39;s workflow.
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        Must be implemented by subclasses to define specific behavior.
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        &#34;&#34;&#34;</span>
+</span></span></code></pre></div><p>agent状态机与上下文管理器，通过<code>state_context</code>上下文管理器进行状态转换：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#a6e22e">@asynccontextmanager</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">state_context</span>(self, new_state: AgentState):
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;&#34;&#34;Context manager for safe agent state transitions.
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        Args:
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">            new_state: The state to transition to during the context.
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        Yields:
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">            None: Allows execution within the new state.
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        Raises:
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">            ValueError: If the new_state is invalid.
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        &#34;&#34;&#34;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">not</span> isinstance(new_state, AgentState):
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">raise</span> <span style="color:#a6e22e">ValueError</span>(<span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;Invalid state: </span><span style="color:#e6db74">{</span>new_state<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        previous_state <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>state
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>state <span style="color:#f92672">=</span> new_state
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">try</span>:
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">yield</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">except</span> <span style="color:#a6e22e">Exception</span> <span style="color:#66d9ef">as</span> e:
+</span></span><span style="display:flex;"><span>            self<span style="color:#f92672">.</span>state <span style="color:#f92672">=</span> AgentState<span style="color:#f92672">.</span>ERROR  <span style="color:#75715e"># Transition to ERROR on failure</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">raise</span> e
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">finally</span>:
+</span></span><span style="display:flex;"><span>            self<span style="color:#f92672">.</span>state <span style="color:#f92672">=</span> previous_state
+</span></span></code></pre></div><p><code>is_stuck()</code> 方法通过对 Memory 中的消息序列进行反向扫描，统计与最新 assistant 消息内容完全相同的历史消息数量：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> <span style="color:#a6e22e">is_stuck</span>(self) <span style="color:#f92672">-&gt;</span> bool:
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;&#34;&#34;Check if the agent is stuck in a loop by detecting duplicate content&#34;&#34;&#34;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> len(self<span style="color:#f92672">.</span>memory<span style="color:#f92672">.</span>messages) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">2</span>:
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">False</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    last_message <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>memory<span style="color:#f92672">.</span>messages[<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>]
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">not</span> last_message<span style="color:#f92672">.</span>content:
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">False</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e"># Count identical content occurrences</span>
+</span></span><span style="display:flex;"><span>    duplicate_count <span style="color:#f92672">=</span> sum(
+</span></span><span style="display:flex;"><span>        <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> msg <span style="color:#f92672">in</span> reversed(self<span style="color:#f92672">.</span>memory<span style="color:#f92672">.</span>messages[:<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>])
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> msg<span style="color:#f92672">.</span>role <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;assistant&#34;</span> <span style="color:#f92672">and</span> msg<span style="color:#f92672">.</span>content <span style="color:#f92672">==</span> last_message<span style="color:#f92672">.</span>content
+</span></span><span style="display:flex;"><span>    )
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> duplicate_count <span style="color:#f92672">&gt;=</span> self<span style="color:#f92672">.</span>duplicate_threshold
+</span></span></code></pre></div><p>当重复次数达到阈值（默认 2 次）时，<code>handle_stuck_state()</code> 会向 <code>next_step_prompt</code> 注入引导语句，要求 LLM 调整策略。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">def</span> <span style="color:#a6e22e">handle_stuck_state</span>(self):
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;&#34;&#34;Handle stuck state by adding a prompt to change strategy&#34;&#34;&#34;</span>
+</span></span><span style="display:flex;"><span>        stuck_prompt <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span><span style="color:#ae81ff"></span><span style="color:#e6db74">        Observed duplicate responses. Consider new strategies and avoid repeating ineffective paths already attempted.&#34;</span>
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>next_step_prompt <span style="color:#f92672">=</span> <span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;</span><span style="color:#e6db74">{</span>stuck_prompt<span style="color:#e6db74">}</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">{</span>self<span style="color:#f92672">.</span>next_step_prompt<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>        logger<span style="color:#f92672">.</span>warning(<span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;Agent detected stuck state. Added prompt: </span><span style="color:#e6db74">{</span>stuck_prompt<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>)
+</span></span></code></pre></div><h3 id="312-reactagent">3.1.2. ReactAgent</h3>
+<p><code>ReActAgent</code>继承自 <code>BaseAgent</code> ,将 <code>step()</code> 拆分为 <code>think()</code> 和 <code>act()</code> 两个阶段，确立了 ReAct（Reasoning + Acting）模式的执行节奏，这一层的设计仅定义了<code>think-&gt;act</code>的执行顺序约束，不涉及任何具体实现：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ReActAgent</span>(BaseAgent, ABC):
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">step</span>(self) <span style="color:#f92672">-&gt;</span> str:
+</span></span><span style="display:flex;"><span>        should_act <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>think()
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">not</span> should_act:
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;Thinking complete - no action needed&#34;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>act()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@abstractmethod</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">think</span>(self) <span style="color:#f92672">-&gt;</span> bool: <span style="color:#f92672">...</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@abstractmethod</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">act</span>(self) <span style="color:#f92672">-&gt;</span> str: <span style="color:#f92672">...</span>
+</span></span></code></pre></div><h3 id="313-toolcallagent">3.1.3. ToolCallAgent</h3>
+<p><code>ToolCallAgent</code>是整个继承链中代码量最大、逻辑最密集的一层，<code>think()</code>将对话历史和可用工具的JSON schema发送给LLM，并解析返回的工具调用列表：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">think</span>(self) <span style="color:#f92672">-&gt;</span> bool:
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> self<span style="color:#f92672">.</span>next_step_prompt:
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>messages <span style="color:#f92672">+=</span> [Message<span style="color:#f92672">.</span>user_message(self<span style="color:#f92672">.</span>next_step_prompt)]
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">try</span>:
+</span></span><span style="display:flex;"><span>        response <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>llm<span style="color:#f92672">.</span>ask_tool(
+</span></span><span style="display:flex;"><span>            messages<span style="color:#f92672">=</span>self<span style="color:#f92672">.</span>messages,
+</span></span><span style="display:flex;"><span>            system_msgs<span style="color:#f92672">=</span>[Message<span style="color:#f92672">.</span>system_message(self<span style="color:#f92672">.</span>system_prompt)] <span style="color:#66d9ef">if</span> self<span style="color:#f92672">.</span>system_prompt <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">None</span>,
+</span></span><span style="display:flex;"><span>            tools<span style="color:#f92672">=</span>self<span style="color:#f92672">.</span>available_tools<span style="color:#f92672">.</span>to_params(),
+</span></span><span style="display:flex;"><span>            tool_choice<span style="color:#f92672">=</span>self<span style="color:#f92672">.</span>tool_choices,
+</span></span><span style="display:flex;"><span>        )
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">except</span> <span style="color:#a6e22e">Exception</span> <span style="color:#66d9ef">as</span> e:
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> hasattr(e, <span style="color:#e6db74">&#34;__cause__&#34;</span>) <span style="color:#f92672">and</span> isinstance(e<span style="color:#f92672">.</span>__cause__, TokenLimitExceeded):
+</span></span><span style="display:flex;"><span>            self<span style="color:#f92672">.</span>state <span style="color:#f92672">=</span> AgentState<span style="color:#f92672">.</span>FINISHED
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">False</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">raise</span>
+</span></span><span style="display:flex;"><span>    self<span style="color:#f92672">.</span>tool_calls <span style="color:#f92672">=</span> response<span style="color:#f92672">.</span>tool_calls <span style="color:#66d9ef">if</span> response <span style="color:#f92672">and</span> response<span style="color:#f92672">.</span>tool_calls <span style="color:#66d9ef">else</span> []
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e"># ... 将 assistant 消息加入 Memory</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> bool(self<span style="color:#f92672">.</span>tool_calls)
+</span></span></code></pre></div><p><code>act()</code>通过遍历tool_calls列表，逐个执行工具：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">act</span>(self) <span style="color:#f92672">-&gt;</span> str:
+</span></span><span style="display:flex;"><span>    results <span style="color:#f92672">=</span> []
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> command <span style="color:#f92672">in</span> self<span style="color:#f92672">.</span>tool_calls:
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>_current_base64_image <span style="color:#f92672">=</span> <span style="color:#66d9ef">None</span>
+</span></span><span style="display:flex;"><span>        result <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>execute_tool(command)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> self<span style="color:#f92672">.</span>max_observe:
+</span></span><span style="display:flex;"><span>            result <span style="color:#f92672">=</span> result[: self<span style="color:#f92672">.</span>max_observe]        <span style="color:#75715e"># 截断过长的观察结果</span>
+</span></span><span style="display:flex;"><span>        tool_msg <span style="color:#f92672">=</span> Message<span style="color:#f92672">.</span>tool_message(
+</span></span><span style="display:flex;"><span>            content<span style="color:#f92672">=</span>result, tool_call_id<span style="color:#f92672">=</span>command<span style="color:#f92672">.</span>id, name<span style="color:#f92672">=</span>command<span style="color:#f92672">.</span>function<span style="color:#f92672">.</span>name,
+</span></span><span style="display:flex;"><span>            base64_image<span style="color:#f92672">=</span>self<span style="color:#f92672">.</span>_current_base64_image,
+</span></span><span style="display:flex;"><span>        )
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>memory<span style="color:#f92672">.</span>add_message(tool_msg)
+</span></span><span style="display:flex;"><span>        results<span style="color:#f92672">.</span>append(result)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\n\n</span><span style="color:#e6db74">&#34;</span><span style="color:#f92672">.</span>join(results)
+</span></span></code></pre></div><p><code>execute_tool()</code> 方法封装了工具执行的完整生命周期：参数解析（JSON 反序列化）→ 工具查找（通过 <code>ToolCollection</code> 的名称映射）→ 异步执行 → 特殊工具处理 → 结果格式化：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">execute_tool</span>(self, command: ToolCall) <span style="color:#f92672">-&gt;</span> str:
+</span></span><span style="display:flex;"><span>    name <span style="color:#f92672">=</span> command<span style="color:#f92672">.</span>function<span style="color:#f92672">.</span>name
+</span></span><span style="display:flex;"><span>    args <span style="color:#f92672">=</span> json<span style="color:#f92672">.</span>loads(command<span style="color:#f92672">.</span>function<span style="color:#f92672">.</span>arguments <span style="color:#f92672">or</span> <span style="color:#e6db74">&#34;</span><span style="color:#e6db74">{}</span><span style="color:#e6db74">&#34;</span>)
+</span></span><span style="display:flex;"><span>    result <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>available_tools<span style="color:#f92672">.</span>execute(name<span style="color:#f92672">=</span>name, tool_input<span style="color:#f92672">=</span>args)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>_handle_special_tool(name<span style="color:#f92672">=</span>name, result<span style="color:#f92672">=</span>result)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;Observed output of cmd `</span><span style="color:#e6db74">{</span>name<span style="color:#e6db74">}</span><span style="color:#e6db74">` executed:</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">{</span>str(result)<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span> <span style="color:#66d9ef">if</span> result <span style="color:#66d9ef">else</span> <span style="color:#f92672">...</span>
+</span></span></code></pre></div><p><code>ToolCallAgent</code> 覆写了 <code>run()</code> 方法，在 <code>finally</code> 块中调用 <code>cleanup()</code>，遍历所有注册工具并调用其各自的清理方法（如关闭浏览器、断开 MCP 连接等）：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">cleanup</span>(self):
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> tool_name, tool_instance <span style="color:#f92672">in</span> self<span style="color:#f92672">.</span>available_tools<span style="color:#f92672">.</span>tool_map<span style="color:#f92672">.</span>items():
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> hasattr(tool_instance, <span style="color:#e6db74">&#34;cleanup&#34;</span>) <span style="color:#f92672">and</span> asyncio<span style="color:#f92672">.</span>iscoroutinefunction(tool_instance<span style="color:#f92672">.</span>cleanup):
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">await</span> tool_instance<span style="color:#f92672">.</span>cleanup()
+</span></span></code></pre></div><h3 id="314-manus通用agent">3.1.4. Manus通用Agent</h3>
+<p><code>Manus</code>（<code>app/agent/manus.py</code>）是面向用户的主力 Agent。主要解决两个问题：<strong>工具集组装</strong>和 <strong>MCP 集成</strong>。Manus重写了<code>think()</code>方法，引入浏览器上下文感知，如果检测到最近的工具调用中包含浏览器操作，自动注入页面信息到next_step_prompt中</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">think</span>(self) <span style="color:#f92672">-&gt;</span> bool:
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;&#34;&#34;Process current state and decide next actions with appropriate context.&#34;&#34;&#34;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">not</span> self<span style="color:#f92672">.</span>_initialized:
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>initialize_mcp_servers()
+</span></span><span style="display:flex;"><span>            self<span style="color:#f92672">.</span>_initialized <span style="color:#f92672">=</span> <span style="color:#66d9ef">True</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        original_prompt <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>next_step_prompt
+</span></span><span style="display:flex;"><span>        recent_messages <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>memory<span style="color:#f92672">.</span>messages[<span style="color:#f92672">-</span><span style="color:#ae81ff">3</span>:] <span style="color:#66d9ef">if</span> self<span style="color:#f92672">.</span>memory<span style="color:#f92672">.</span>messages <span style="color:#66d9ef">else</span> []
+</span></span><span style="display:flex;"><span>        browser_in_use <span style="color:#f92672">=</span> any(
+</span></span><span style="display:flex;"><span>            tc<span style="color:#f92672">.</span>function<span style="color:#f92672">.</span>name <span style="color:#f92672">==</span> BrowserUseTool()<span style="color:#f92672">.</span>name
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> msg <span style="color:#f92672">in</span> recent_messages
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> msg<span style="color:#f92672">.</span>tool_calls
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> tc <span style="color:#f92672">in</span> msg<span style="color:#f92672">.</span>tool_calls
+</span></span><span style="display:flex;"><span>        )
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> browser_in_use:
+</span></span><span style="display:flex;"><span>            self<span style="color:#f92672">.</span>next_step_prompt <span style="color:#f92672">=</span> (
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>browser_context_helper<span style="color:#f92672">.</span>format_next_step_prompt()
+</span></span><span style="display:flex;"><span>            )
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        result <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> super()<span style="color:#f92672">.</span>think()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e"># Restore original prompt</span>
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>next_step_prompt <span style="color:#f92672">=</span> original_prompt
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> result
+</span></span></code></pre></div><p>工具集成通过声明式配置完成：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Manus</span>(ToolCallAgent):
+</span></span><span style="display:flex;"><span>    available_tools: ToolCollection <span style="color:#f92672">=</span> Field(
+</span></span><span style="display:flex;"><span>        default_factory<span style="color:#f92672">=</span><span style="color:#66d9ef">lambda</span>: ToolCollection(
+</span></span><span style="display:flex;"><span>            PythonExecute(), BrowserUseTool(), StrReplaceEditor(), AskHuman(), Terminate(),
+</span></span><span style="display:flex;"><span>        )
+</span></span><span style="display:flex;"><span>    )
+</span></span><span style="display:flex;"><span>    max_observe: int <span style="color:#f92672">=</span> <span style="color:#ae81ff">10000</span>
+</span></span><span style="display:flex;"><span>    max_steps: int <span style="color:#f92672">=</span> <span style="color:#ae81ff">20</span>
+</span></span></code></pre></div><p>MCP通过异步工厂方法实现，其中<code>initialize_mcp_servers()</code> 遍历配置文件中的 MCP 服务器列表，根据传输类型（SSE 或 stdio）建立连接，并将远程工具注册到本地的 <code>available_tools</code> 中。这使得 Manus 的能力集在运行时可以动态扩展。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#a6e22e">@classmethod</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">create</span>(cls, <span style="color:#f92672">**</span>kwargs) <span style="color:#f92672">-&gt;</span> <span style="color:#e6db74">&#34;Manus&#34;</span>:
+</span></span><span style="display:flex;"><span>    instance <span style="color:#f92672">=</span> cls(<span style="color:#f92672">**</span>kwargs)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">await</span> instance<span style="color:#f92672">.</span>initialize_mcp_servers()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> instance
+</span></span></code></pre></div><h2 id="32-tool模块">3.2. Tool模块</h2>
+<p>Tool 为 Agent 提供了与外部世界交互的能力。其设计核心是建立一套<strong>标准化的接口协议</strong>，使 LLM 能够理解、选择和调用任意工具。</p>
+<h3 id="321-basetool--toolresult">3.2.1. BaseTool &amp; ToolResult</h3>
+<p>BaseTool是工具基类，提供了 execute()抽象方法给子类实现。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">BaseTool</span>(ABC, BaseModel):
+</span></span><span style="display:flex;"><span>    name: str                       <span style="color:#75715e"># 工具标识符</span>
+</span></span><span style="display:flex;"><span>    description: str                <span style="color:#75715e"># 功能描述，供 LLM 理解工具用途</span>
+</span></span><span style="display:flex;"><span>    parameters: Optional[dict]      <span style="color:#75715e"># 参数定义，遵循 JSON Schema 规范</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">@abstractmethod</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">execute</span>(self, <span style="color:#f92672">**</span>kwargs) <span style="color:#f92672">-&gt;</span> Any: <span style="color:#f92672">...</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">to_param</span>(self) <span style="color:#f92672">-&gt;</span> Dict:
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">&#34;type&#34;</span>: <span style="color:#e6db74">&#34;function&#34;</span>,
+</span></span><span style="display:flex;"><span>            <span style="color:#e6db74">&#34;function&#34;</span>: {<span style="color:#e6db74">&#34;name&#34;</span>: self<span style="color:#f92672">.</span>name, <span style="color:#e6db74">&#34;description&#34;</span>: self<span style="color:#f92672">.</span>description, <span style="color:#e6db74">&#34;parameters&#34;</span>: self<span style="color:#f92672">.</span>parameters},
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p><code>ToolResult</code> 是Tool执行结果的标准化封装，其中 <code>base64_image</code> 字段支持工具返回视觉信息（如浏览器截图），由 Agent 在后续轮次中传递给多模态 LLM 进行视觉推理。：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ToolResult</span>(BaseModel):
+</span></span><span style="display:flex;"><span>    output: Any <span style="color:#f92672">=</span> Field(default<span style="color:#f92672">=</span><span style="color:#66d9ef">None</span>)
+</span></span><span style="display:flex;"><span>    error: Optional[str] <span style="color:#f92672">=</span> Field(default<span style="color:#f92672">=</span><span style="color:#66d9ef">None</span>)
+</span></span><span style="display:flex;"><span>    base64_image: Optional[str] <span style="color:#f92672">=</span> Field(default<span style="color:#f92672">=</span><span style="color:#66d9ef">None</span>)
+</span></span><span style="display:flex;"><span>    system: Optional[str] <span style="color:#f92672">=</span> Field(default<span style="color:#f92672">=</span><span style="color:#66d9ef">None</span>)
+</span></span></code></pre></div><h3 id="322-toolcollection">3.2.2. ToolCollection</h3>
+<p><code>ToolCollection</code>通过名称映射管理一组工具，<code>to_params()</code> 批量导出工具的 JSON Schema 列表，在 <code>think()</code> 阶段随消息一同发送给 LLM。<code>execute()</code> 根据工具名查找实例并调用其 <code>__call__</code> 方法（最终委托到 <code>execute()</code>）。<code>add_tool()</code> 和 <code>add_tools()</code> 支持运行时动态注册工具，这为 MCP 集成提供了基础设施。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">ToolCollection</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">def</span> __init__(self, <span style="color:#f92672">*</span>tools: BaseTool):
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>tools <span style="color:#f92672">=</span> tools
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>tool_map <span style="color:#f92672">=</span> {tool<span style="color:#f92672">.</span>name: tool <span style="color:#66d9ef">for</span> tool <span style="color:#f92672">in</span> tools}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">to_params</span>(self) <span style="color:#f92672">-&gt;</span> List[Dict[str, Any]]:
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> [tool<span style="color:#f92672">.</span>to_param() <span style="color:#66d9ef">for</span> tool <span style="color:#f92672">in</span> self<span style="color:#f92672">.</span>tools]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">execute</span>(self, <span style="color:#f92672">*</span>, name: str, tool_input: Dict[str, Any] <span style="color:#f92672">=</span> <span style="color:#66d9ef">None</span>) <span style="color:#f92672">-&gt;</span> ToolResult:
+</span></span><span style="display:flex;"><span>        tool <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>tool_map<span style="color:#f92672">.</span>get(name)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">not</span> tool:
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> ToolFailure(error<span style="color:#f92672">=</span><span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;Tool </span><span style="color:#e6db74">{</span>name<span style="color:#e6db74">}</span><span style="color:#e6db74"> is invalid&#34;</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">await</span> tool(<span style="color:#f92672">**</span>tool_input)
+</span></span></code></pre></div><h3 id="323-websearch-tool">3.2.3. WebSearch Tool</h3>
+<p>WebSearch工具样例：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">WebSearch</span>(BaseTool):
+</span></span><span style="display:flex;"><span>    _search_engine: dict <span style="color:#f92672">=</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;google&#34;</span>: GoogleSearchEngine(),
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;baidu&#34;</span>: BaiduSearchEngine(),
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;duckduckgo&#34;</span>: DuckDuckGoSearchEngine(),
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;bing&#34;</span>: BingSearchEngine(),
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">execute</span>(self, query, num_results<span style="color:#f92672">=</span><span style="color:#ae81ff">5</span>, <span style="color:#f92672">...</span>):
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> retry_count <span style="color:#f92672">in</span> range(max_retries <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>):
+</span></span><span style="display:flex;"><span>            results <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>_try_all_engines(query, num_results, search_params)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> results:
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> SearchResponse(query<span style="color:#f92672">=</span>query, results<span style="color:#f92672">=</span>results, <span style="color:#f92672">...</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> retry_count <span style="color:#f92672">&lt;</span> max_retries:
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">await</span> asyncio<span style="color:#f92672">.</span>sleep(retry_delay)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> SearchResponse(query<span style="color:#f92672">=</span>query, error<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;All search engines failed...&#34;</span>)
+</span></span></code></pre></div><h2 id="33-llm封装层">3.3. LLM封装层</h2>
+<p><code>LLM</code> 类（<code>app/llm.py</code>）是与大语言模型交互的统一抽象层，其设计解决了三个核心问题：多 Provider 适配、Token 精算与限额管控、以及调用可靠性。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">LLM</span>:
+</span></span><span style="display:flex;"><span>    _instances: Dict[str, <span style="color:#e6db74">&#34;LLM&#34;</span>] <span style="color:#f92672">=</span> {}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">def</span> __new__(cls, config_name: str <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;default&#34;</span>, llm_config<span style="color:#f92672">=</span><span style="color:#66d9ef">None</span>):
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> config_name <span style="color:#f92672">not</span> <span style="color:#f92672">in</span> cls<span style="color:#f92672">.</span>_instances:
+</span></span><span style="display:flex;"><span>            instance <span style="color:#f92672">=</span> super()<span style="color:#f92672">.</span>__new__(cls)
+</span></span><span style="display:flex;"><span>            instance<span style="color:#f92672">.</span>__init__(config_name, llm_config)
+</span></span><span style="display:flex;"><span>            cls<span style="color:#f92672">.</span>_instances[config_name] <span style="color:#f92672">=</span> instance
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> cls<span style="color:#f92672">.</span>_instances[config_name]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">def</span> __init__(self, config_name: str <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;default&#34;</span>, llm_config<span style="color:#f92672">=</span><span style="color:#66d9ef">None</span>):
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">not</span> hasattr(self, <span style="color:#e6db74">&#34;client&#34;</span>):
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e"># 初始化逻辑...</span>
+</span></span></code></pre></div><p>LLM 采用了<strong>按 key 缓存的单例模式</strong>：相同配置名返回同一实例，不同配置名创建独立实例。这允许不同 Agent 使用不同的模型配置（如 Manus 使用 GPT-4o、DataAnalysis 使用专用模型），同时避免重复创建客户端。<code>__init__</code> 中的 <code>if not hasattr(self, &quot;client&quot;)</code> 防护是必要的——Python 的 <code>__new__</code> 返回已有实例后，<code>__init__</code> 仍会被调用。</p>
+<h3 id="331-token计算">3.3.1. Token计算</h3>
+<p><code>TokenCounter</code> 类实现了精确的 Token 计算，覆盖文本、图像和工具调用三种场景：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">TokenCounter</span>:
+</span></span><span style="display:flex;"><span>    BASE_MESSAGE_TOKENS <span style="color:#f92672">=</span> <span style="color:#ae81ff">4</span>
+</span></span><span style="display:flex;"><span>    FORMAT_TOKENS <span style="color:#f92672">=</span> <span style="color:#ae81ff">2</span>
+</span></span><span style="display:flex;"><span>    LOW_DETAIL_IMAGE_TOKENS <span style="color:#f92672">=</span> <span style="color:#ae81ff">85</span>
+</span></span><span style="display:flex;"><span>    HIGH_DETAIL_TILE_TOKENS <span style="color:#f92672">=</span> <span style="color:#ae81ff">170</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">count_message_tokens</span>(self, messages: List[dict]) <span style="color:#f92672">-&gt;</span> int:
+</span></span><span style="display:flex;"><span>        total_tokens <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>FORMAT_TOKENS
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> message <span style="color:#f92672">in</span> messages:
+</span></span><span style="display:flex;"><span>            tokens <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>BASE_MESSAGE_TOKENS
+</span></span><span style="display:flex;"><span>            tokens <span style="color:#f92672">+=</span> self<span style="color:#f92672">.</span>count_text(message<span style="color:#f92672">.</span>get(<span style="color:#e6db74">&#34;role&#34;</span>, <span style="color:#e6db74">&#34;&#34;</span>))
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#e6db74">&#34;content&#34;</span> <span style="color:#f92672">in</span> message:
+</span></span><span style="display:flex;"><span>                tokens <span style="color:#f92672">+=</span> self<span style="color:#f92672">.</span>count_content(message[<span style="color:#e6db74">&#34;content&#34;</span>])
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#e6db74">&#34;tool_calls&#34;</span> <span style="color:#f92672">in</span> message:
+</span></span><span style="display:flex;"><span>                tokens <span style="color:#f92672">+=</span> self<span style="color:#f92672">.</span>count_tool_calls(message[<span style="color:#e6db74">&#34;tool_calls&#34;</span>])
+</span></span><span style="display:flex;"><span>            total_tokens <span style="color:#f92672">+=</span> tokens
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> total_tokens
+</span></span></code></pre></div><p>在 <code>ask_tool()</code> 方法中，Token 计算不仅覆盖消息列表，还包括<strong>工具描述的 Token 消耗</strong>：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span>input_tokens <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>count_message_tokens(messages)
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> tools:
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> tool <span style="color:#f92672">in</span> tools:
+</span></span><span style="display:flex;"><span>        tools_tokens <span style="color:#f92672">+=</span> self<span style="color:#f92672">.</span>count_tokens(str(tool))
+</span></span><span style="display:flex;"><span>input_tokens <span style="color:#f92672">+=</span> tools_tokens
+</span></span></code></pre></div><p>这意味着注册的工具数量越多，实际可用于对话的上下文窗口越小。这一约束在系统设计层面需要权衡。</p>
+<h3 id="332-api重试策略">3.3.2. API重试策略</h3>
+<p>LLM 的所有公开方法均使用 tenacity 的 <code>@retry</code> 装饰器实现可靠调用：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#a6e22e">@retry</span>(
+</span></span><span style="display:flex;"><span>    wait<span style="color:#f92672">=</span>wait_random_exponential(min<span style="color:#f92672">=</span><span style="color:#ae81ff">1</span>, max<span style="color:#f92672">=</span><span style="color:#ae81ff">60</span>),
+</span></span><span style="display:flex;"><span>    stop<span style="color:#f92672">=</span>stop_after_attempt(<span style="color:#ae81ff">6</span>),
+</span></span><span style="display:flex;"><span>    retry<span style="color:#f92672">=</span>retry_if_exception_type((OpenAIError, <span style="color:#a6e22e">Exception</span>, <span style="color:#a6e22e">ValueError</span>)),
+</span></span><span style="display:flex;"><span>)
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">ask_tool</span>(self, <span style="color:#f92672">...</span>):
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">...</span>
+</span></span></code></pre></div><h2 id="34-关键数据模型">3.4. 关键数据模型</h2>
+<h3 id="341-message">3.4.1. Message</h3>
+<p><code>Message</code>（<code>app/schema.py</code>）是贯穿整个系统的数据流载体：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Message</span>(BaseModel):
+</span></span><span style="display:flex;"><span>    role: ROLE_TYPE                              <span style="color:#75715e"># system | user | assistant | tool</span>
+</span></span><span style="display:flex;"><span>    content: Optional[str] <span style="color:#f92672">=</span> <span style="color:#66d9ef">None</span>
+</span></span><span style="display:flex;"><span>    tool_calls: Optional[List[ToolCall]] <span style="color:#f92672">=</span> <span style="color:#66d9ef">None</span>  <span style="color:#75715e"># LLM 发起的工具调用请求</span>
+</span></span><span style="display:flex;"><span>    tool_call_id: Optional[str] <span style="color:#f92672">=</span> <span style="color:#66d9ef">None</span>           <span style="color:#75715e"># 工具调用 ID（tool 角色使用）</span>
+</span></span><span style="display:flex;"><span>    base64_image: Optional[str] <span style="color:#f92672">=</span> <span style="color:#66d9ef">None</span>           <span style="color:#75715e"># 图像数据</span>
+</span></span></code></pre></div><p>四种角色的消息分别承载不同的语义：</p>
+<ul>
+<li><strong>system</strong>：系统提示词，定义 Agent 的身份和能力边界</li>
+<li><strong>user</strong>：用户输入或 Agent 的 <code>next_step_prompt</code> 引导</li>
+<li><strong>assistant</strong>：LLM 的推理输出，可能包含 <code>tool_calls</code></li>
+<li><strong>tool</strong>：工具执行结果，通过 <code>tool_call_id</code> 与对应的工具调用请求关联</li>
+</ul>
+<p><code>Message</code> 提供了一组工厂方法（<code>user_message()</code>、<code>system_message()</code>、<code>tool_message()</code> 等）简化实例创建，并通过 <code>__add__</code> / <code>__radd__</code> 运算符重载支持消息的拼接操作。</p>
+<h3 id="342-memory">3.4.2. Memory</h3>
+<p>Memory 采用<strong>固定长度滑动窗口</strong>管理对话历史。当消息数量超过阈值时，最早的消息被截断丢弃。这是一种简洁有效的上下文管理策略，但也意味着在长任务中，早期的关键信息可能丢失。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">Memory</span>(BaseModel):
+</span></span><span style="display:flex;"><span>    messages: List[Message] <span style="color:#f92672">=</span> Field(default_factory<span style="color:#f92672">=</span>list)
+</span></span><span style="display:flex;"><span>    max_messages: int <span style="color:#f92672">=</span> Field(default<span style="color:#f92672">=</span><span style="color:#ae81ff">100</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">add_message</span>(self, message: Message) <span style="color:#f92672">-&gt;</span> <span style="color:#66d9ef">None</span>:
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>messages<span style="color:#f92672">.</span>append(message)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> len(self<span style="color:#f92672">.</span>messages) <span style="color:#f92672">&gt;</span> self<span style="color:#f92672">.</span>max_messages:
+</span></span><span style="display:flex;"><span>            self<span style="color:#f92672">.</span>messages <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>messages[<span style="color:#f92672">-</span>self<span style="color:#f92672">.</span>max_messages:]
+</span></span></code></pre></div><h2 id="35-flow设计">3.5. Flow设计</h2>
+<p><code>PlanningFlow</code>（<code>app/flow/planning.py</code>）实现了&quot;先规划、再执行&quot;的多 Agent 协同模式。其执行流程分为四个阶段：</p>
+<p><strong>阶段一：计划创建</strong>。调用 LLM 将用户请求分解为若干步骤，通过 <code>PlanningTool</code> 以结构化方式存储：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">_create_initial_plan</span>(self, request: str) <span style="color:#f92672">-&gt;</span> <span style="color:#66d9ef">None</span>:
+</span></span><span style="display:flex;"><span>    system_message <span style="color:#f92672">=</span> Message<span style="color:#f92672">.</span>system_message(
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;You are a planning assistant. Create a concise, actionable plan with clear steps...&#34;</span>
+</span></span><span style="display:flex;"><span>    )
+</span></span><span style="display:flex;"><span>    user_message <span style="color:#f92672">=</span> Message<span style="color:#f92672">.</span>user_message(<span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;Create a reasonable plan...: </span><span style="color:#e6db74">{</span>request<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>)
+</span></span><span style="display:flex;"><span>    response <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>llm<span style="color:#f92672">.</span>ask_tool(
+</span></span><span style="display:flex;"><span>        messages<span style="color:#f92672">=</span>[user_message], system_msgs<span style="color:#f92672">=</span>[system_message],
+</span></span><span style="display:flex;"><span>        tools<span style="color:#f92672">=</span>[self<span style="color:#f92672">.</span>planning_tool<span style="color:#f92672">.</span>to_param()], tool_choice<span style="color:#f92672">=</span>ToolChoice<span style="color:#f92672">.</span>AUTO,
+</span></span><span style="display:flex;"><span>    )
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e"># 解析 tool_calls，将计划存入 planning_tool.plans 字典</span>
+</span></span></code></pre></div><p><strong>阶段二：步骤调度</strong>。主循环查找第一个未完成的步骤，根据步骤类型选择合适的 Agent：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">execute</span>(self, input_text: str) <span style="color:#f92672">-&gt;</span> str:
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>_create_initial_plan(input_text)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span> <span style="color:#66d9ef">True</span>:
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>current_step_index, step_info <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>_get_current_step_info()
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> self<span style="color:#f92672">.</span>current_step_index <span style="color:#f92672">is</span> <span style="color:#66d9ef">None</span>:
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">break</span>
+</span></span><span style="display:flex;"><span>        executor <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>get_executor(step_info<span style="color:#f92672">.</span>get(<span style="color:#e6db74">&#34;type&#34;</span>))
+</span></span><span style="display:flex;"><span>        step_result <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>_execute_step(executor, step_info)
+</span></span></code></pre></div><p><strong>阶段三：步骤执行</strong>。将当前计划的全局状态和当前步骤的具体任务组合为 prompt，调用选中 Agent 的 <code>run()</code> 方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">_execute_step</span>(self, executor: BaseAgent, step_info: dict) <span style="color:#f92672">-&gt;</span> str:
+</span></span><span style="display:flex;"><span>    plan_status <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>_get_plan_text()
+</span></span><span style="display:flex;"><span>    step_prompt <span style="color:#f92672">=</span> <span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;&#34;&#34;
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">    CURRENT PLAN STATUS:
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">    </span><span style="color:#e6db74">{</span>plan_status<span style="color:#e6db74">}</span><span style="color:#e6db74">
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">    YOUR CURRENT TASK:
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">    You are now working on step </span><span style="color:#e6db74">{</span>self<span style="color:#f92672">.</span>current_step_index<span style="color:#e6db74">}</span><span style="color:#e6db74">: &#34;</span><span style="color:#e6db74">{</span>step_text<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">    &#34;&#34;&#34;</span>
+</span></span><span style="display:flex;"><span>    step_result <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> executor<span style="color:#f92672">.</span>run(step_prompt)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>_mark_step_completed()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> step_result
+</span></span></code></pre></div><p><strong>阶段四：计划总结</strong>。所有步骤完成后，调用 LLM 生成执行摘要。</p>
+<h2 id="36-mcp集成">3.6. MCP集成</h2>
+<p>MCP（Model Context Protocol）集成使 OpenManus 的工具集可以在运行时动态扩展，<code>MCPClients</code>（<code>app/tool/mcp.py</code>）继承自 <code>ToolCollection</code>，管理与多个 MCP 服务器的连接，并将远程工具注册为本地可用：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">_initialize_and_list_tools</span>(self, server_id: str) <span style="color:#f92672">-&gt;</span> <span style="color:#66d9ef">None</span>:
+</span></span><span style="display:flex;"><span>    session <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>sessions[server_id]
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">await</span> session<span style="color:#f92672">.</span>initialize()
+</span></span><span style="display:flex;"><span>    response <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> session<span style="color:#f92672">.</span>list_tools()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> tool <span style="color:#f92672">in</span> response<span style="color:#f92672">.</span>tools:
+</span></span><span style="display:flex;"><span>        tool_name <span style="color:#f92672">=</span> self<span style="color:#f92672">.</span>_sanitize_tool_name(<span style="color:#e6db74">f</span><span style="color:#e6db74">&#34;mcp_</span><span style="color:#e6db74">{</span>server_id<span style="color:#e6db74">}</span><span style="color:#e6db74">_</span><span style="color:#e6db74">{</span>tool<span style="color:#f92672">.</span>name<span style="color:#e6db74">}</span><span style="color:#e6db74">&#34;</span>)
+</span></span><span style="display:flex;"><span>        server_tool <span style="color:#f92672">=</span> MCPClientTool(
+</span></span><span style="display:flex;"><span>            name<span style="color:#f92672">=</span>tool_name, description<span style="color:#f92672">=</span>tool<span style="color:#f92672">.</span>description,
+</span></span><span style="display:flex;"><span>            parameters<span style="color:#f92672">=</span>tool<span style="color:#f92672">.</span>inputSchema, session<span style="color:#f92672">=</span>session, server_id<span style="color:#f92672">=</span>server_id,
+</span></span><span style="display:flex;"><span>            original_name<span style="color:#f92672">=</span>tool<span style="color:#f92672">.</span>name,
+</span></span><span style="display:flex;"><span>        )
+</span></span><span style="display:flex;"><span>        self<span style="color:#f92672">.</span>tool_map[tool_name] <span style="color:#f92672">=</span> server_tool
+</span></span><span style="display:flex;"><span>    self<span style="color:#f92672">.</span>tools <span style="color:#f92672">=</span> tuple(self<span style="color:#f92672">.</span>tool_map<span style="color:#f92672">.</span>values())
+</span></span></code></pre></div><p><code>MCPClientTool</code> 作为代理类，将工具执行请求转发到远程 MCP 服务器，工具名称经过 <code>_sanitize_tool_name()</code> 处理，添加 <code>mcp_{server_id}_</code> 前缀以避免命名冲突，并截断至 64 字符以满足 API 约束。：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">MCPClientTool</span>(BaseTool):
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">async</span> <span style="color:#66d9ef">def</span> <span style="color:#a6e22e">execute</span>(self, <span style="color:#f92672">**</span>kwargs) <span style="color:#f92672">-&gt;</span> ToolResult:
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">not</span> self<span style="color:#f92672">.</span>session:
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> ToolResult(error<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;Not connected to MCP server&#34;</span>)
+</span></span><span style="display:flex;"><span>        result <span style="color:#f92672">=</span> <span style="color:#66d9ef">await</span> self<span style="color:#f92672">.</span>session<span style="color:#f92672">.</span>call_tool(self<span style="color:#f92672">.</span>original_name, kwargs)
+</span></span><span style="display:flex;"><span>        content_str <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;, &#34;</span><span style="color:#f92672">.</span>join(item<span style="color:#f92672">.</span>text <span style="color:#66d9ef">for</span> item <span style="color:#f92672">in</span> result<span style="color:#f92672">.</span>content <span style="color:#66d9ef">if</span> isinstance(item, TextContent))
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> ToolResult(output<span style="color:#f92672">=</span>content_str <span style="color:#f92672">or</span> <span style="color:#e6db74">&#34;No output returned.&#34;</span>)
+</span></span></code></pre></div><h1 id="4-总结">4. 总结</h1>
+<h2 id="41-架构优势">4.1. 架构优势</h2>
+<ul>
+<li>
+<p><strong>清晰的分层抽象</strong>。四层 Agent 继承体系（BaseAgent → ReActAgent → ToolCallAgent → 具体 Agent）将执行控制、执行节奏、执行实现和场景配置严格分离。每一层只回答一个问题，职责边界清晰。</p>
+</li>
+<li>
+<p><strong>标准化的工具协议</strong>。BaseTool 通过 <code>name</code>/<code>description</code>/<code>parameters</code> 三元组 + JSON Schema 建立了工具与 LLM 之间的通信契约。工具的开发、注册和调用完全解耦，开发者无需理解 Agent 的内部机制即可编写新工具。</p>
+</li>
+<li>
+<p><strong>全异步架构</strong>。从入口到底层工具执行，全程使用 <code>async/await</code>，适配 Agent 系统天然的 I/O 密集型工作负载（LLM API 调用、网络请求、浏览器操作等），避免阻塞主线程。</p>
+</li>
+<li>
+<p><strong>健壮的容错设计</strong>。LLM 调用的指数退避重试、搜索引擎的多路回退策略、Token 限额的精确管控、死循环检测与自然语言干预，这些机制共同保障了系统在真实环境下的可靠运行。</p>
+</li>
+<li>
+<p><strong>可扩展的能力边界</strong>。通过 MCP 协议支持运行时动态发现和注册远程工具，Agent 的能力不再局限于本地安装的工具集。ToolCollection 的动态增删接口为此提供了基础设施。</p>
+</li>
+</ul>
+<h2 id="42-改进方向">4.2. 改进方向</h2>
+<ul>
+<li><strong>Memory 管理机制较为粗糙</strong>。当前采用固定数量（100 条）的滑动窗口截断消息，未考虑消息的 Token 权重差异。一条包含大量工具输出的消息和一条简短的 user 消息被同等对待。</li>
+<li><strong>工具调用的串行执行瓶颈</strong>。<code>ToolCallAgent.act()</code> 中的多个工具调用按顺序逐一执行。当 LLM 一次返回多个相互独立的工具调用时（如同时搜索多个关键词），串行执行造成不必要的等待。可以通过分析工具调用间的依赖关系，对独立调用使用<code>asyncio.gather()</code> 实现并行化。</li>
+</ul>
+
+            </div>
+          </div>
+          <div class="col-xs-12 col-md-3">
+            <div class="post-toc">
+              <nav id="TableOfContents">
+  <ul>
+    <li><a href="#1-intro">1. Intro</a></li>
+    <li><a href="#2-架构简述">2. 架构简述</a></li>
+    <li><a href="#3-关键设计">3. 关键设计</a>
+      <ul>
+        <li><a href="#31-agent模块">3.1. Agent模块</a>
+          <ul>
+            <li><a href="#311-baseagent">3.1.1. BaseAgent</a></li>
+            <li><a href="#312-reactagent">3.1.2. ReactAgent</a></li>
+            <li><a href="#313-toolcallagent">3.1.3. ToolCallAgent</a></li>
+            <li><a href="#314-manus通用agent">3.1.4. Manus通用Agent</a></li>
+          </ul>
+        </li>
+        <li><a href="#32-tool模块">3.2. Tool模块</a>
+          <ul>
+            <li><a href="#321-basetool--toolresult">3.2.1. BaseTool &amp; ToolResult</a></li>
+            <li><a href="#322-toolcollection">3.2.2. ToolCollection</a></li>
+            <li><a href="#323-websearch-tool">3.2.3. WebSearch Tool</a></li>
+          </ul>
+        </li>
+        <li><a href="#33-llm封装层">3.3. LLM封装层</a>
+          <ul>
+            <li><a href="#331-token计算">3.3.1. Token计算</a></li>
+            <li><a href="#332-api重试策略">3.3.2. API重试策略</a></li>
+          </ul>
+        </li>
+        <li><a href="#34-关键数据模型">3.4. 关键数据模型</a>
+          <ul>
+            <li><a href="#341-message">3.4.1. Message</a></li>
+            <li><a href="#342-memory">3.4.2. Memory</a></li>
+          </ul>
+        </li>
+        <li><a href="#35-flow设计">3.5. Flow设计</a></li>
+        <li><a href="#36-mcp集成">3.6. MCP集成</a></li>
+      </ul>
+    </li>
+    <li><a href="#4-总结">4. 总结</a>
+      <ul>
+        <li><a href="#41-架构优势">4.1. 架构优势</a></li>
+        <li><a href="#42-改进方向">4.2. 改进方向</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+            </div>
+          </div>
+        </div>
+
+        <div class="row middle-xs">
+          <div class="col-xs-12">
+            
+          </div>
+        </div>
+        
+          <div class="row">
+            <div class="col-xs-12">
+              
+            </div>
+          </div>
+
+          
+
+
+
+          
+          
+          <div style="height: 50px;"></div>
+          
+          <div class="post-comments">
+            <div id="disqus_thread"></div>
+<script>
+  window.addEventListener("load", () => {
+    (function() {
+      
+      var d = document,
+        s = d.createElement("script");
+      s.src = "https://evl1nker4.disqus.com/embed.js";
+      s.setAttribute("data-timestamp", +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
+  });
+</script>
+<noscript
+  >Please enable JavaScript to view the
+  <a href="https://disqus.com/?ref_noscript"
+    >comments powered by Disqus.</a
+  ></noscript
+>
+
+          </div>
+          
+        
+
+        <div class="site-footer">
+  
+  
+</div>
+
+      </div>
+    </div>
+  </article>
+
+  
+
+<script>
+  
+  
+    
+    
+  
+</script>
+
+  
+
+</body>
+
+</html>
